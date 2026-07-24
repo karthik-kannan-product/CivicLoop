@@ -1,0 +1,38 @@
+[
+  {
+    "segment_id": "new_york_active_members",
+    "name": "New York Active Members",
+    "region": "NY",
+    "country": "US",
+    "member_status": "active",
+    "language": "English",
+    "synthetic_member_count": 418
+  },
+  {
+    "segment_id": "ontario_active_members",
+    "name": "Ontario Active Members",
+    "region": "ON",
+    "country": "CA",
+    "member_status": "active",
+    "language": "English",
+    "synthetic_member_count": 312
+  },
+  {
+    "segment_id": "quebec_active_members",
+    "name": "Quebec Active Members",
+    "region": "QC",
+    "country": "CA",
+    "member_status": "active",
+    "language": "English/French",
+    "synthetic_member_count": 205
+  },
+  {
+    "segment_id": "illinois_active_members",
+    "name": "Illinois Active Members",
+    "region": "IL",
+    "country": "US",
+    "member_status": "active",
+    "language": "English",
+    "synthetic_member_count": 144
+  }
+]

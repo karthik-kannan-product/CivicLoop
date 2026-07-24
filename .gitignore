@@ -1,0 +1,24 @@
+# Secrets and local environment
+.env
+*.pem
+*.key
+*.pfx
+*.cer
+loop1key.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node/build outputs
+node_modules/
+dist/
+build/
+
+# OS/editor files
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
