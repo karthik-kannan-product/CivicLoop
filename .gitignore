@@ -22,3 +22,6 @@ Thumbs.db
 Desktop.ini
 .vscode/
 .idea/
+
+# Local design companion sessions
+.superpowers/
