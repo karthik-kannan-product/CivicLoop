@@ -61,7 +61,9 @@ def prepare_package(event: dict[str, Any]) -> dict[str, Any]:
             "prompt": {
                 "venue_name": "What is the confirmed venue name?",
                 "venue_address": "What is the complete venue address?",
-                "access_instructions": "What arrival or accessibility instructions should guests receive?",
+                "access_instructions": (
+                    "What arrival or accessibility instructions should guests receive?"
+                ),
             }.get(field, f"What is the confirmed {field.replace('_', ' ')}?"),
         }
         for field in missing

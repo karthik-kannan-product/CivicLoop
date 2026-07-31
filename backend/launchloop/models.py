@@ -12,11 +12,17 @@ class DemoActor(models.Model):
     display_name = models.CharField(max_length=120)
     role = models.CharField(max_length=20, choices=Role.choices)
 
+    def __str__(self) -> str:
+        return self.display_name
+
 
 class Event(models.Model):
     slug = models.SlugField(unique=True)
     title = models.CharField(max_length=240)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return self.title
 
 
 class EventRevision(models.Model):
@@ -33,6 +39,9 @@ class EventRevision(models.Model):
                 name="launchloop_unique_event_revision",
             )
         ]
+
+    def __str__(self) -> str:
+        return f"{self.event.slug} v{self.version}"
 
 
 class Workflow(models.Model):
@@ -52,6 +61,9 @@ class Workflow(models.Model):
     package_hash = models.CharField(max_length=64, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def __str__(self) -> str:
+        return f"{self.event.slug}: {self.status}"
+
 
 class WorkflowTransition(models.Model):
     workflow = models.ForeignKey(Workflow, related_name="transitions", on_delete=models.CASCADE)
@@ -61,6 +73,9 @@ class WorkflowTransition(models.Model):
     action = models.CharField(max_length=80)
     details = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.workflow_id}: {self.action}"
 
 
 class ApprovalRequest(models.Model):
@@ -89,6 +104,9 @@ class ApprovalRequest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 
+    def __str__(self) -> str:
+        return f"{self.workflow_id}: {self.status}"
+
 
 class ConnectorExecution(models.Model):
     class Status(models.TextChoices):
@@ -105,6 +123,9 @@ class ConnectorExecution(models.Model):
     receipt = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self) -> str:
+        return f"{self.approval_id}: {self.status}"
+
 
 class AuditEvent(models.Model):
     actor = models.ForeignKey(DemoActor, null=True, on_delete=models.PROTECT)
@@ -114,3 +135,5 @@ class AuditEvent(models.Model):
     details = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self) -> str:
+        return f"{self.action}: {self.target_type}/{self.target_id}"

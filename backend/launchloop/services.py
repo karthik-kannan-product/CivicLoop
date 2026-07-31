@@ -200,7 +200,9 @@ def answer_questions(
         raise DemoError("invalid_workflow_state", "This workflow is not waiting for input.", 409)
 
     required_answers = ("venue_name", "venue_address", "access_instructions")
-    missing_answers = [field for field in required_answers if not str(answers.get(field, "")).strip()]
+    missing_answers = [
+        field for field in required_answers if not str(answers.get(field, "")).strip()
+    ]
     if missing_answers:
         raise DemoError(
             "answers_incomplete",
@@ -235,7 +237,11 @@ def submit_workflow(workflow_id: UUID, actor: DemoActor) -> ApprovalRequest:
     if actor.role != DemoActor.Role.OPERATOR:
         raise DemoError("operator_required", "Only the operator can submit this package.", 403)
     if workflow.status != Workflow.Status.READY_FOR_REVIEW or not workflow.package_hash:
-        raise DemoError("invalid_workflow_state", "Only a review-ready package can be submitted.", 409)
+        raise DemoError(
+            "invalid_workflow_state",
+            "Only a review-ready package can be submitted.",
+            409,
+        )
 
     approval = ApprovalRequest.objects.create(
         workflow=workflow,
