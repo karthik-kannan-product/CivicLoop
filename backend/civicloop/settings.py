@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "foundation",
     "health",
+    "launchloop",
 ]
 
 MIDDLEWARE = [

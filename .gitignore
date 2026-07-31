@@ -9,6 +9,10 @@ loop1key.txt
 # Python
 __pycache__/
 *.pyc
+*.sqlite3
+.pytest_cache/
+pytest-cache-files-*/
+server-*.log
 .venv/
 venv/
 

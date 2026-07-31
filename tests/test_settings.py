@@ -45,7 +45,10 @@ def test_test_environment_uses_the_configured_database() -> None:
 
     if database_url.startswith("sqlite:///"):
         assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3"
-        assert settings.DATABASES["default"]["NAME"] == ":memory:"
+        assert settings.DATABASES["default"]["NAME"] in {
+            ":memory:",
+            "file:memorydb_default?mode=memory&cache=shared",
+        }
     else:
         assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
 
