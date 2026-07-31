@@ -9,15 +9,26 @@ from django.conf import settings
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
 DOCUMENTED_PLACEHOLDER_SECRET_KEY = "replace-with-at-least-50-random-characters"
+SETTINGS_ENVIRONMENT_VARIABLES = (
+    "CIVICLOOP_ENV",
+    "DJANGO_SECRET_KEY",
+    "DATABASE_URL",
+    "DJANGO_ALLOWED_HOSTS",
+    "VALKEY_URL",
+    "AGENT_MAX_CONCURRENCY",
+    "CELERY_BROKER_URL",
+    "CELERY_WORKER_CONCURRENCY",
+)
 
 
 def run_settings_command(
     command: str = "import civicloop.settings", **environment_overrides: str
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
+    for variable in SETTINGS_ENVIRONMENT_VARIABLES:
+        environment.pop(variable, None)
     environment["PYTHONPATH"] = str(REPOSITORY_ROOT / "backend")
     environment["DATABASE_URL"] = "sqlite:///:memory:"
-    environment.pop("DJANGO_SECRET_KEY", None)
     environment.update(environment_overrides)
     return subprocess.run(
         [sys.executable, "-c", command],
@@ -45,6 +56,16 @@ def test_default_agent_concurrency_never_exceeds_three() -> None:
 
 def test_default_celery_worker_concurrency_is_within_agent_limit() -> None:
     assert 1 <= settings.CELERY_WORKER_CONCURRENCY <= settings.AGENT_MAX_CONCURRENCY
+
+
+def test_documented_default_celery_broker_url_is_used_in_a_fresh_process() -> None:
+    result = run_settings_command(
+        "from civicloop.settings import CELERY_BROKER_URL; print(CELERY_BROKER_URL)",
+        CIVICLOOP_ENV="test",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "redis://localhost:6379/1"
 
 
 def test_production_rejects_missing_secret_key() -> None:

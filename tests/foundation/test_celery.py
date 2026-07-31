@@ -1,12 +1,13 @@
 from unittest.mock import patch
 
 from civicloop.celery import app
+from django.conf import settings
 from foundation.tasks import ping
 
 
 def test_celery_uses_django_configuration_namespace() -> None:
     assert app.main == "civicloop"
-    assert app.conf.broker_url == "redis://valkey:6379/1"
+    assert app.conf.broker_url == settings.CELERY_BROKER_URL
 
 
 def test_ping_task_dispatches_eagerly_and_returns_a_result(settings) -> None:

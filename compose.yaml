@@ -7,6 +7,9 @@ x-app: &app
   env_file:
     - .env
   restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777
 
 services:
   db:
@@ -73,8 +76,5 @@ services:
         condition: service_completed_successfully
       valkey:
         condition: service_healthy
-    tmpfs:
-      - /tmp
-
 volumes:
   postgres-data:

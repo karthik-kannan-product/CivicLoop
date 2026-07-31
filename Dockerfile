@@ -30,9 +30,9 @@ COPY --from=frontend /build/frontend/dist /app/frontend/dist
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod 0555 /app/docker/entrypoint.sh \
     && mkdir -p /app/backend/staticfiles \
-    && chown -R civicloop:civicloop /app
+    && python backend/manage.py collectstatic --noinput \
+    && chmod -R a-w /app
 USER civicloop
-RUN python backend/manage.py collectstatic --noinput
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["web"]
