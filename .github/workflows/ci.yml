@@ -1,0 +1,102 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: civicloop_ci
+          POSTGRES_USER: civicloop_ci
+          POSTGRES_PASSWORD: civicloop-ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U civicloop_ci -d civicloop_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      valkey:
+        image: valkey/valkey:8.1-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CIVICLOOP_ENV: test
+      DJANGO_SECRET_KEY: ci-only-non-production-secret-not-for-deployment
+      DATABASE_URL: postgresql://civicloop_ci:civicloop-ci-only-password@localhost:5432/civicloop_ci
+      VALKEY_URL: redis://localhost:6379/0
+      CELERY_BROKER_URL: redis://valkey:6379/1
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check backend tests scripts
+      - run: uv run mypy scripts
+      - run: uv run python backend/manage.py migrate --noinput
+      - run: uv run pytest -v
+        env:
+          DATABASE_URL: sqlite:///:memory:
+      - run: python loops/launchloop/launchloop.py > launchloop-results.json
+      - run: >-
+          python -c "import json; data=json.load(open('launchloop-results.json')); assert data['summary'] == {'passed': 6, 'total': 6}"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm test
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: cp .env.example .env
+      - run: |
+          sed -i 's/replace-with-at-least-50-random-characters/ci-only-non-production-secret-for-compose-smoke/' .env
+          sed -i 's/change-me/civicloop-ci-only/g' .env
+      - run: docker compose build
+      - run: docker compose up -d
+      - run: |
+          for attempt in {1..30}; do
+            python scripts/readiness.py && exit 0
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs
+          exit 1
+      - if: always()
+        run: docker compose down -v --remove-orphans

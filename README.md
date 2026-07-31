@@ -45,6 +45,61 @@ The loop is intentionally scoped to event campaign launch. It is not a full nonp
     └── launchloop-implementation-guide.md
 ```
 
+## Application Foundation
+
+CivicLoop now includes the container foundation for the self-hosted application.
+The current increment provides the web shell, health contracts, PostgreSQL,
+Valkey, and Celery process modes. Authentication and live LaunchLoop agents are
+delivered in later reviewed increments.
+
+### Prerequisites
+
+- Docker 29 or newer
+- Docker Compose 5 or newer
+
+No host Python, Node.js, PostgreSQL client, or Valkey installation is required.
+Docker Desktop (or another Docker Engine) must be running before any `docker compose`
+command; the foundation cannot start when the Docker daemon is unavailable.
+
+### Start
+
+```powershell
+Copy-Item .env.example .env
+# Replace the example passwords and secret in the untracked .env file.
+docker compose up -d --build
+python .\scripts\readiness.py
+```
+
+Open http://localhost:8000.
+
+### Verify
+
+```powershell
+docker compose exec web python backend/manage.py check
+docker run --rm `
+  -e CIVICLOOP_ENV=test `
+  -e DATABASE_URL=sqlite:///:memory: `
+  -v "${PWD}:/app" `
+  -w /app `
+  ghcr.io/astral-sh/uv:0.11.32 `
+  uv run --python 3.11 pytest tests -v
+python .\loops\launchloop\launchloop.py
+```
+
+Expected LaunchLoop result: `6 / 6` eval cases pass.
+
+### Stop
+
+```powershell
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete the
+local PostgreSQL volume and all of its data. Stopping the stack normally keeps
+that local data. This foundation’s architecture is described in the
+[foundation implementation plan](docs/superpowers/plans/2026-07-30-civicloop-foundation-implementation-plan.md)
+and the broader [CivicLoop vision](docs/civicloop-vision.md).
+
 ## Run LaunchLoop Locally
 
 Open the browser demo:
