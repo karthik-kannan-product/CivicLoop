@@ -1,6 +1,7 @@
 import json
 from unittest.mock import Mock, patch
 
+import pytest
 from pytest import CaptureFixture
 
 from scripts.readiness import main
@@ -121,11 +122,14 @@ def test_readiness_stops_before_second_request_when_deadline_is_exhausted(
     assert capsys.readouterr().out == "CivicLoop is not reachable or not ready.\n"
 
 
-def test_readiness_rejects_non_positive_timeout_without_echoing_input(
-    capsys: CaptureFixture[str],
+@pytest.mark.parametrize("timeout", ["0", "-1", "nan", "inf", "-inf", "not-a-number"])
+def test_readiness_rejects_non_finite_or_non_positive_timeout_without_network_call(
+    timeout: str, capsys: CaptureFixture[str]
 ) -> None:
-    assert main(["--timeout", "0-synthetic-secret"]) == 1
+    with patch("scripts.readiness.urlopen") as mock_open:
+        assert main(["--timeout", timeout]) == 1
+
     output = capsys.readouterr().out
 
-    assert "synthetic-secret" not in output
     assert output == "CivicLoop readiness arguments are invalid.\n"
+    mock_open.assert_not_called()

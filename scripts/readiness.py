@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import sys
 from collections.abc import Sequence
 from time import monotonic
@@ -21,7 +22,7 @@ def positive_timeout(value: str) -> float:
     except ValueError as error:
         raise argparse.ArgumentTypeError("timeout must be positive") from error
 
-    if timeout <= 0:
+    if not math.isfinite(timeout) or timeout <= 0:
         raise argparse.ArgumentTypeError("timeout must be positive")
 
     return timeout

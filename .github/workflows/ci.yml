@@ -90,7 +90,19 @@ jobs:
       - run: |
           sed -i 's/replace-with-at-least-50-random-characters/ci-only-non-production-secret-for-compose-smoke/' .env
           sed -i 's/change-me/civicloop-ci-only/g' .env
-      - run: docker compose up -d --build --wait --wait-timeout 120
-      - run: docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000
+      - run: docker compose build
+      - run: docker compose up -d --wait --wait-timeout 120 db valkey
+      - run: docker compose up --no-deps --exit-code-from migrate migrate
+      - run: docker compose up -d --no-deps web worker scheduler
+      - run: |
+          for attempt in {1..30}; do
+            docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 && exit 0
+            sleep 2
+          done
+          exit 1
+      - if: failure()
+        run: |
+          docker compose ps -a || true
+          docker compose logs || true
       - if: always()
         run: docker compose down -v --remove-orphans
