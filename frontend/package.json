@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
+    "build:pages": "tsc -b && vite build --base=/CivicLoop/",
     "dev": "vite --host 0.0.0.0",
     "test": "vitest run"
   },

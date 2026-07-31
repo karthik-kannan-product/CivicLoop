@@ -1,81 +1,120 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-const lanes = ["Event Readiness", "Campaign Composer", "Audience and Policy"];
-
-type HealthState = "checking" | "healthy" | "unavailable";
-
-const healthMessage: Record<HealthState, string> = {
-  checking: "Checking application",
-  healthy: "Application healthy",
-  unavailable: "Application unavailable",
-};
+import { requestDemo } from "./api";
+import { CompletionPanel } from "./components/CompletionPanel";
+import { DecisionPanel } from "./components/DecisionPanel";
+import { EventBrief } from "./components/EventBrief";
+import { LaneBoard } from "./components/LaneBoard";
+import { ReviewPackage } from "./components/ReviewPackage";
+import { Timeline } from "./components/Timeline";
+import { WorkspaceHeader } from "./components/WorkspaceHeader";
+import type { DemoState } from "./types";
 
 export function App() {
-  const [health, setHealth] = useState<HealthState>("checking");
+  const [state, setState] = useState<DemoState | null>(null);
+  const [actor, setActor] = useState("maya");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setState(await requestDemo("/api/v1/demo"));
+    } catch {
+      setError("CivicLoop could not load the demo workspace.");
+    }
+  }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    void load();
+  }, [load]);
 
-    fetch("/api/v1/health/live", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("Health request failed");
-        return response.json();
-      })
-      .then(() => {
-        if (!controller.signal.aborted) setHealth("healthy");
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setHealth("unavailable");
-      });
+  async function mutate(path: string, body?: Record<string, string>) {
+    setBusy(true);
+    setError(null);
+    try {
+      setState(
+        await requestDemo(path, {
+          actor,
+          body,
+          method: "POST",
+        }),
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "CivicLoop could not continue.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-    return () => controller.abort();
-  }, []);
+  if (error && !state) {
+    return (
+      <main className="load-state" role="alert">
+        <p className="eyebrow">Workspace unavailable</p>
+        <h1>CivicLoop could not load the demo workspace.</h1>
+        <p>Check the application connection, then try again.</p>
+        <button className="button button--primary" onClick={() => void load()}>
+          Try again
+        </button>
+      </main>
+    );
+  }
+
+  if (!state) {
+    return (
+      <main className="load-state" aria-busy="true">
+        <p className="eyebrow">Loading CivicLoop</p>
+        <h1>Preparing the LaunchLoop workspace…</h1>
+      </main>
+    );
+  }
+
+  const workflowId = state.workflow.id;
+  const activeActor = state.actors.find((item) => item.slug === actor);
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Open-source nonprofit operations</p>
-          <h1>CivicLoop</h1>
-        </div>
-        <span
-          aria-atomic="true"
-          aria-live="polite"
-          className={`health health--${health}`}
-          role="status"
-        >
-          {healthMessage[health]}
-        </span>
-      </header>
-      <main>
-        <section className="intro" aria-labelledby="foundation-title">
-          <div>
-            <p className="eyebrow">Foundation increment</p>
-            <h2 id="foundation-title">Human-approved agent workflows</h2>
-            <p>
-              The platform shell is running. Identity, event input, live agents,
-              and approvals arrive in independently reviewed increments.
-            </p>
+      <WorkspaceHeader
+        actors={state.actors}
+        actor={actor}
+        busy={busy}
+        deploymentMode={state.deployment_mode}
+        onActorChange={setActor}
+        onReset={() => void mutate("/api/v1/demo/reset")}
+      />
+      <main className="workspace">
+        {error && (
+          <div className="inline-error" role="alert">
+            {error}
           </div>
-          <button type="button" disabled title="Available in a later increment">
-            Start LaunchLoop
-          </button>
-        </section>
-        <section className="workspace" aria-labelledby="agents-title">
-          <h2 id="agents-title">Agent workspace</h2>
-          <div className="lanes">
-            {lanes.map((lane) => (
-              <article className="lane" key={lane}>
-                <p className="lane__state">
-                  <span aria-hidden="true" className="lane__status" />
-                  Not configured
-                </p>
-                <h3>{lane}</h3>
-                <p>Reserved for a future, human-approved agent lane.</p>
-              </article>
-            ))}
-          </div>
-        </section>
+        )}
+        <EventBrief
+          state={state}
+          isOperator={activeActor?.role === "operator"}
+          busy={busy}
+          onRun={() => void mutate(`/api/v1/workflows/${workflowId}/runs`)}
+          onResolve={(answers) =>
+            void mutate(`/api/v1/workflows/${workflowId}/answers`, answers)
+          }
+        />
+        <LaneBoard campaignPackage={state.workflow.package} />
+        {state.workflow.package && (
+          <ReviewPackage campaignPackage={state.workflow.package} />
+        )}
+        <DecisionPanel
+          state={state}
+          actor={actor}
+          busy={busy}
+          onSubmit={() => void mutate(`/api/v1/workflows/${workflowId}/submit`)}
+          onApprove={() =>
+            void mutate(`/api/v1/approvals/${state.approval?.id}/decision`, {
+              decision: "approve",
+              package_hash: state.approval?.package_hash ?? "",
+            })
+          }
+        />
+        <CompletionPanel state={state} />
+        <Timeline items={state.timeline} />
       </main>
     </div>
   );
