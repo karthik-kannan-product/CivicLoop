@@ -8,6 +8,7 @@ from django.conf import settings
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
+DOCUMENTED_PLACEHOLDER_SECRET_KEY = "replace-with-at-least-50-random-characters"
 
 
 def run_settings_command(
@@ -53,6 +54,17 @@ def test_production_rejects_development_secret_key() -> None:
     result = run_settings_command(
         CIVICLOOP_ENV="production",
         DJANGO_SECRET_KEY=DEVELOPMENT_SECRET_KEY,
+    )
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "DJANGO_SECRET_KEY must be set to a non-default value" in result.stderr
+
+
+def test_production_rejects_documented_placeholder_secret_key() -> None:
+    result = run_settings_command(
+        CIVICLOOP_ENV="production",
+        DJANGO_SECRET_KEY=DOCUMENTED_PLACEHOLDER_SECRET_KEY,
     )
 
     assert result.returncode != 0

@@ -9,9 +9,14 @@ REPOSITORY_ROOT = BASE_DIR.parent
 
 ENVIRONMENT = os.getenv("CIVICLOOP_ENV", "development")
 DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
+DOCUMENTED_PLACEHOLDER_SECRET_KEY = "replace-with-at-least-50-random-characters"
+INSECURE_PRODUCTION_SECRET_KEYS = {
+    DEVELOPMENT_SECRET_KEY,
+    DOCUMENTED_PLACEHOLDER_SECRET_KEY,
+}
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", DEVELOPMENT_SECRET_KEY)
 if ENVIRONMENT not in {"development", "test"} and (
-    not SECRET_KEY or SECRET_KEY == DEVELOPMENT_SECRET_KEY
+    not SECRET_KEY or SECRET_KEY in INSECURE_PRODUCTION_SECRET_KEYS
 ):
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set to a non-default value outside development and test."
