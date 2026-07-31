@@ -25,3 +25,6 @@ Desktop.ini
 
 # Local design companion sessions
 .superpowers/
+
+# Project-local Git worktrees
+.worktrees/
