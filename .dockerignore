@@ -1,0 +1,12 @@
+.git
+.github
+.superpowers
+.venv
+**/__pycache__
+**/*.pyc
+.env
+node_modules
+frontend/node_modules
+frontend/dist
+loops
+docs

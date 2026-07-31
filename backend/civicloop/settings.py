@@ -84,6 +84,20 @@ USE_TZ = True
 
 STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+FRONTEND_DIST = REPOSITORY_ROOT / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+
+if (FRONTEND_DIST / "assets").exists():
+    STATICFILES_DIRS = [FRONTEND_DIST / "assets"]
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 try:
