@@ -2,12 +2,20 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPOSITORY_ROOT = BASE_DIR.parent
 
 ENVIRONMENT = os.getenv("CIVICLOOP_ENV", "development")
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "development-only-not-for-production")
+DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", DEVELOPMENT_SECRET_KEY)
+if ENVIRONMENT not in {"development", "test"} and (
+    not SECRET_KEY or SECRET_KEY == DEVELOPMENT_SECRET_KEY
+):
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a non-default value outside development and test."
+    )
 DEBUG = ENVIRONMENT == "development"
 ALLOWED_HOSTS = [
     host.strip()
@@ -70,4 +78,9 @@ STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-AGENT_MAX_CONCURRENCY = min(max(int(os.getenv("AGENT_MAX_CONCURRENCY", "3")), 1), 3)
+try:
+    configured_agent_concurrency = int(os.getenv("AGENT_MAX_CONCURRENCY", "3"))
+except (TypeError, ValueError):
+    raise ImproperlyConfigured("AGENT_MAX_CONCURRENCY must be an integer.") from None
+
+AGENT_MAX_CONCURRENCY = min(max(configured_agent_concurrency, 1), 3)
