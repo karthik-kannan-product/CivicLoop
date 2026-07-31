@@ -18,7 +18,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/health/", include("health.urls")),
     re_path(
-        r"^(?!api(?:/|$)|admin(?:/|$)|assets(?:/|$)).*$",
+        r"^(?!api(?:/|$)|admin(?:/|$)|assets(?:/|$)|static(?:/|$)).*$",
         spa_index,
         name="spa-index",
     ),

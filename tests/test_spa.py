@@ -38,6 +38,7 @@ def test_frontend_deep_link_serves_compiled_index(tmp_path: Path) -> None:
         ("/api/v1/does-not-exist", 404),
         ("/admin/does-not-exist", 302),
         ("/assets/does-not-exist.js", 404),
+        ("/static/does-not-exist.js", 404),
     ],
 )
 def test_reserved_namespace_does_not_fall_back_to_spa(path: str, expected_status: int) -> None:
