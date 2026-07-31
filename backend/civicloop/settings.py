@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "foundation",
+    "health",
 ]
 
 MIDDLEWARE = [
@@ -67,6 +68,13 @@ DATABASES = {
         default="postgresql://civicloop:civicloop@localhost:5432/civicloop",
         conn_max_age=60,
     )
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.getenv("VALKEY_URL", "redis://localhost:6379/0"),
+    }
 }
 
 LANGUAGE_CODE = "en-us"
