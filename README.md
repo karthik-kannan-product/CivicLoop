@@ -12,6 +12,12 @@ LaunchLoop is published with GitHub Pages:
 
 https://karthik-kannan-product.github.io/CivicLoop/
 
+The public demo uses browser-local synthetic state so it can run safely on
+GitHub Pages. Refreshes preserve the journey in that browser, and **Reset demo**
+restores the seeded incomplete New York event. The Compose application uses
+Django and PostgreSQL for durable workflow, revision, approval, audit, and
+sandbox-receipt records.
+
 ## First Loop: LaunchLoop
 
 LaunchLoop turns synthetic Eventbrite-style draft event data into a human-review campaign package:
