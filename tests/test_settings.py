@@ -28,10 +28,15 @@ def run_settings_command(
     )
 
 
-def test_test_environment_uses_in_memory_database() -> None:
+def test_test_environment_uses_the_configured_database() -> None:
     assert settings.ENVIRONMENT == "test"
-    assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3"
-    assert settings.DATABASES["default"]["NAME"] == ":memory:"
+    database_url = os.environ["DATABASE_URL"]
+
+    if database_url.startswith("sqlite:///"):
+        assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3"
+        assert settings.DATABASES["default"]["NAME"] == ":memory:"
+    else:
+        assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
 
 
 def test_default_agent_concurrency_never_exceeds_three() -> None:

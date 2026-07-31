@@ -25,6 +25,7 @@ RUN groupadd --system --gid 10001 civicloop \
 WORKDIR /app
 COPY --from=python-builder /app/.venv /app/.venv
 COPY backend/ /app/backend/
+COPY scripts/ /app/scripts/
 COPY --from=frontend /build/frontend/dist /app/frontend/dist
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod 0555 /app/docker/entrypoint.sh \

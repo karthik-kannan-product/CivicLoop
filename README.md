@@ -66,8 +66,8 @@ command; the foundation cannot start when the Docker daemon is unavailable.
 ```powershell
 Copy-Item .env.example .env
 # Replace the example passwords and secret in the untracked .env file.
-docker compose up -d --build
-python .\scripts\readiness.py
+docker compose up -d --build --wait --wait-timeout 120
+docker compose exec web python scripts/readiness.py --base-url http://localhost:8000
 ```
 
 Open http://localhost:8000.
@@ -76,6 +76,7 @@ Open http://localhost:8000.
 
 ```powershell
 docker compose exec web python backend/manage.py check
+docker compose exec web python scripts/readiness.py --base-url http://localhost:8000
 docker run --rm `
   -e CIVICLOOP_ENV=test `
   -e DATABASE_URL=sqlite:///:memory: `
