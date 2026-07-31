@@ -21,10 +21,11 @@ export function App() {
         if (!response.ok) throw new Error("Health request failed");
         return response.json();
       })
-      .then(() => setHealth("healthy"))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setHealth("unavailable");
+      .then(() => {
+        if (!controller.signal.aborted) setHealth("healthy");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setHealth("unavailable");
       });
 
     return () => controller.abort();
