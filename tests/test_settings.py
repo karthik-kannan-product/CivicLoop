@@ -37,6 +37,10 @@ def test_default_agent_concurrency_never_exceeds_three() -> None:
     assert 1 <= settings.AGENT_MAX_CONCURRENCY <= 3
 
 
+def test_default_celery_worker_concurrency_is_within_agent_limit() -> None:
+    assert 1 <= settings.CELERY_WORKER_CONCURRENCY <= settings.AGENT_MAX_CONCURRENCY
+
+
 def test_production_rejects_missing_secret_key() -> None:
     result = run_settings_command(CIVICLOOP_ENV="production")
 
@@ -94,3 +98,31 @@ def test_valid_agent_concurrency_is_clamped(configured: str, expected: str) -> N
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize(
+    ("agent_maximum", "configured", "expected"),
+    [("3", "-1", "1"), ("2", "2", "2"), ("2", "10", "2")],
+)
+def test_celery_worker_concurrency_is_clamped(
+    agent_maximum: str, configured: str, expected: str
+) -> None:
+    result = run_settings_command(
+        "from civicloop.settings import CELERY_WORKER_CONCURRENCY; "
+        "print(CELERY_WORKER_CONCURRENCY)",
+        CIVICLOOP_ENV="test",
+        AGENT_MAX_CONCURRENCY=agent_maximum,
+        CELERY_WORKER_CONCURRENCY=configured,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("value", ["", "not-an-integer", "3.5"])
+def test_malformed_celery_worker_concurrency_raises_clear_configuration_error(value: str) -> None:
+    result = run_settings_command(CIVICLOOP_ENV="test", CELERY_WORKER_CONCURRENCY=value)
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "CELERY_WORKER_CONCURRENCY must be an integer" in result.stderr

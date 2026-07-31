@@ -92,3 +92,19 @@ except (TypeError, ValueError):
     raise ImproperlyConfigured("AGENT_MAX_CONCURRENCY must be an integer.") from None
 
 AGENT_MAX_CONCURRENCY = min(max(configured_agent_concurrency, 1), 3)
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/1")
+CELERY_RESULT_BACKEND = None
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 270
+
+try:
+    configured_celery_worker_concurrency = int(os.getenv("CELERY_WORKER_CONCURRENCY", "1"))
+except (TypeError, ValueError):
+    raise ImproperlyConfigured("CELERY_WORKER_CONCURRENCY must be an integer.") from None
+
+CELERY_WORKER_CONCURRENCY = min(
+    max(configured_celery_worker_concurrency, 1), AGENT_MAX_CONCURRENCY
+)
