@@ -96,7 +96,14 @@ jobs:
       - run: docker compose up -d --no-deps web worker scheduler
       - run: |
           for attempt in {1..30}; do
-            docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 && exit 0
+            if docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000; then
+              running_services="$(docker compose ps --services --status running)"
+              if printf '%s\n' "$running_services" | grep -Fxq web \
+                && printf '%s\n' "$running_services" | grep -Fxq worker \
+                && printf '%s\n' "$running_services" | grep -Fxq scheduler; then
+                exit 0
+              fi
+            fi
             sleep 2
           done
           exit 1

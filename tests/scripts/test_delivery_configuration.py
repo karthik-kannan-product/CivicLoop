@@ -43,3 +43,7 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "docker compose logs" in workflow
     assert "if: always()" in workflow
     assert workflow.index("if: failure()") < workflow.index("if: always()")
+    assert "docker compose ps --services --status running" in workflow
+    assert "grep -Fxq web" in workflow
+    assert "grep -Fxq worker" in workflow
+    assert "grep -Fxq scheduler" in workflow
