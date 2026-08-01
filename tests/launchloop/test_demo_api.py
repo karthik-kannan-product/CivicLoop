@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from django.contrib.auth.models import User
 from django.test import Client
 
 
@@ -8,21 +9,28 @@ def post_json(
     client: Client,
     path: str,
     body: dict[str, object] | None = None,
-    *,
-    actor: str = "maya",
 ):
     return client.post(
         path,
         data=json.dumps(body or {}),
         content_type="application/json",
-        headers={"X-Demo-Actor": actor},
     )
+
+
+def login(client: Client, username: str) -> None:
+    response = post_json(
+        client,
+        "/api/v1/auth/login",
+        {"username": username, "password": "civicloop-demo"},
+    )
+    assert response.status_code == 200
 
 
 @pytest.mark.django_db
 def test_complete_demo_journey_is_durable_and_four_eyes_approved() -> None:
     client = Client()
 
+    login(client, "maya.operator")
     reset = post_json(client, "/api/v1/demo/reset")
     assert reset.status_code == 200
     initial = reset.json()
@@ -71,16 +79,16 @@ def test_complete_demo_journey_is_durable_and_four_eyes_approved() -> None:
         client,
         f"/api/v1/approvals/{approval_id}/decision",
         {"decision": "approve", "package_hash": package_hash},
-        actor="maya",
     )
     assert self_approval.status_code == 403
     assert self_approval.json()["code"] == "self_approval_forbidden"
 
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "jordan.approver")
     approved = post_json(
         client,
         f"/api/v1/approvals/{approval_id}/decision",
         {"decision": "approve", "package_hash": package_hash},
-        actor="jordan",
     )
     assert approved.status_code == 200
     completed = approved.json()
@@ -99,6 +107,7 @@ def test_complete_demo_journey_is_durable_and_four_eyes_approved() -> None:
 @pytest.mark.django_db
 def test_approval_rejects_a_stale_package_hash() -> None:
     client = Client()
+    login(client, "maya.operator")
     initial = post_json(client, "/api/v1/demo/reset").json()
     workflow_id = initial["workflow"]["id"]
     post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
@@ -114,12 +123,45 @@ def test_approval_rejects_a_stale_package_hash() -> None:
     post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
     submitted = post_json(client, f"/api/v1/workflows/{workflow_id}/submit").json()
 
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "jordan.approver")
     response = post_json(
         client,
         f"/api/v1/approvals/{submitted['approval']['id']}/decision",
         {"decision": "approve", "package_hash": "0" * 64},
-        actor="jordan",
     )
 
     assert response.status_code == 409
     assert response.json()["code"] == "package_hash_mismatch"
+
+
+@pytest.mark.django_db
+def test_demo_requires_a_logged_in_user_and_exposes_seeded_session_identity() -> None:
+    client = Client()
+
+    assert client.get("/api/v1/demo").status_code == 401
+
+    login(client, "maya.operator")
+    session = client.get("/api/v1/auth/session")
+
+    assert session.status_code == 200
+    assert session.json()["user"] == {
+        "username": "maya.operator",
+        "display_name": "Maya Chen",
+        "role": "operator",
+    }
+    assert User.objects.filter(username="jordan.approver").exists()
+
+
+@pytest.mark.django_db
+def test_approver_cannot_change_event_facts_or_run_agents() -> None:
+    client = Client()
+    login(client, "maya.operator")
+    workflow_id = post_json(client, "/api/v1/demo/reset").json()["workflow"]["id"]
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "jordan.approver")
+
+    response = post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "operator_required"

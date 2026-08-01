@@ -1,19 +1,22 @@
 import json
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
+from django.contrib.auth import authenticate, login as django_login, logout as django_logout
 from django.http import HttpRequest, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
+from .models import DemoActor
 from .services import (
     DemoError,
-    actor_for,
+    actor_for_user,
     answer_questions,
     current_workflow,
     decide_approval,
     reset_demo,
     run_workflow,
+    seed_demo_users,
     serialize_demo,
     submit_workflow,
     workflow_for,
@@ -30,48 +33,88 @@ def _body(request: HttpRequest) -> dict[str, Any]:
     return parsed
 
 
-def _actor(request: HttpRequest):
-    return actor_for(request.headers.get("X-Demo-Actor", "maya"))
+def _actor(request: HttpRequest) -> DemoActor:
+    if not request.user.is_authenticated:
+        raise DemoError("authentication_required", "Sign in to use the demo workspace.", 401)
+    return actor_for_user(request.user)
 
 
-def _respond(operation):
+def _operator(request: HttpRequest) -> DemoActor:
+    actor = _actor(request)
+    if actor.role != DemoActor.Role.OPERATOR:
+        raise DemoError("operator_required", "Only the operator can reset the demo workspace.", 403)
+    return actor
+
+
+def _respond(operation: Callable[[], dict[str, Any]]) -> JsonResponse:
     try:
         return JsonResponse(operation())
     except DemoError as error:
-        return JsonResponse(
-            {"code": error.code, "message": error.message},
-            status=error.status,
-        )
+        return JsonResponse({"code": error.code, "message": error.message}, status=error.status)
+
+
+def _session_payload(actor: DemoActor) -> dict[str, Any]:
+    return {
+        "user": {
+            "username": actor.user.username,
+            "display_name": actor.display_name,
+            "role": actor.role,
+        }
+    }
+
+
+@ensure_csrf_cookie
+@require_GET
+def auth_session(request: HttpRequest) -> JsonResponse:
+    return _respond(lambda: _session_payload(_actor(request)))
+
+
+@require_POST
+def auth_login(request: HttpRequest) -> JsonResponse:
+    def operation() -> dict[str, Any]:
+        seed_demo_users()
+        body = _body(request)
+        username = str(body.get("username", "")).strip()
+        password = str(body.get("password", ""))
+        user = authenticate(request, username=username, password=password)
+        if user is None:
+            raise DemoError("invalid_credentials", "Use one of the temporary demo accounts.", 401)
+        django_login(request, user)
+        if not DemoActor.objects.filter(user=user).exists():
+            reset_demo()
+        return _session_payload(actor_for_user(user))
+
+    return _respond(operation)
+
+
+@require_POST
+def auth_logout(request: HttpRequest) -> JsonResponse:
+    django_logout(request)
+    return JsonResponse({"logged_out": True})
 
 
 @require_GET
-def demo_state(_request: HttpRequest) -> JsonResponse:
-    return _respond(lambda: serialize_demo(current_workflow()))
+def demo_state(request: HttpRequest) -> JsonResponse:
+    return _respond(lambda: (_actor(request), serialize_demo(current_workflow()))[1])
 
 
-@csrf_exempt
 @require_POST
-def demo_reset(_request: HttpRequest) -> JsonResponse:
-    return _respond(lambda: serialize_demo(reset_demo()))
+def demo_reset(request: HttpRequest) -> JsonResponse:
+    return _respond(lambda: (_operator(request), serialize_demo(reset_demo()))[1])
 
 
-@csrf_exempt
 @require_POST
 def workflow_run(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
     return _respond(lambda: serialize_demo(run_workflow(workflow_id, _actor(request))))
 
 
-@csrf_exempt
 @require_POST
 def workflow_answers(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
     return _respond(
-        lambda: serialize_demo(
-            answer_questions(workflow_id, _actor(request), _body(request))
-        )
+        lambda: serialize_demo(answer_questions(workflow_id, _actor(request), _body(request)))
     )
 
 
-@csrf_exempt
 @require_POST
 def workflow_submit(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
     def operation() -> dict[str, Any]:
@@ -81,7 +124,6 @@ def workflow_submit(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
     return _respond(operation)
 
 
-@csrf_exempt
 @require_POST
 def approval_decision(request: HttpRequest, approval_id: UUID) -> JsonResponse:
     def operation() -> dict[str, Any]:

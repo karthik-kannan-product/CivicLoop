@@ -3,6 +3,7 @@ import json
 from typing import Any
 from uuid import UUID
 
+from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 
@@ -44,6 +45,30 @@ class DemoError(Exception):
         self.code = code
         self.message = message
         self.status = status
+
+
+DEMO_PASSWORD = "civicloop-demo"
+DEMO_USERS = {
+    "maya.operator": {"display_name": "Maya Chen", "role": DemoActor.Role.OPERATOR},
+    "jordan.approver": {"display_name": "Jordan Brooks", "role": DemoActor.Role.APPROVER},
+}
+
+
+def seed_demo_users() -> dict[str, User]:
+    users: dict[str, User] = {}
+    for username, details in DEMO_USERS.items():
+        user, created = User.objects.get_or_create(
+            username=username,
+            defaults={
+                "first_name": details["display_name"].split()[0],
+                "last_name": details["display_name"].split()[1],
+            },
+        )
+        if created:
+            user.set_password(DEMO_PASSWORD)
+            user.save(update_fields=("password",))
+        users[username] = user
+    return users
 
 
 def package_hash(package: dict[str, Any]) -> str:
@@ -98,16 +123,19 @@ def reset_demo() -> Workflow:
     EventRevision.objects.all().delete()
     Event.objects.all().delete()
     DemoActor.objects.all().delete()
+    users = seed_demo_users()
 
     operator = DemoActor.objects.create(
         slug="maya",
         display_name="Maya Chen",
         role=DemoActor.Role.OPERATOR,
+        user=users["maya.operator"],
     )
     DemoActor.objects.create(
         slug="jordan",
         display_name="Jordan Brooks",
         role=DemoActor.Role.APPROVER,
+        user=users["jordan.approver"],
     )
     event = Event.objects.create(
         slug="ny-youth-day",
@@ -139,11 +167,15 @@ def current_workflow() -> Workflow:
     return workflow
 
 
-def actor_for(slug: str) -> DemoActor:
+def actor_for_user(user: User) -> DemoActor:
     try:
-        return DemoActor.objects.get(slug=slug)
+        return DemoActor.objects.get(user=user)
     except DemoActor.DoesNotExist:
-        raise DemoError("unknown_demo_actor", "Select a valid demo persona.", 401) from None
+        raise DemoError(
+            "demo_role_not_found",
+            "This account is not assigned to the seeded demo workspace.",
+            403,
+        ) from None
 
 
 def workflow_for(workflow_id: UUID) -> Workflow:

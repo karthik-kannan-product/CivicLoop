@@ -1,5 +1,6 @@
 import uuid
 
+from django.contrib.auth.models import User
 from django.db import models
 
 
@@ -11,6 +12,13 @@ class DemoActor(models.Model):
     slug = models.SlugField(primary_key=True)
     display_name = models.CharField(max_length=120)
     role = models.CharField(max_length=20, choices=Role.choices)
+    user = models.OneToOneField(
+        User,
+        related_name="launchloop_actor",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+    )
 
     def __str__(self) -> str:
         return self.display_name

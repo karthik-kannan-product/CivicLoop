@@ -57,6 +57,14 @@ CivicLoop now includes the container foundation for the self-hosted application.
 The current increment provides the web shell, health contracts, PostgreSQL,
 Valkey, and Celery process modes. Authentication and live LaunchLoop agents are
 delivered in later reviewed increments.
+### Authenticated demo journey
+
+The self-hosted application now provides a temporary, synthetic two-role demo:
+
+- `maya.operator` / `civicloop-demo` - operational staff; can reset the sandbox, resolve event facts, run LaunchLoop, and submit a package.
+- `jordan.approver` / `civicloop-demo` - independent approver; can inspect the generated package, evidence, and audit trail, then approve the exact locked package.
+
+The public GitHub Pages site remains browser-local and does not expose these accounts. The server application uses Django sessions and enforces the roles on every workflow action. Both accounts are synthetic and must be replaced before any real deployment.
 
 ### Prerequisites
 
