@@ -110,7 +110,39 @@ function jsonResponse(value: object) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+test("logs out of the authenticated demo workspace", async () => {
+  vi.stubEnv("VITEST", "");
+  vi.stubEnv("VITE_STATIC_DEMO", "false");
+  const user = userEvent.setup();
+  const authenticatedState = { ...baseState, deployment_mode: "server" };
+  const responses = [
+    {
+      user: {
+        username: "maya.operator",
+        display_name: "Maya Chen",
+        role: "operator",
+      },
+    },
+    authenticatedState,
+    { logged_out: true },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() => jsonResponse(responses.shift() ?? { logged_out: true })),
+  );
+
+  render(<App />);
+
+  expect(await screen.findByRole("heading", { name: facts.title })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Log out" }));
+
+  expect(
+    await screen.findByRole("heading", { name: "Enter the LaunchLoop workspace" }),
+  ).toBeInTheDocument();
 });
 
 test("completes the operator-to-approver LaunchLoop journey", async () => {

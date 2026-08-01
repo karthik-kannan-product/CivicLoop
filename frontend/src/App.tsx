@@ -75,6 +75,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
         busy={busy}
         deploymentMode={state.deployment_mode}
         onActorChange={setActor}
+        onLogout={onLogout}
         onReset={() => void mutate("/api/v1/demo/reset")}
         sessionUser={sessionUser}
       />
