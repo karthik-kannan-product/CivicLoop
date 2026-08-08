@@ -3,6 +3,7 @@ import json
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
@@ -47,7 +48,6 @@ class DemoError(Exception):
         self.status = status
 
 
-DEMO_PASSWORD = "civicloop-demo"
 DEMO_USERS = {
     "maya.operator": {"display_name": "Maya Chen", "role": DemoActor.Role.OPERATOR},
     "jordan.approver": {"display_name": "Jordan Brooks", "role": DemoActor.Role.APPROVER},
@@ -65,7 +65,7 @@ def seed_demo_users() -> dict[str, User]:
             },
         )
         if created:
-            user.set_password(DEMO_PASSWORD)
+            user.set_password(settings.DEMO_PASSWORD)
             user.save(update_fields=("password",))
         users[username] = user
     return users

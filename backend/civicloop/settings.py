@@ -21,12 +21,40 @@ if ENVIRONMENT not in {"development", "test"} and (
     raise ImproperlyConfigured(
         "DJANGO_SECRET_KEY must be set to a non-default value outside development and test."
     )
+
+DEVELOPMENT_DEMO_PASSWORD = "civicloop-demo"
+DOCUMENTED_PLACEHOLDER_DEMO_PASSWORD = "replace-with-a-unique-demo-password"
+DEMO_PASSWORD = os.getenv("CIVICLOOP_DEMO_PASSWORD", DEVELOPMENT_DEMO_PASSWORD)
+if ENVIRONMENT not in {"development", "test"} and (
+    not DEMO_PASSWORD
+    or DEMO_PASSWORD
+    in {DEVELOPMENT_DEMO_PASSWORD, DOCUMENTED_PLACEHOLDER_DEMO_PASSWORD}
+):
+    raise ImproperlyConfigured(
+        "CIVICLOOP_DEMO_PASSWORD must be set to a non-default value outside "
+        "development and test."
+    )
 DEBUG = ENVIRONMENT == "development"
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if host.strip()
 ]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+if ENVIRONMENT == "production":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 INSTALLED_APPS = [
     "django.contrib.admin",

@@ -121,7 +121,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
 
 function LoginScreen({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
   const [username, setUsername] = useState("maya.operator");
-  const [password, setPassword] = useState("civicloop-demo");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -159,7 +159,6 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
         <button className="button button--primary" disabled={busy} type="submit">
           {busy ? "Signing in..." : "Sign in"}
         </button>
-        <p className="login-card__hint">Temporary demo password: <code>civicloop-demo</code></p>
       </form>
     </main>
   );

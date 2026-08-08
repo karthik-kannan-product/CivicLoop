@@ -61,8 +61,12 @@ delivered in later reviewed increments.
 
 The self-hosted application now provides a temporary, synthetic two-role demo:
 
-- `maya.operator` / `civicloop-demo` - operational staff; can reset the sandbox, resolve event facts, run LaunchLoop, and submit a package.
-- `jordan.approver` / `civicloop-demo` - independent approver; can inspect the generated package, evidence, and audit trail, then approve the exact locked package.
+- `maya.operator` - operational staff; can reset the sandbox, resolve event facts, run LaunchLoop, and submit a package.
+- `jordan.approver` - independent approver; can inspect the generated package, evidence, and audit trail, then approve the exact locked package.
+
+For an authenticated server deployment, set a unique `CIVICLOOP_DEMO_PASSWORD` in the
+host-only `.env` file and share it out of band. The application refuses to start in
+production with the development or documented placeholder password.
 
 The public GitHub Pages site remains browser-local and does not expose these accounts. The server application uses Django sessions and enforces the roles on every workflow action. Both accounts are synthetic and must be replaced before any real deployment.
 

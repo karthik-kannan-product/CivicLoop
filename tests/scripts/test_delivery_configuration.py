@@ -25,6 +25,13 @@ def test_runtime_image_and_readme_keep_readiness_inside_containers() -> None:
     assert "python .\\scripts\\readiness.py" not in readme
 
 
+def test_web_container_is_only_published_on_loopback() -> None:
+    compose = (REPOSITORY_ROOT / "compose.yaml").read_text()
+
+    assert '"127.0.0.1:8000:8000"' in compose
+    assert '\n      - "8000:8000"' not in compose
+
+
 def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics() -> None:
     workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()
 

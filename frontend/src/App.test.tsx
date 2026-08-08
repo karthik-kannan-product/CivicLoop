@@ -143,6 +143,8 @@ test("logs out of the authenticated demo workspace", async () => {
   expect(
     await screen.findByRole("heading", { name: "Enter the LaunchLoop workspace" }),
   ).toBeInTheDocument();
+  expect(screen.getByLabelText("Demo password")).toHaveValue("");
+  expect(screen.queryByText(/Temporary demo password/i)).not.toBeInTheDocument();
 });
 
 test("completes the operator-to-approver LaunchLoop journey", async () => {

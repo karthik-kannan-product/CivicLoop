@@ -11,9 +11,12 @@ DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
 DOCUMENTED_PLACEHOLDER_SECRET_KEY = "replace-with-at-least-50-random-characters"
 SETTINGS_ENVIRONMENT_VARIABLES = (
     "CIVICLOOP_ENV",
+    "CIVICLOOP_DEMO_PASSWORD",
     "DJANGO_SECRET_KEY",
     "DATABASE_URL",
     "DJANGO_ALLOWED_HOSTS",
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    "DJANGO_SECURE_HSTS_SECONDS",
     "VALKEY_URL",
     "AGENT_MAX_CONCURRENCY",
     "CELERY_BROKER_URL",
@@ -112,9 +115,50 @@ def test_production_allows_configured_secret_key() -> None:
     result = run_settings_command(
         CIVICLOOP_ENV="production",
         DJANGO_SECRET_KEY="synthetic-production-secret-for-settings-test",
+        CIVICLOOP_DEMO_PASSWORD="unique-demo-password-for-settings-test",
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_production_rejects_missing_or_documented_demo_password() -> None:
+    for demo_password in (None, "", "civicloop-demo", "replace-with-a-unique-demo-password"):
+        overrides = {
+            "CIVICLOOP_ENV": "production",
+            "DJANGO_SECRET_KEY": "synthetic-production-secret-for-settings-test",
+        }
+        if demo_password is not None:
+            overrides["CIVICLOOP_DEMO_PASSWORD"] = demo_password
+
+        result = run_settings_command(**overrides)
+
+        assert result.returncode != 0
+        assert "ImproperlyConfigured" in result.stderr
+        assert "CIVICLOOP_DEMO_PASSWORD must be set to a non-default value" in result.stderr
+
+
+def test_production_enables_proxy_cookie_and_transport_security() -> None:
+    result = run_settings_command(
+        "from civicloop import settings; "
+        "print(settings.SECURE_PROXY_SSL_HEADER); "
+        "print(settings.SESSION_COOKIE_SECURE); "
+        "print(settings.CSRF_COOKIE_SECURE); "
+        "print(settings.SECURE_HSTS_SECONDS); "
+        "print(settings.CSRF_TRUSTED_ORIGINS)",
+        CIVICLOOP_ENV="production",
+        DJANGO_SECRET_KEY="synthetic-production-secret-for-settings-test",
+        CIVICLOOP_DEMO_PASSWORD="unique-demo-password-for-settings-test",
+        DJANGO_CSRF_TRUSTED_ORIGINS="https://civicloop.example.test",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "('HTTP_X_FORWARDED_PROTO', 'https')",
+        "True",
+        "True",
+        "31536000",
+        "['https://civicloop.example.test']",
+    ]
 
 
 @pytest.mark.parametrize("value", ["", "not-an-integer", "3.5"])
