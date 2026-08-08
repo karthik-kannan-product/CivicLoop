@@ -89,6 +89,7 @@ jobs:
       - run: cp .env.example .env
       - run: |
           sed -i 's/replace-with-at-least-50-random-characters/ci-only-non-production-secret-for-compose-smoke/' .env
+          sed -i 's/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/' .env
           sed -i 's/change-me/civicloop-ci-only/g' .env
       - run: docker compose build
       - run: docker compose up -d --wait --wait-timeout 120 db valkey

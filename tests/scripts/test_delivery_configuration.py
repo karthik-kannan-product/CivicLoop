@@ -54,3 +54,7 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "grep -Fxq web" in workflow
     assert "grep -Fxq worker" in workflow
     assert "grep -Fxq scheduler" in workflow
+    assert (
+        "s/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/"
+        in workflow
+    )

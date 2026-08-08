@@ -245,7 +245,9 @@ def answer_questions(
 
     snapshot = dict(workflow.revision.snapshot)
     snapshot.update(answered_fields)
-    missing_answers = [field for field in required_answers if not str(snapshot.get(field, "")).strip()]
+    missing_answers = [
+        field for field in required_answers if not str(snapshot.get(field, "")).strip()
+    ]
     revision = EventRevision.objects.create(
         event=workflow.event,
         version=workflow.revision.version + 1,
