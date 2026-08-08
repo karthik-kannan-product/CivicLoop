@@ -105,6 +105,107 @@ def test_complete_demo_journey_is_durable_and_four_eyes_approved() -> None:
 
 
 @pytest.mark.django_db
+def test_operator_can_save_partial_event_facts_before_completing_input() -> None:
+    client = Client()
+
+    login(client, "maya.operator")
+    initial = post_json(client, "/api/v1/demo/reset").json()
+    workflow_id = initial["workflow"]["id"]
+    post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
+
+    partial = post_json(
+        client,
+        f"/api/v1/workflows/{workflow_id}/answers",
+        {
+            "venue_name": "Hudson Civic Center",
+            "venue_address": "455 West 34th Street, New York, NY 10001",
+        },
+    )
+
+    assert partial.status_code == 200
+    partial_state = partial.json()
+    assert partial_state["workflow"]["status"] == "needs_input"
+    assert partial_state["event"]["revision"]["version"] == 2
+    assert partial_state["event"]["revision"]["facts"]["venue_name"] == "Hudson Civic Center"
+    assert partial_state["event"]["revision"]["facts"]["venue_address"] == (
+        "455 West 34th Street, New York, NY 10001"
+    )
+    assert partial_state["event"]["revision"]["facts"]["access_instructions"] == ""
+
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "maya.operator")
+    reloaded = client.get("/api/v1/demo")
+
+    assert reloaded.status_code == 200
+    assert reloaded.json()["workflow"]["status"] == "needs_input"
+    assert reloaded.json()["event"]["revision"]["facts"]["venue_name"] == "Hudson Civic Center"
+
+    completed = post_json(
+        client,
+        f"/api/v1/workflows/{workflow_id}/answers",
+        {"access_instructions": "Use the 10th Avenue entrance."},
+    )
+
+    assert completed.status_code == 200
+    assert completed.json()["workflow"]["status"] == "draft"
+    assert completed.json()["event"]["revision"]["version"] == 3
+
+
+@pytest.mark.django_db
+def test_approver_can_reject_and_reopen_work_for_operator() -> None:
+    client = Client()
+    login(client, "maya.operator")
+    initial = post_json(client, "/api/v1/demo/reset").json()
+    workflow_id = initial["workflow"]["id"]
+    post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
+    post_json(
+        client,
+        f"/api/v1/workflows/{workflow_id}/answers",
+        {
+            "venue_name": "Hudson Civic Center",
+            "venue_address": "455 West 34th Street, New York, NY 10001",
+            "access_instructions": "Use the 10th Avenue entrance.",
+        },
+    )
+    post_json(client, f"/api/v1/workflows/{workflow_id}/runs")
+    submitted = post_json(client, f"/api/v1/workflows/{workflow_id}/submit").json()
+
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "jordan.approver")
+    rejected = post_json(
+        client,
+        f"/api/v1/approvals/{submitted['approval']['id']}/decision",
+        {
+            "decision": "reject",
+            "package_hash": submitted["approval"]["package_hash"],
+            "reason": "Please add wheelchair-accessible entrance instructions.",
+        },
+    )
+
+    assert rejected.status_code == 200
+    rejected_state = rejected.json()
+    assert rejected_state["workflow"]["status"] == "needs_input"
+    assert rejected_state["workflow"]["package"] is None
+    assert rejected_state["workflow"]["package_hash"] is None
+    assert rejected_state["approval"]["status"] == "rejected"
+    assert rejected_state["approval"]["reason"] == (
+        "Please add wheelchair-accessible entrance instructions."
+    )
+
+    assert post_json(client, "/api/v1/auth/logout").status_code == 200
+    login(client, "maya.operator")
+    updated = post_json(
+        client,
+        f"/api/v1/workflows/{workflow_id}/answers",
+        {"access_instructions": "Use the wheelchair-accessible 10th Avenue entrance."},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["workflow"]["status"] == "draft"
+    assert updated.json()["approval"] is None
+
+
+@pytest.mark.django_db
 def test_approval_rejects_a_stale_package_hash() -> None:
     client = Client()
     login(client, "maya.operator")

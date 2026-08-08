@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import type { DemoState } from "../types";
 
@@ -18,6 +18,16 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
   });
   const { event, workflow } = state;
   const facts = event.revision.facts;
+
+  useEffect(() => {
+    if (workflow.status === "needs_input") {
+      setAnswers({
+        venue_name: String(facts.venue_name ?? ""),
+        venue_address: String(facts.venue_address ?? ""),
+        access_instructions: String(facts.access_instructions ?? ""),
+      });
+    }
+  }, [facts.access_instructions, facts.venue_address, facts.venue_name, workflow.status]);
 
   function submitAnswers(event: FormEvent) {
     event.preventDefault();
@@ -72,12 +82,11 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
           <div className="remediation__intro">
             <p className="eyebrow">Human input required</p>
             <h2>Confirm the missing event facts</h2>
-            <p>LaunchLoop preserved placeholders instead of inventing venue details.</p>
+            <p>Save confirmed details now, then come back for the remaining items.</p>
           </div>
           <label>
             <span>Confirmed venue name</span>
             <input
-              required
               value={answers.venue_name}
               onChange={(event) =>
                 setAnswers({ ...answers, venue_name: event.target.value })
@@ -87,7 +96,6 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
           <label>
             <span>Complete venue address</span>
             <input
-              required
               value={answers.venue_address}
               onChange={(event) =>
                 setAnswers({ ...answers, venue_address: event.target.value })
@@ -97,7 +105,6 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
           <label className="remediation__wide">
             <span>Arrival and accessibility instructions</span>
             <textarea
-              required
               rows={3}
               value={answers.access_instructions}
               onChange={(event) =>
@@ -106,7 +113,7 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
             />
           </label>
           <button className="button button--primary" disabled={busy} type="submit">
-            Save facts as revision {event.revision.version + 1}
+            Save progress as revision {event.revision.version + 1}
           </button>
         </form>
       )}

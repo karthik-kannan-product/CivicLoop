@@ -121,7 +121,8 @@ docker compose down
 Use `docker compose down -v` only when you intentionally want to delete the
 local PostgreSQL volume and all of its data. Stopping the stack normally keeps
 that local data. This foundation’s architecture is described in the
-[broader CivicLoop vision](docs/civicloop-vision.md)
+[CivicLoop v1 architecture design](docs/2026-07-30-civicloop-v1-architecture-design.md),
+the [broader CivicLoop vision](docs/civicloop-vision.md),
 and the [repository boundary](docs/repository-boundary.md).
 
 ## Run LaunchLoop Locally

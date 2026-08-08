@@ -106,6 +106,11 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
             decision: "approve",
             package_hash: state.approval?.package_hash ?? "",
           })}
+          onReject={(reason) => void mutate(`/api/v1/approvals/${state.approval?.id}/decision`, {
+            decision: "reject",
+            package_hash: state.approval?.package_hash ?? "",
+            reason,
+          })}
         />
         <CompletionPanel state={state} />
         <Timeline items={state.timeline} />

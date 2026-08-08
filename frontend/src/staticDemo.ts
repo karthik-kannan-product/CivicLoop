@@ -73,15 +73,14 @@ function initialState(): DemoState {
 
 function campaignPackage(state: DemoState): CampaignPackage {
   const facts = state.event.revision.facts;
-  const complete = state.event.revision.version === 2;
+  const required = ["venue_name", "venue_address", "access_instructions"];
+  const missing = required.filter((field) => !String(facts[field] ?? "").trim());
+  const complete = missing.length === 0;
   const venue = complete ? String(facts.venue_name) : "[Venue TBD]";
   const address = complete ? String(facts.venue_address) : "[Venue Address TBD]";
   const access = complete ? String(facts.access_instructions) : "[Access Instructions TBD]";
   const accessSentence = /[.!?]$/.test(access) ? access : `${access}.`;
   const body = `${facts.title} is scheduled for ${facts.date} from ${facts.start_time} to ${facts.end_time} ${facts.timezone} at ${venue}. Address: ${address}. Access: ${accessSentence} Register: ${facts.signup_url}`;
-  const missing = complete
-    ? []
-    : ["venue_name", "venue_address", "access_instructions"];
   return {
     status: complete ? "ready_for_review" : "needs_input",
     missing_fields: missing,
@@ -190,8 +189,11 @@ export async function requestStaticDemo(
     if (actor !== "maya" || state.workflow.status !== "draft") {
       throw new Error("Only Maya can run a draft workflow.");
     }
+    const missing = ["venue_name", "venue_address", "access_instructions"].filter(
+      (field) => !String(state.event.revision.facts[field] ?? "").trim(),
+    );
     const nextStatus =
-      state.event.revision.version === 1 ? "needs_input" : "ready_for_review";
+      missing.length > 0 ? "needs_input" : "ready_for_review";
     state.workflow.package = campaignPackage(state);
     state.workflow.package_hash = PACKAGE_HASH;
     addTimeline(state, actor, "launchloop_ran", "draft", nextStatus);
@@ -204,19 +206,34 @@ export async function requestStaticDemo(
     }
     const body = options.body ?? {};
     const required = ["venue_name", "venue_address", "access_instructions"];
-    if (required.some((field) => !body[field]?.trim())) {
-      throw new Error("Complete every missing event fact.");
+    const answered = Object.fromEntries(
+      required
+        .filter((field) => body[field]?.trim())
+        .map((field) => [field, String(body[field]).trim()]),
+    );
+    if (Object.keys(answered).length === 0) {
+      throw new Error("Save at least one event fact before continuing.");
     }
+    const facts = { ...state.event.revision.facts, ...answered };
+    const stillMissing = required.filter((field) => !String(facts[field] ?? "").trim());
     state.event.revision = {
-      id: 2,
-      version: 2,
+      id: Number(state.event.revision.id) + 1,
+      version: state.event.revision.version + 1,
       author: "maya",
-      facts: { ...state.event.revision.facts, ...body },
+      facts,
     };
     state.workflow.package = null;
     state.workflow.package_hash = null;
-    addTimeline(state, actor, "event_facts_resolved", "needs_input", "draft");
-    state.workflow.status = "draft";
+    state.approval = null;
+    const nextStatus = stillMissing.length > 0 ? "needs_input" : "draft";
+    addTimeline(
+      state,
+      actor,
+      stillMissing.length > 0 ? "event_facts_saved" : "event_facts_resolved",
+      "needs_input",
+      nextStatus,
+    );
+    state.workflow.status = nextStatus;
     return writeState(state);
   }
   if (path.endsWith("/submit")) {
@@ -248,6 +265,16 @@ export async function requestStaticDemo(
     }
     if (options.body?.package_hash !== approval.package_hash) {
       throw new Error("The package changed after review.");
+    }
+    if (options.body?.decision === "reject") {
+      approval.status = "rejected";
+      approval.approver = "jordan";
+      approval.reason = options.body.reason ?? "";
+      state.workflow.package = null;
+      state.workflow.package_hash = null;
+      addTimeline(state, actor, "package_rejected", "in_review", "needs_input");
+      state.workflow.status = "needs_input";
+      return writeState(state);
     }
     approval.status = "approved";
     approval.approver = "jordan";

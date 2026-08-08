@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { DemoState } from "../types";
 
 type Props = {
@@ -6,9 +8,11 @@ type Props = {
   busy: boolean;
   onSubmit: () => void;
   onApprove: () => void;
+  onReject: (reason: string) => void;
 };
 
-export function DecisionPanel({ state, actor, busy, onSubmit, onApprove }: Props) {
+export function DecisionPanel({ state, actor, busy, onSubmit, onApprove, onReject }: Props) {
+  const [rejectReason, setRejectReason] = useState("");
   const { workflow, approval, actors } = state;
   const activeActor = actors.find((item) => item.slug === actor);
 
@@ -41,9 +45,32 @@ export function DecisionPanel({ state, actor, busy, onSubmit, onApprove }: Props
           </p>
         </div>
         {isApprover && (
-          <button className="button button--approve" disabled={busy} onClick={onApprove}>
-            Approve exact package
-          </button>
+          <div className="decision__actions">
+            <button className="button button--approve" disabled={busy} onClick={onApprove}>
+              Approve exact package
+            </button>
+            <form
+              className="reject-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onReject(rejectReason);
+              }}
+            >
+              <label>
+                <span>Requested change</span>
+                <textarea
+                  required
+                  rows={3}
+                  value={rejectReason}
+                  onChange={(event) => setRejectReason(event.target.value)}
+                  placeholder="Example: Add wheelchair-accessible entrance instructions."
+                />
+              </label>
+              <button className="button button--reject" disabled={busy} type="submit">
+                Reject and request changes
+              </button>
+            </form>
+          </div>
         )}
       </section>
     );

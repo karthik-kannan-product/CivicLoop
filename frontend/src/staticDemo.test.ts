@@ -73,3 +73,63 @@ test("persists the complete static demo journey across reads", async () => {
   const reloaded = await requestStaticDemo("/api/v1/demo");
   expect(reloaded.execution?.id).toBe(completed.execution?.id);
 });
+
+test("saves partial facts and reopens input after a rejection", async () => {
+  const initial = await requestStaticDemo("/api/v1/demo/reset", {
+    actor: "maya",
+    method: "POST",
+  });
+  const workflowId = initial.workflow.id;
+
+  await requestStaticDemo(`/api/v1/workflows/${workflowId}/runs`, {
+    actor: "maya",
+    method: "POST",
+  });
+  const partial = await requestStaticDemo(`/api/v1/workflows/${workflowId}/answers`, {
+    actor: "maya",
+    method: "POST",
+    body: {
+      venue_name: "Hudson Civic Center",
+      venue_address: "455 West 34th Street, New York, NY 10001",
+    },
+  });
+
+  expect(partial.workflow.status).toBe("needs_input");
+  expect(partial.event.revision.version).toBe(2);
+  expect(partial.event.revision.facts.venue_name).toBe("Hudson Civic Center");
+
+  const completedFacts = await requestStaticDemo(`/api/v1/workflows/${workflowId}/answers`, {
+    actor: "maya",
+    method: "POST",
+    body: {
+      access_instructions: "Use the 10th Avenue entrance.",
+    },
+  });
+  expect(completedFacts.workflow.status).toBe("draft");
+
+  const ready = await requestStaticDemo(`/api/v1/workflows/${workflowId}/runs`, {
+    actor: "maya",
+    method: "POST",
+  });
+  const submitted = await requestStaticDemo(`/api/v1/workflows/${workflowId}/submit`, {
+    actor: "maya",
+    method: "POST",
+  });
+  const rejected = await requestStaticDemo(
+    `/api/v1/approvals/${submitted.approval?.id}/decision`,
+    {
+      actor: "jordan",
+      method: "POST",
+      body: {
+        decision: "reject",
+        package_hash: ready.workflow.package_hash ?? "",
+        reason: "Add wheelchair-accessible entrance instructions.",
+      },
+    },
+  );
+
+  expect(rejected.workflow.status).toBe("needs_input");
+  expect(rejected.workflow.package).toBeNull();
+  expect(rejected.approval?.status).toBe("rejected");
+  expect(rejected.approval?.reason).toBe("Add wheelchair-accessible entrance instructions.");
+});

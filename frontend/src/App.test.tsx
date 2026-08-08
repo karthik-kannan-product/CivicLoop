@@ -239,7 +239,7 @@ test("completes the operator-to-approver LaunchLoop journey", async () => {
     screen.getByLabelText("Arrival and accessibility instructions"),
     "Use the 10th Avenue entrance.",
   );
-  await user.click(screen.getByRole("button", { name: "Save facts as revision 2" }));
+  await user.click(screen.getByRole("button", { name: "Save progress as revision 2" }));
   expect(await screen.findByText("Revision 2")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "Run LaunchLoop" }));
@@ -252,6 +252,90 @@ test("completes the operator-to-approver LaunchLoop journey", async () => {
   expect(await screen.findByText("Sandbox delivery recorded")).toBeInTheDocument();
   expect(screen.getByText("418 people in approved audience")).toBeInTheDocument();
   expect(screen.getByText("No external messages sent")).toBeInTheDocument();
+});
+
+test("lets the approver reject and send the workflow back for operator updates", async () => {
+  const user = userEvent.setup();
+  const readyPackage = {
+    ...blockedPackage,
+    status: "ready_for_review",
+    missing_fields: [],
+    questions: [],
+    lanes: Object.fromEntries(
+      Object.entries(blockedPackage.lanes).map(([key, lane]) => [
+        key,
+        { ...lane, status: "complete" },
+      ]),
+    ),
+  };
+  const ready = {
+    ...baseState,
+    event: {
+      ...baseState.event,
+      revision: {
+        id: 2,
+        version: 2,
+        author: "maya",
+        facts: {
+          ...facts,
+          venue_name: "Hudson Civic Center",
+          venue_address: "455 West 34th Street, New York, NY 10001",
+          access_instructions: "Use the 10th Avenue entrance.",
+        },
+      },
+    },
+    workflow: {
+      ...baseState.workflow,
+      status: "ready_for_review",
+      package: readyPackage,
+      package_hash: "b".repeat(64),
+    },
+  };
+  const submitted = {
+    ...ready,
+    workflow: { ...ready.workflow, status: "in_review" },
+    approval: {
+      id: "8da86312-f80a-4985-a290-b5076326b546",
+      status: "pending",
+      package_hash: "b".repeat(64),
+      submitter: "maya",
+      approver: null,
+      reason: "",
+    },
+  };
+  const rejected = {
+    ...submitted,
+    workflow: { ...submitted.workflow, status: "needs_input", package: null, package_hash: null },
+    approval: {
+      ...submitted.approval,
+      status: "rejected",
+      approver: "jordan",
+      reason: "Add wheelchair-accessible entrance instructions.",
+    },
+  };
+
+  const responses = [ready, submitted, rejected];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() => jsonResponse(responses.shift() ?? rejected)),
+  );
+
+  render(<App />);
+
+  expect(await screen.findByRole("heading", { name: facts.title })).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Submit for approval" }));
+  await user.selectOptions(screen.getByLabelText("Demo persona"), "jordan");
+  await user.type(
+    screen.getByLabelText("Requested change"),
+    "Add wheelchair-accessible entrance instructions.",
+  );
+  await user.click(screen.getByRole("button", { name: "Reject and request changes" }));
+  await user.selectOptions(screen.getByLabelText("Demo persona"), "maya");
+
+  expect(await screen.findByText("Save confirmed details now, then come back for the remaining items.")).toBeInTheDocument();
+  expect(screen.getByLabelText("Arrival and accessibility instructions")).toHaveValue(
+    "Use the 10th Avenue entrance.",
+  );
 });
 
 test("shows a recoverable error when the demo state cannot load", async () => {

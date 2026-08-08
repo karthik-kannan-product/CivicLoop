@@ -232,17 +232,20 @@ def answer_questions(
         raise DemoError("invalid_workflow_state", "This workflow is not waiting for input.", 409)
 
     required_answers = ("venue_name", "venue_address", "access_instructions")
-    missing_answers = [
-        field for field in required_answers if not str(answers.get(field, "")).strip()
-    ]
-    if missing_answers:
+    answered_fields = {
+        field: str(answers.get(field, "")).strip()
+        for field in required_answers
+        if str(answers.get(field, "")).strip()
+    }
+    if not answered_fields:
         raise DemoError(
             "answers_incomplete",
-            f"Complete the required fields: {', '.join(missing_answers)}.",
+            "Save at least one event fact before continuing.",
         )
 
     snapshot = dict(workflow.revision.snapshot)
-    snapshot.update({field: str(answers[field]).strip() for field in required_answers})
+    snapshot.update(answered_fields)
+    missing_answers = [field for field in required_answers if not str(snapshot.get(field, "")).strip()]
     revision = EventRevision.objects.create(
         event=workflow.event,
         version=workflow.revision.version + 1,
@@ -253,12 +256,18 @@ def answer_questions(
     workflow.package = None
     workflow.package_hash = ""
     workflow.save(update_fields=("revision", "package", "package_hash", "updated_at"))
+    ApprovalRequest.objects.filter(workflow=workflow).delete()
+    destination = Workflow.Status.NEEDS_INPUT if missing_answers else Workflow.Status.DRAFT
     _transition(
         workflow,
         actor,
-        Workflow.Status.DRAFT,
-        "event_facts_resolved",
-        {"revision": revision.version, "fields": list(required_answers)},
+        destination,
+        "event_facts_saved" if missing_answers else "event_facts_resolved",
+        {
+            "revision": revision.version,
+            "fields": list(answered_fields),
+            "missing_fields": missing_answers,
+        },
     )
     return workflow
 
@@ -333,7 +342,16 @@ def decide_approval(
     if decision == "reject":
         approval.status = ApprovalRequest.Status.REJECTED
         approval.save()
-        _transition(workflow, actor, Workflow.Status.DRAFT, "package_rejected", {"reason": reason})
+        workflow.package = None
+        workflow.package_hash = ""
+        workflow.save(update_fields=("package", "package_hash", "updated_at"))
+        _transition(
+            workflow,
+            actor,
+            Workflow.Status.NEEDS_INPUT,
+            "package_rejected",
+            {"reason": reason},
+        )
         return approval
 
     approval.status = ApprovalRequest.Status.APPROVED
