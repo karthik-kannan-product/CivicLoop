@@ -55,3 +55,21 @@ def test_missing_compiled_index_returns_controlled_404(tmp_path: Path) -> None:
 
     assert response.status_code == 404
     assert str(missing_index).encode() not in response.content
+
+
+def test_administrator_entry_is_feature_gated_and_serves_separate_bundle(
+    tmp_path: Path,
+) -> None:
+    index = tmp_path / "admin.html"
+    index.write_text("<!doctype html><title>CivicLoop administrator</title>", encoding="utf-8")
+
+    disabled = Client().get("/admin/security")
+    with override_settings(
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,
+        ADMIN_FRONTEND_INDEX=index,
+    ):
+        enabled = Client().get("/admin/security")
+
+    assert disabled.status_code == 404
+    assert enabled.status_code == 200
+    assert b"CivicLoop administrator" in b"".join(enabled.streaming_content)

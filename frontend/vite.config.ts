@@ -7,6 +7,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         application: "index.html",
+        administrator: "admin.html",
         swagger: "swagger.html",
       },
     },

@@ -172,6 +172,7 @@ STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 FRONTEND_DIST = REPOSITORY_ROOT / "frontend" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+ADMIN_FRONTEND_INDEX = FRONTEND_DIST / "admin.html"
 SWAGGER_INDEX = FRONTEND_DIST / "swagger.html"
 API_CONTRACT_ROOTS = {
     "openapi": REPOSITORY_ROOT / "openapi",
