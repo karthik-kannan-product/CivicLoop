@@ -21,6 +21,9 @@ SETTINGS_ENVIRONMENT_VARIABLES = (
     "AGENT_MAX_CONCURRENCY",
     "CELERY_BROKER_URL",
     "CELERY_WORKER_CONCURRENCY",
+    "CIVICLOOP_ADMIN_IDENTITY_ENABLED",
+    "CIVICLOOP_IDENTITY_KEY_FILE",
+    "CIVICLOOP_ADMIN_TRUSTED_PROXY_IPS",
 )
 
 
@@ -211,3 +214,99 @@ def test_malformed_celery_worker_concurrency_raises_clear_configuration_error(va
     assert result.returncode != 0
     assert "ImproperlyConfigured" in result.stderr
     assert "CELERY_WORKER_CONCURRENCY must be an integer" in result.stderr
+
+
+def test_administrator_identity_is_disabled_by_default() -> None:
+    result = run_settings_command(
+        "from civicloop.settings import CIVICLOOP_ADMIN_IDENTITY_ENABLED; "
+        "print(CIVICLOOP_ADMIN_IDENTITY_ENABLED)",
+        CIVICLOOP_ENV="test",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"
+
+
+@pytest.mark.parametrize("value", ["", "enabled", "2", "truthy"])
+def test_malformed_administrator_identity_flag_is_rejected(value: str) -> None:
+    result = run_settings_command(
+        CIVICLOOP_ENV="test",
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED=value,
+    )
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "CIVICLOOP_ADMIN_IDENTITY_ENABLED must be a boolean" in result.stderr
+
+
+def test_enabled_administrator_identity_requires_a_key_file() -> None:
+    result = run_settings_command(
+        CIVICLOOP_ENV="production",
+        DJANGO_SECRET_KEY="synthetic-production-secret-for-settings-test",
+        CIVICLOOP_DEMO_PASSWORD="unique-demo-password-for-settings-test",
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED="true",
+    )
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "administrator identity key file must be configured" in result.stderr
+    assert "CIVICLOOP_IDENTITY_KEY_FILE" not in result.stderr
+
+
+def test_enabled_administrator_identity_accepts_a_regular_key_file(tmp_path: Path) -> None:
+    key_file = tmp_path / "identity-keyring.json"
+    key_file.write_text('{"synthetic":"not-a-real-keyring"}', encoding="utf-8")
+    key_file.chmod(0o600)
+
+    result = run_settings_command(
+        "from civicloop import settings; "
+        "print(settings.CIVICLOOP_ADMIN_IDENTITY_ENABLED); "
+        "print(settings.CIVICLOOP_IDENTITY_KEY_FILE.name)",
+        CIVICLOOP_ENV="production",
+        DJANGO_SECRET_KEY="synthetic-production-secret-for-settings-test",
+        CIVICLOOP_DEMO_PASSWORD="unique-demo-password-for-settings-test",
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED="yes",
+        CIVICLOOP_IDENTITY_KEY_FILE=str(key_file),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["True", "identity-keyring.json"]
+
+
+def test_administrator_session_policy_uses_database_sessions() -> None:
+    result = run_settings_command(
+        "from civicloop import settings; "
+        "print(settings.SESSION_ENGINE); "
+        "print(settings.SESSION_EXPIRE_AT_BROWSER_CLOSE); "
+        "print(settings.SESSION_COOKIE_HTTPONLY); "
+        "print(settings.SESSION_COOKIE_SAMESITE); "
+        "print(settings.ADMIN_PREAUTH_SECONDS); "
+        "print(settings.ADMIN_IDLE_SECONDS); "
+        "print(settings.ADMIN_ABSOLUTE_SECONDS); "
+        "print(settings.ADMIN_FRESH_SECONDS)",
+        CIVICLOOP_ENV="test",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        "django.contrib.sessions.backends.db",
+        "True",
+        "True",
+        "Lax",
+        "300",
+        "1800",
+        "43200",
+        "600",
+    ]
+
+
+def test_administrator_trusted_proxy_ips_are_normalized() -> None:
+    result = run_settings_command(
+        "from civicloop.settings import ADMIN_TRUSTED_PROXY_IPS; "
+        "print(','.join(sorted(ADMIN_TRUSTED_PROXY_IPS)))",
+        CIVICLOOP_ENV="test",
+        CIVICLOOP_ADMIN_TRUSTED_PROXY_IPS=" 127.0.0.1,::1,127.0.0.1 ",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "127.0.0.1,::1"
