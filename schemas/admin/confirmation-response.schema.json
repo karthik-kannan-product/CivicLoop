@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:confirmation-response",
+  "title": "TOTP confirmation and one-time recovery codes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stage", "recovery_codes"],
+  "properties": {
+    "stage": { "const": "authenticated" },
+    "recovery_codes": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "readOnly": true,
+      "items": { "type": "string", "pattern": "^[A-Z2-7]{8}-[A-Z2-7]{26}$" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:confirmation-request",
+  "title": "TOTP enrollment confirmation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["device_id", "token"],
+  "properties": {
+    "device_id": { "type": "string", "format": "uuid" },
+    "token": { "type": "string", "pattern": "^[0-9]{6}$", "writeOnly": true }
+  }
+}

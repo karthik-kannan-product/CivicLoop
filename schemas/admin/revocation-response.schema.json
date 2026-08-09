@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:revocation-response",
+  "title": "Administrator session revocation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revoked", "logged_out"],
+  "properties": {
+    "revoked": { "const": true },
+    "logged_out": { "type": "boolean" }
+  }
+}

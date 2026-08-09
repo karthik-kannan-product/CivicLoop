@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:enrollment-response",
+  "title": "One-time TOTP enrollment material",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["device_id", "otpauth_uri", "manual_secret"],
+  "properties": {
+    "device_id": { "type": "string", "format": "uuid" },
+    "otpauth_uri": { "type": "string", "pattern": "^otpauth://totp/", "readOnly": true },
+    "manual_secret": { "type": "string", "pattern": "^[A-Z2-7]+$", "readOnly": true }
+  }
+}

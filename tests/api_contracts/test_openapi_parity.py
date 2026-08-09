@@ -44,6 +44,20 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/approvals/{approvalId}/decision",
         "/api/v1/health/live",
         "/api/v1/health/ready",
+        "/api/v1/admin/security/status",
+        "/api/v1/admin/auth/password",
+        "/api/v1/admin/auth/totp",
+        "/api/v1/admin/auth/recovery",
+        "/api/v1/admin/auth/logout",
+        "/api/v1/admin/security/totp/enrollment",
+        "/api/v1/admin/security/totp/confirmation",
+        "/api/v1/admin/security/reauthentication",
+        "/api/v1/admin/security/password",
+        "/api/v1/admin/security/recovery-codes/regeneration",
+        "/api/v1/admin/security/sessions",
+        "/api/v1/admin/security/sessions/revoke-others",
+        "/api/v1/admin/security/sessions/{sessionId}/revocation",
+        "/api/v1/admin/security/events",
     }
 
 

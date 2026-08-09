@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:event-page",
+  "title": "Administrator security event page",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["events", "next_cursor"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "action", "outcome", "target_type", "target_id", "details", "source_ip", "session_id", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "action": { "type": "string", "pattern": "^[a-z0-9_.-]{1,100}$" },
+          "outcome": { "enum": ["success", "failure", "denied", "unavailable"] },
+          "target_type": { "type": "string", "maxLength": 64 },
+          "target_id": { "type": "string", "maxLength": 100 },
+          "details": { "type": "object" },
+          "source_ip": { "type": ["string", "null"] },
+          "session_id": { "type": ["string", "null"], "format": "uuid" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "next_cursor": { "type": ["string", "null"] }
+  }
+}

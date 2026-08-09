@@ -1,7 +1,7 @@
 openapi: 3.1.1
 info:
   title: CivicLoop API
-  version: 0.1.0
+  version: 0.2.0
   summary: Human-approved nonprofit operations workflows
   description: >-
     Same-origin, session-authenticated API for the current synthetic LaunchLoop
@@ -12,6 +12,8 @@ security:
   - sessionCookie: []
 tags:
   - name: Authentication
+  - name: Administrator authentication
+  - name: Administrator security
   - name: LaunchLoop
   - name: Approvals
   - name: Health
@@ -166,6 +168,272 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/ReadinessResponse" }
         "503": { $ref: "#/components/responses/ReadinessResponse" }
+  /api/v1/admin/security/status:
+    get:
+      tags: [Administrator authentication]
+      operationId: getAdministratorSecurityStatus
+      summary: Return the redacted administrator authentication stage
+      security: []
+      responses:
+        "200":
+          description: Current redacted authentication stage
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/auth/password:
+    post:
+      tags: [Administrator authentication]
+      operationId: verifyAdministratorPassword
+      summary: Create a five-minute password-only pre-authentication session
+      security: []
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/password-challenge-request.schema.json" }
+      responses:
+        "200":
+          description: Password verified; a second factor is still required
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/password-challenge-response.schema.json" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/auth/totp:
+    post:
+      tags: [Administrator authentication]
+      operationId: verifyAdministratorTotp
+      summary: Complete normal administrator authentication with TOTP
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/totp-challenge-request.schema.json" }
+      responses:
+        "200":
+          description: Administrator session authenticated
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/auth/recovery:
+    post:
+      tags: [Administrator authentication]
+      operationId: recoverAdministratorSession
+      summary: Consume one recovery code and create a restricted recovery session
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/recovery-challenge-request.schema.json" }
+      responses:
+        "200":
+          description: Restricted recovery session established
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/recovery-challenge-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/auth/logout:
+    post:
+      tags: [Administrator authentication]
+      operationId: logoutAdministrator
+      summary: Revoke and end the current administrator session
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200":
+          description: Administrator session ended
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/totp/enrollment:
+    post:
+      tags: [Administrator authentication]
+      operationId: beginAdministratorTotpEnrollment
+      summary: Return one-time TOTP provisioning material
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/enrollment-request.schema.json" }
+      responses:
+        "200":
+          description: One-time TOTP provisioning material
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/enrollment-response.schema.json" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/totp/confirmation:
+    post:
+      tags: [Administrator authentication]
+      operationId: confirmAdministratorTotpEnrollment
+      summary: Confirm TOTP and return ten recovery codes once
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/confirmation-request.schema.json" }
+      responses:
+        "200":
+          description: Authenticator confirmed and one-time recovery codes issued
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/confirmation-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/reauthentication:
+    post:
+      tags: [Administrator security]
+      operationId: freshlyVerifyAdministrator
+      summary: Establish ten minutes of fresh password-plus-TOTP verification
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/reauthentication-request.schema.json" }
+      responses:
+        "200":
+          description: Fresh verification established
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/reauthentication-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/password:
+    put:
+      tags: [Administrator security]
+      operationId: changeAdministratorPassword
+      summary: Change the owner password after fresh verification
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/admin/password-change-request.schema.json" }
+      responses:
+        "200":
+          description: Password changed and other sessions revoked
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/password-change-response.schema.json" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/recovery-codes/regeneration:
+    post:
+      tags: [Administrator security]
+      operationId: regenerateAdministratorRecoveryCodes
+      summary: Replace recovery codes after fresh verification
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200":
+          description: One-time replacement recovery codes
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/recovery-code-regeneration-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/sessions:
+    get:
+      tags: [Administrator security]
+      operationId: listAdministratorSessions
+      summary: List bounded administrator session metadata
+      responses:
+        "200":
+          description: Administrator sessions
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/session-list.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/sessions/revoke-others:
+    post:
+      tags: [Administrator security]
+      operationId: revokeOtherAdministratorSessions
+      summary: Revoke every other administrator session after fresh verification
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200":
+          description: Other sessions revoked
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/revoke-others-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/sessions/{sessionId}/revocation:
+    post:
+      tags: [Administrator security]
+      operationId: revokeAdministratorSession
+      summary: Revoke one owned administrator session
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200":
+          description: Session revoked
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/revocation-response.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/security/events:
+    get:
+      tags: [Administrator security]
+      operationId: listAdministratorSecurityEvents
+      summary: List append-only administrator security events
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Security event page
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/admin/event-page.schema.json" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
 components:
   securitySchemes:
     sessionCookie:
@@ -189,6 +457,18 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  headers:
+    NoStore:
+      description: Sensitive response must never be cached.
+      schema: { type: string, const: no-store }
+    RetryAfter:
+      description: Seconds until another authentication attempt may be made.
+      schema: { type: integer, minimum: 1 }
   responses:
     SessionResponse:
       description: Current authenticated session
@@ -202,6 +482,12 @@ components:
           schema: { $ref: "../schemas/launchloop/demo-state.schema.json" }
     ProblemResponse:
       description: RFC 9457 problem with stable CivicLoop extensions
+      content:
+        application/problem+json:
+          schema: { $ref: "../schemas/api/problem-details.schema.json" }
+    RateLimitedProblemResponse:
+      description: RFC 9457 rate-limit problem
+      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
       content:
         application/problem+json:
           schema: { $ref: "../schemas/api/problem-details.schema.json" }

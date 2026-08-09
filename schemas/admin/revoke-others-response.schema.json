@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:revoke-others-response",
+  "title": "Other administrator sessions revocation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["revoked_count"],
+  "properties": { "revoked_count": { "type": "integer", "minimum": 0 } }
+}

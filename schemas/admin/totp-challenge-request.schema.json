@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:totp-challenge-request",
+  "title": "TOTP challenge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token"],
+  "properties": {
+    "token": { "type": "string", "pattern": "^[0-9]{6}$", "writeOnly": true }
+  }
+}
