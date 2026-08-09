@@ -42,12 +42,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      - ${CIVICLOOP_IDENTITY_KEY_HOST_PATH:?Set an absolute host identity-key path}:/run/secrets/civicloop-identity-keyring.json:ro
 
   web:
     <<: *app
     command: ["web"]
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - ${CIVICLOOP_IDENTITY_KEY_HOST_PATH:?Set an absolute host identity-key path}:/run/secrets/civicloop-identity-keyring.json:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -62,6 +66,8 @@ services:
   worker:
     <<: *app
     command: ["worker"]
+    environment:
+      CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -71,6 +77,8 @@ services:
   scheduler:
     <<: *app
     command: ["scheduler"]
+    environment:
+      CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
     depends_on:
       migrate:
         condition: service_completed_successfully

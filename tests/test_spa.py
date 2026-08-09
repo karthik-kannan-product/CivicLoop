@@ -36,7 +36,8 @@ def test_frontend_deep_link_serves_compiled_index(tmp_path: Path) -> None:
     ("path", "expected_status"),
     [
         ("/api/v1/does-not-exist", 404),
-        ("/admin/does-not-exist", 302),
+        ("/admin/does-not-exist", 404),
+        ("/internal/does-not-exist", 404),
         ("/assets/does-not-exist.js", 404),
         ("/static/does-not-exist.js", 404),
     ],
@@ -63,13 +64,39 @@ def test_administrator_entry_is_feature_gated_and_serves_separate_bundle(
     index = tmp_path / "admin.html"
     index.write_text("<!doctype html><title>CivicLoop administrator</title>", encoding="utf-8")
 
-    disabled = Client().get("/admin/security")
+    disabled = [Client().get(path) for path in ("/admin/security", "/admin/security/")]
     with override_settings(
         CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,
         ADMIN_FRONTEND_INDEX=index,
     ):
-        enabled = Client().get("/admin/security")
+        enabled = [Client().get(path) for path in ("/admin/security", "/admin/security/")]
 
-    assert disabled.status_code == 404
-    assert enabled.status_code == 200
-    assert b"CivicLoop administrator" in b"".join(enabled.streaming_content)
+    assert {response.status_code for response in disabled} == {404}
+    assert {response.status_code for response in enabled} == {200}
+    assert all("csrftoken" in response.cookies for response in enabled)
+    assert all(
+        b"CivicLoop administrator" in b"".join(response.streaming_content)
+        for response in enabled
+    )
+
+
+def test_django_admin_is_only_available_at_internal_route() -> None:
+    client = Client()
+
+    assert client.get("/admin/").status_code == 404
+    assert client.get("/internal/django-admin/").status_code == 302
+
+
+def test_missing_administrator_bundle_fails_closed_without_path_disclosure(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "private" / "missing-admin.html"
+
+    with override_settings(
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,
+        ADMIN_FRONTEND_INDEX=missing,
+    ):
+        response = Client().get("/admin/security")
+
+    assert response.status_code == 404
+    assert str(missing).encode() not in response.content
