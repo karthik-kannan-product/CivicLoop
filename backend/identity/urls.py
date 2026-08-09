@@ -8,4 +8,19 @@ urlpatterns = [
     path("auth/totp", views.totp_challenge, name="admin-auth-totp"),
     path("auth/recovery", views.recovery_challenge, name="admin-auth-recovery"),
     path("auth/logout", views.logout, name="admin-auth-logout"),
+    path(
+        "security/totp/enrollment",
+        views.totp_enrollment,
+        name="admin-totp-enrollment",
+    ),
+    path(
+        "security/totp/confirmation",
+        views.totp_confirmation,
+        name="admin-totp-confirmation",
+    ),
+    path(
+        "security/reauthentication",
+        views.reauthentication,
+        name="admin-reauthentication",
+    ),
 ]

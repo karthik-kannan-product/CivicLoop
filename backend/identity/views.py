@@ -1,4 +1,5 @@
 import json
+from uuid import UUID
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, JsonResponse
@@ -14,8 +15,12 @@ from identity.exceptions import (
 from identity.services.authentication import (
     complete_recovery_authentication,
     complete_totp_authentication,
+    confirm_totp_enrollment,
+    enrollment_profile,
+    fresh_reauthenticate,
     logout_administrator,
     preauthenticated_profile,
+    start_totp_enrollment,
     valid_preauthentication,
     verify_owner_password,
 )
@@ -234,3 +239,136 @@ def logout(request: HttpRequest) -> JsonResponse:
     if not logout_administrator(request):
         return _preauthentication_problem(request)
     return JsonResponse({"stage": "anonymous"}, headers={"Cache-Control": "no-store"})
+
+
+def _authentication_problem(request: HttpRequest) -> JsonResponse:
+    return _problem(
+        request,
+        status=401,
+        code="authentication_required",
+        title="Authentication required",
+        message="Administrator authentication is required.",
+    )
+
+
+@require_POST
+def totp_enrollment(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    profile = enrollment_profile(request)
+    if profile is None:
+        return _authentication_problem(request)
+    body = _json_body(request)
+    label = body.get("label") if body is not None else None
+    if not isinstance(label, str):
+        return _problem(
+            request,
+            status=400,
+            code="invalid_request",
+            title="Invalid request",
+            message="The enrollment request is invalid.",
+        )
+    try:
+        enrollment = start_totp_enrollment(request, profile, label=label)
+    except IdentityError:
+        return _problem(
+            request,
+            status=400,
+            code="invalid_request",
+            title="Invalid request",
+            message="The enrollment request is invalid.",
+        )
+    return JsonResponse(
+        {
+            "device_id": str(enrollment.device.id),
+            "otpauth_uri": enrollment.otpauth_uri,
+            "manual_secret": enrollment.manual_secret,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_POST
+def totp_confirmation(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    profile = enrollment_profile(request)
+    if profile is None:
+        return _authentication_problem(request)
+    body = _json_body(request)
+    raw_device_id = body.get("device_id") if body is not None else None
+    token = body.get("token") if body is not None else None
+    try:
+        device_id = UUID(raw_device_id) if isinstance(raw_device_id, str) else None
+    except ValueError:
+        device_id = None
+    if device_id is None or not isinstance(token, str) or len(token) > 32:
+        return _verification_problem(request)
+    try:
+        confirmation = confirm_totp_enrollment(
+            request,
+            profile,
+            device_id=device_id,
+            token=token,
+        )
+    except IdentityCryptoError:
+        return _problem(
+            request,
+            status=503,
+            code="identity_unavailable",
+            title="Authentication unavailable",
+            message="Administrator authentication is temporarily unavailable.",
+        )
+    except IdentityError:
+        return _verification_problem(request)
+    return JsonResponse(
+        {
+            "stage": "authenticated",
+            "recovery_codes": list(confirmation.recovery_codes),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_POST
+def reauthentication(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    metadata = getattr(request, "administrator_session", None)
+    if metadata is None or metadata.recovery_restricted:
+        return _authentication_problem(request)
+    body = _json_body(request)
+    password = body.get("password") if body is not None else None
+    token = body.get("token") if body is not None else None
+    if (
+        not isinstance(password, str)
+        or not isinstance(token, str)
+        or len(password) > 4096
+        or len(token) > 32
+    ):
+        return _verification_problem(request)
+    try:
+        fresh_reauthenticate(
+            request,
+            metadata,
+            password=password,
+            token=token,
+        )
+    except IdentityRateLimited as exc:
+        response = _problem(
+            request,
+            status=429,
+            code="rate_limited",
+            title="Too many attempts",
+            message="Too many authentication attempts. Try again later.",
+        )
+        response["Retry-After"] = str(exc.retry_after_seconds)
+        return response
+    except IdentityUnavailable:
+        return _problem(
+            request,
+            status=503,
+            code="identity_unavailable",
+            title="Authentication unavailable",
+            message="Administrator authentication is temporarily unavailable.",
+        )
+    except IdentityError:
+        return _verification_problem(request)
+    return JsonResponse({"fresh": True}, headers={"Cache-Control": "no-store"})

@@ -19,6 +19,20 @@ from identity.services.security import record_security_event
 ADMIN_SESSION_KEY = "civicloop_admin_session_id"
 
 
+def administrator_session_is_fresh(
+    metadata: AdministratorSession,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    checked_at = now or timezone.now()
+    return (
+        metadata.fresh_verified_at is not None
+        and metadata.fresh_verified_at <= checked_at
+        and checked_at < metadata.fresh_verified_at
+        + timedelta(seconds=settings.ADMIN_FRESH_SECONDS)
+    )
+
+
 def _browser_metadata(request: HttpRequest) -> tuple[str, str]:
     user_agent = request.META.get("HTTP_USER_AGENT", "")
     bounded_agent = user_agent[:512] if isinstance(user_agent, str) else ""
