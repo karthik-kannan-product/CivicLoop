@@ -50,6 +50,7 @@ ADMIN_PREAUTH_SECONDS = 5 * 60
 ADMIN_IDLE_SECONDS = 30 * 60
 ADMIN_ABSOLUTE_SECONDS = 12 * 60 * 60
 ADMIN_FRESH_SECONDS = 10 * 60
+ADMIN_ACTIVITY_UPDATE_SECONDS = 60
 ADMIN_TRUSTED_PROXY_IPS = frozenset(
     value.strip()
     for value in os.getenv("CIVICLOOP_ADMIN_TRUSTED_PROXY_IPS", "").split(",")
@@ -125,6 +126,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "identity.middleware.AdministratorSessionMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
