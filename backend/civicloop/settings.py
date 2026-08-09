@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "api_contracts",
     "foundation",
     "health",
     "launchloop",
@@ -120,6 +121,11 @@ STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 FRONTEND_DIST = REPOSITORY_ROOT / "frontend" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+SWAGGER_INDEX = FRONTEND_DIST / "swagger.html"
+API_CONTRACT_ROOTS = {
+    "openapi": REPOSITORY_ROOT / "openapi",
+    "schemas": REPOSITORY_ROOT / "schemas",
+}
 
 if (FRONTEND_DIST / "assets").exists():
     STATICFILES_DIRS = [FRONTEND_DIST / "assets"]

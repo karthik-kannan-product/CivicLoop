@@ -16,6 +16,7 @@ def spa_index(_request: HttpRequest) -> FileResponse:
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/", include("api_contracts.urls")),
     path("api/v1/", include("launchloop.urls")),
     path("api/v1/health/", include("health.urls")),
     re_path(

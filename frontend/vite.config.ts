@@ -3,6 +3,14 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: {
+        application: "index.html",
+        swagger: "swagger.html",
+      },
+    },
+  },
   server: {
     proxy: {
       "/api": "http://web:8000",
