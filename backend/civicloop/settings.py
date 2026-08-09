@@ -110,9 +110,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_otp",
     "api_contracts",
     "foundation",
     "health",
+    "identity",
     "launchloop",
 ]
 
