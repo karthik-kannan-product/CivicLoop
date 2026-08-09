@@ -21,6 +21,8 @@ dev = [
   "pytest-django>=4.11,<5",
   "pyyaml>=6.0,<7",
   "ruff>=0.12,<1",
+  "types-jsonschema>=4.25,<5",
+  "types-pyyaml>=6,<7",
 ]
 
 [tool.uv]

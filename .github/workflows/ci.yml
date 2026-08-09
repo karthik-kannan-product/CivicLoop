@@ -49,6 +49,7 @@ jobs:
           version: "0.11.32"
           enable-cache: true
       - run: uv sync --locked
+      - run: uv run python scripts/validate_api_contracts.py
       - run: uv run ruff check backend tests scripts
       - run: uv run mypy scripts
       - run: uv run python backend/manage.py migrate --noinput

@@ -129,6 +129,20 @@ that local data. This foundation’s architecture is described in the
 the [broader CivicLoop vision](docs/civicloop-vision.md),
 and the [repository boundary](docs/repository-boundary.md).
 
+## API documentation
+
+With CivicLoop running, open `/api/docs` for the self-hosted Swagger UI.
+The canonical OpenAPI 3.1 document is `openapi/civicloop-v1.yaml`, and reusable
+JSON Schema 2020-12 contracts live in `schemas/`.
+
+Validate the contracts with:
+
+```powershell
+uv run python scripts/validate_api_contracts.py
+```
+
+See `docs/api-contracts.md` for contributor rules and authentication details.
+
 ## Run LaunchLoop Locally
 
 Open the browser demo:
