@@ -19,6 +19,30 @@ export type Confirmation = {
   stage: "authenticated";
   recovery_codes: string[];
 };
+export type AdministratorSession = {
+  id: string;
+  device_label: string;
+  source_ip: string | null;
+  created_at: string;
+  authenticated_at: string | null;
+  last_activity_at: string | null;
+  mfa_verified_at: string | null;
+  absolute_expires_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  is_current: boolean;
+};
+export type SecurityEvent = {
+  id: string;
+  action: string;
+  outcome: "success" | "failure" | "denied" | "unavailable";
+  target_type: string;
+  target_id: string;
+  details: Record<string, unknown>;
+  source_ip: string | null;
+  session_id: string | null;
+  created_at: string;
+};
 
 type Problem = {
   code?: string;
@@ -113,4 +137,35 @@ export const adminAPI = {
     }),
   logout: () =>
     adminRequest<AuthStatus>("/api/v1/admin/auth/logout", { method: "POST" }),
+  reauthenticate: (password: string, token: string) =>
+    adminRequest<{ fresh: true }>("/api/v1/admin/security/reauthentication", {
+      method: "POST",
+      body: { password, token },
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    adminRequest<{ changed: true; revoked_session_count: number }>(
+      "/api/v1/admin/security/password",
+      { method: "PUT", body: { current_password: currentPassword, new_password: newPassword } },
+    ),
+  regenerateRecoveryCodes: () =>
+    adminRequest<{ recovery_codes: string[]; revoked_session_count: number }>(
+      "/api/v1/admin/security/recovery-codes/regeneration",
+      { method: "POST" },
+    ),
+  sessions: () =>
+    adminRequest<{ sessions: AdministratorSession[] }>("/api/v1/admin/security/sessions"),
+  revokeSession: (sessionId: string) =>
+    adminRequest<{ revoked: true; logged_out: boolean }>(
+      `/api/v1/admin/security/sessions/${sessionId}/revocation`,
+      { method: "POST" },
+    ),
+  revokeOthers: () =>
+    adminRequest<{ revoked_count: number }>(
+      "/api/v1/admin/security/sessions/revoke-others",
+      { method: "POST" },
+    ),
+  events: (cursor?: string) =>
+    adminRequest<{ events: SecurityEvent[]; next_cursor: string | null }>(
+      `/api/v1/admin/security/events?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ""}limit=25`,
+    ),
 };

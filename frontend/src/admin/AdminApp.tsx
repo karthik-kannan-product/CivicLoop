@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminAPIError, adminAPI, type AuthenticationStage, type Enrollment } from "./api";
 import { EnrollmentConfirm, EnrollmentStart, PasswordScreen, RecoveryScreen, TotpScreen } from "./AuthScreens";
 import { RecoveryCodes } from "./RecoveryCodes";
+import { SecurityDashboard } from "./SecurityDashboard";
 
 type Screen = AuthenticationStage | "loading" | "recovery_code" | "enrollment_confirm" | "recovery_codes" | "unavailable";
 
@@ -75,7 +76,7 @@ export function AdminApp() {
   } else if (screen === "recovery_codes") {
     content = <RecoveryCodes codes={recoveryCodes} onContinue={() => { setRecoveryCodes([]); setScreen("authenticated"); }} />;
   } else {
-    content = <section className="admin-card"><p className="admin-eyebrow">Owner account</p><h1>Security overview</h1><p>Your administrator session is protected by password and TOTP.</p><button className="admin-button admin-button--secondary" onClick={() => void perform(async () => { await adminAPI.logout(); setScreen("anonymous"); })} type="button">Sign out</button></section>;
+    content = <SecurityDashboard onLoggedOut={() => setScreen("anonymous")} />;
   }
 
   return (

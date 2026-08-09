@@ -30,7 +30,9 @@ test("signs in with password and TOTP without persisting credentials", async () 
       expires_at: "2026-08-09T12:05:00Z",
       next_action: "verify_totp",
     }))
-    .mockImplementationOnce(() => jsonResponse({ stage: "authenticated" }));
+    .mockImplementationOnce(() => jsonResponse({ stage: "authenticated" }))
+    .mockImplementationOnce(() => jsonResponse({ sessions: [] }))
+    .mockImplementationOnce(() => jsonResponse({ events: [], next_cursor: null }));
   vi.stubGlobal("fetch", fetchMock);
 
   render(<AdminApp />);
@@ -42,7 +44,7 @@ test("signs in with password and TOTP without persisting credentials", async () 
   await user.click(screen.getByRole("button", { name: "Verify and sign in" }));
 
   expect(await screen.findByRole("heading", { name: "Security overview" })).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenLastCalledWith(
+  expect(fetchMock).toHaveBeenCalledWith(
     "/api/v1/admin/auth/totp",
     expect.objectContaining({ credentials: "same-origin", body: JSON.stringify({ token: "123456" }) }),
   );
@@ -73,7 +75,9 @@ test("enrolls an authenticator and displays recovery codes exactly once", async 
       .mockImplementationOnce(() => jsonResponse({
         stage: "authenticated",
         recovery_codes: recoveryCodes,
-      })),
+      }))
+      .mockImplementationOnce(() => jsonResponse({ sessions: [] }))
+      .mockImplementationOnce(() => jsonResponse({ events: [], next_cursor: null })),
   );
 
   render(<AdminApp />);
