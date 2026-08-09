@@ -41,3 +41,11 @@ def test_identity_key_mount_is_limited_to_web_and_management_contexts() -> None:
     assert mounted_services == {"migrate", "web"}
     assert services["worker"]["environment"]["CIVICLOOP_ADMIN_IDENTITY_ENABLED"] == "false"
     assert services["scheduler"]["environment"]["CIVICLOOP_ADMIN_IDENTITY_ENABLED"] == "false"
+
+
+def test_administrator_focus_target_does_not_collapse_the_mobile_layout() -> None:
+    styles = (REPOSITORY_ROOT / "frontend" / "src" / "admin" / "admin.css").read_text()
+    focus_rule = styles.split(".admin-focus-target {", 1)[1].split("}", 1)[0]
+
+    assert "height: 0" not in focus_rule
+    assert "width: 0" not in focus_rule
