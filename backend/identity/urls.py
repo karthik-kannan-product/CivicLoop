@@ -23,4 +23,22 @@ urlpatterns = [
         views.reauthentication,
         name="admin-reauthentication",
     ),
+    path("security/password", views.password_change, name="admin-password-change"),
+    path(
+        "security/recovery-codes/regeneration",
+        views.recovery_code_regeneration,
+        name="admin-recovery-code-regeneration",
+    ),
+    path("security/sessions", views.session_list, name="admin-session-list"),
+    path(
+        "security/sessions/revoke-others",
+        views.other_session_revocation,
+        name="admin-session-revoke-others",
+    ),
+    path(
+        "security/sessions/<uuid:session_id>/revocation",
+        views.session_revocation,
+        name="admin-session-revocation",
+    ),
+    path("security/events", views.security_event_list, name="admin-security-event-list"),
 ]

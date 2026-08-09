@@ -18,3 +18,15 @@ class IdentityRateLimited(IdentityError):
     def __init__(self, retry_after_seconds: int) -> None:
         self.retry_after_seconds = retry_after_seconds
         super().__init__("Too many verification attempts.")
+
+
+class IdentityFreshnessRequired(IdentityError):
+    pass
+
+
+class IdentityCredentialMismatch(IdentityError):
+    pass
+
+
+class IdentityValidationError(IdentityError):
+    pass

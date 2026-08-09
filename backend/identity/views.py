@@ -4,14 +4,18 @@ from uuid import UUID
 from django.conf import settings
 from django.http import Http404, HttpRequest, JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from identity.exceptions import (
+    IdentityCredentialMismatch,
     IdentityCryptoError,
     IdentityError,
+    IdentityFreshnessRequired,
     IdentityRateLimited,
     IdentityUnavailable,
+    IdentityValidationError,
 )
+from identity.models import AdministratorSession
 from identity.services.authentication import (
     complete_recovery_authentication,
     complete_totp_authentication,
@@ -23,6 +27,14 @@ from identity.services.authentication import (
     start_totp_enrollment,
     valid_preauthentication,
     verify_owner_password,
+)
+from identity.services.security_actions import (
+    change_password,
+    events_for,
+    regenerate_recovery_codes,
+    revoke_other_sessions,
+    revoke_owned_session,
+    sessions_for,
 )
 
 MAX_REQUEST_BYTES = 8192
@@ -372,3 +384,192 @@ def reauthentication(request: HttpRequest) -> JsonResponse:
     except IdentityError:
         return _verification_problem(request)
     return JsonResponse({"fresh": True}, headers={"Cache-Control": "no-store"})
+
+
+def _full_administrator(request: HttpRequest):
+    metadata = getattr(request, "administrator_session", None)
+    if metadata is None or metadata.recovery_restricted:
+        return None
+    return metadata
+
+
+def _freshness_problem(request: HttpRequest) -> JsonResponse:
+    return _problem(
+        request,
+        status=403,
+        code="fresh_verification_required",
+        title="Fresh verification required",
+        message="Complete fresh password and authenticator verification to continue.",
+    )
+
+
+@require_http_methods(["PUT"])
+def password_change(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    metadata = _full_administrator(request)
+    if metadata is None:
+        return _authentication_problem(request)
+    body = _json_body(request)
+    current_password = body.get("current_password") if body is not None else None
+    new_password = body.get("new_password") if body is not None else None
+    if not isinstance(current_password, str) or not isinstance(new_password, str):
+        return _problem(
+            request,
+            status=400,
+            code="invalid_request",
+            title="Invalid request",
+            message="The password-change request is invalid.",
+        )
+    try:
+        revoked_count = change_password(
+            request,
+            metadata,
+            current_password=current_password,
+            new_password=new_password,
+        )
+    except IdentityFreshnessRequired:
+        return _freshness_problem(request)
+    except IdentityCredentialMismatch:
+        return _problem(
+            request,
+            status=401,
+            code="current_password_invalid",
+            title="Password verification failed",
+            message="The current password is invalid.",
+        )
+    except IdentityValidationError as exc:
+        return _problem(
+            request,
+            status=400,
+            code="password_validation_failed",
+            title="Password validation failed",
+            message=str(exc),
+        )
+    return JsonResponse(
+        {"changed": True, "revoked_session_count": revoked_count},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_POST
+def recovery_code_regeneration(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    metadata = _full_administrator(request)
+    if metadata is None:
+        return _authentication_problem(request)
+    try:
+        result = regenerate_recovery_codes(request, metadata)
+    except IdentityFreshnessRequired:
+        return _freshness_problem(request)
+    return JsonResponse(
+        {
+            "recovery_codes": list(result.recovery_codes),
+            "revoked_session_count": result.revoked_count,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _time(value):
+    return value.isoformat() if value is not None else None
+
+
+@require_GET
+def session_list(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    current = _full_administrator(request)
+    if current is None:
+        return _authentication_problem(request)
+    rows = [
+        {
+            "id": str(row.id),
+            "device_label": row.device_label,
+            "source_ip": row.source_ip,
+            "created_at": _time(row.created_at),
+            "authenticated_at": _time(row.authenticated_at),
+            "last_activity_at": _time(row.last_activity_at),
+            "mfa_verified_at": _time(row.mfa_verified_at),
+            "absolute_expires_at": _time(row.absolute_expires_at),
+            "expires_at": _time(row.expires_at),
+            "revoked_at": _time(row.revoked_at),
+            "is_current": row.id == current.id,
+        }
+        for row in sessions_for(current.profile)
+    ]
+    return JsonResponse({"sessions": rows}, headers={"Cache-Control": "no-store"})
+
+
+@require_POST
+def session_revocation(request: HttpRequest, session_id: UUID) -> JsonResponse:
+    _require_feature()
+    current = _full_administrator(request)
+    if current is None:
+        return _authentication_problem(request)
+    try:
+        logged_out = revoke_owned_session(request, current, target_id=session_id)
+    except AdministratorSession.DoesNotExist:
+        return _problem(
+            request,
+            status=404,
+            code="session_not_found",
+            title="Session not found",
+            message="The administrator session was not found.",
+        )
+    return JsonResponse(
+        {"revoked": True, "logged_out": logged_out},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_POST
+def other_session_revocation(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    current = _full_administrator(request)
+    if current is None:
+        return _authentication_problem(request)
+    try:
+        count = revoke_other_sessions(request, current)
+    except IdentityFreshnessRequired:
+        return _freshness_problem(request)
+    return JsonResponse(
+        {"revoked_count": count},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_GET
+def security_event_list(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    current = _full_administrator(request)
+    if current is None:
+        return _authentication_problem(request)
+    cursor = request.GET.get("cursor")
+    try:
+        limit = int(request.GET.get("limit", "50"))
+        page = events_for(current.profile, cursor=cursor, limit=limit)
+    except (IdentityError, TypeError, ValueError):
+        return _problem(
+            request,
+            status=400,
+            code="invalid_pagination",
+            title="Invalid pagination",
+            message="The event pagination parameters are invalid.",
+        )
+    rows = [
+        {
+            "id": str(row.id),
+            "action": row.action,
+            "outcome": row.outcome,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "details": row.details,
+            "source_ip": row.source_ip,
+            "session_id": str(row.session_id) if row.session_id else None,
+            "created_at": row.created_at.isoformat(),
+        }
+        for row in page.events
+    ]
+    return JsonResponse(
+        {"events": rows, "next_cursor": page.next_cursor},
+        headers={"Cache-Control": "no-store"},
+    )
