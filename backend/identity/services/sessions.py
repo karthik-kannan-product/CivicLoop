@@ -31,22 +31,23 @@ def establish_administrator_session(
     request: HttpRequest,
     profile: AdministratorProfile,
     *,
-    mfa_verified_at: datetime,
+    mfa_verified_at: datetime | None,
     recovery_restricted: bool,
 ) -> AdministratorSession:
     if request.session.session_key is None:
         request.session.save()
     label, user_agent = _browser_metadata(request)
-    absolute_expiry = mfa_verified_at + timedelta(seconds=settings.ADMIN_ABSOLUTE_SECONDS)
+    authenticated_at = mfa_verified_at or timezone.now()
+    absolute_expiry = authenticated_at + timedelta(seconds=settings.ADMIN_ABSOLUTE_SECONDS)
     idle_expiry = min(
-        mfa_verified_at + timedelta(seconds=settings.ADMIN_IDLE_SECONDS),
+        authenticated_at + timedelta(seconds=settings.ADMIN_IDLE_SECONDS),
         absolute_expiry,
     )
     metadata = AdministratorSession.objects.create(
         profile=profile,
         session_key=request.session.session_key,
-        authenticated_at=mfa_verified_at,
-        last_activity_at=mfa_verified_at,
+        authenticated_at=authenticated_at,
+        last_activity_at=authenticated_at,
         mfa_verified_at=mfa_verified_at,
         fresh_verified_at=None,
         absolute_expires_at=absolute_expiry,
