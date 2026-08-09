@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:api:answers-request",
+  "title": "Workflow Answers Request",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "venue_name": { "type": "string", "maxLength": 240 },
+    "venue_address": { "type": "string", "maxLength": 500 },
+    "access_instructions": { "type": "string", "maxLength": 2000 }
+  }
+}

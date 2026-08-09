@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:launchloop:demo-state",
+  "title": "LaunchLoop Demo State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_mode", "actors", "event", "workflow", "approval", "execution", "timeline"],
+  "properties": {
+    "deployment_mode": { "const": "server" },
+    "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
+    "event": { "$ref": "#/$defs/event" },
+    "workflow": { "$ref": "#/$defs/workflow" },
+    "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/approval" }] },
+    "execution": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/execution" }] },
+    "timeline": { "type": "array", "items": { "$ref": "#/$defs/transition" } }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "display_name", "role"],
+      "properties": {
+        "slug": { "type": "string" },
+        "display_name": { "type": "string" },
+        "role": { "enum": ["operator", "approver"] }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "revision"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version", "facts", "author"],
+          "properties": {
+            "id": { "type": "integer", "minimum": 1 },
+            "version": { "type": "integer", "minimum": 1 },
+            "facts": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
+            "author": { "type": "string" }
+          }
+        }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "status", "summary"],
+      "properties": {
+        "label": { "type": "string" },
+        "status": { "enum": ["complete", "needs_input", "blocked"] },
+        "summary": { "type": "string" }
+      }
+    },
+    "campaignPackage": {
+      "type": "object",
+      "required": ["status", "missing_fields", "questions", "assets", "audience", "sponsor", "lanes", "evidence"],
+      "properties": {
+        "status": { "type": "string" },
+        "missing_fields": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "prompt"],
+            "properties": { "field": { "type": "string" }, "prompt": { "type": "string" } }
+          }
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["invitation", "reminder", "social"],
+          "properties": {
+            "invitation": { "$ref": "#/$defs/emailAsset" },
+            "reminder": { "$ref": "#/$defs/emailAsset" },
+            "social": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["body"],
+              "properties": { "body": { "type": "string" } }
+            }
+          }
+        },
+        "audience": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name", "member_count", "language"],
+          "properties": {
+            "id": { "type": ["string", "null"] },
+            "name": { "type": "string" },
+            "member_count": { "type": "integer", "minimum": 0 },
+            "language": { "type": "string" }
+          }
+        },
+        "sponsor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["passed", "tier", "expected_discount_percent", "actual_discount_percent", "general_ticket_price", "sponsor_ticket_price"],
+          "properties": {
+            "passed": { "type": "boolean" },
+            "tier": { "type": "string" },
+            "expected_discount_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "actual_discount_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "general_ticket_price": { "type": "number", "minimum": 0 },
+            "sponsor_ticket_price": { "type": "number", "minimum": 0 }
+          }
+        },
+        "lanes": { "type": "object", "additionalProperties": { "$ref": "#/$defs/lane" } },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "emailAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "body"],
+      "properties": { "subject": { "type": "string" }, "body": { "type": "string" } }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "package", "package_hash"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "status": { "enum": ["draft", "needs_input", "ready_for_review", "in_review", "approved", "completed"] },
+        "package": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/campaignPackage" }] },
+        "package_hash": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "package_hash", "submitter", "approver", "reason"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "status": { "enum": ["pending", "approved", "rejected"] },
+        "package_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "submitter": { "type": "string" },
+        "approver": { "type": ["string", "null"] },
+        "reason": { "type": "string" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "receipt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "status": { "const": "delivered" },
+        "receipt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["connector", "audience_count", "mode", "external_actions", "message"],
+          "properties": {
+            "connector": { "type": "string" },
+            "audience_count": { "type": "integer", "minimum": 0 },
+            "mode": { "type": "string" },
+            "external_actions": { "type": "integer", "minimum": 0 },
+            "message": { "type": "string" }
+          }
+        }
+      }
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "actor", "action", "from_status", "to_status", "details", "created_at"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "actor": { "type": "string" },
+        "action": { "type": "string" },
+        "from_status": { "type": "string" },
+        "to_status": { "type": "string" },
+        "details": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

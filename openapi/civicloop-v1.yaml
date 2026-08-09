@@ -1,0 +1,224 @@
+openapi: 3.1.1
+info:
+  title: CivicLoop API
+  version: 0.1.0
+  summary: Human-approved nonprofit operations workflows
+  description: >-
+    Same-origin, session-authenticated API for the current synthetic LaunchLoop
+    deployment. POST operations require Django CSRF protection.
+servers:
+  - url: /
+security:
+  - sessionCookie: []
+tags:
+  - name: Authentication
+  - name: LaunchLoop
+  - name: Approvals
+  - name: Health
+paths:
+  /api/v1/auth/session:
+    get:
+      tags: [Authentication]
+      operationId: getSession
+      summary: Return the authenticated demo identity
+      responses:
+        "200": { $ref: "#/components/responses/SessionResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Start a server-side session
+      security: []
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/api/login-request.schema.json" }
+      responses:
+        "200": { $ref: "#/components/responses/SessionResponse" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logout
+      summary: End the server-side session
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200":
+          description: Session ended
+          content:
+            application/json:
+              schema: { $ref: "../schemas/api/logout-response.schema.json" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/demo:
+    get:
+      tags: [LaunchLoop]
+      operationId: getDemoState
+      summary: Return the durable synthetic LaunchLoop state
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/demo/reset:
+    post:
+      tags: [LaunchLoop]
+      operationId: resetDemo
+      summary: Reset the synthetic workspace as the operator
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/workflows/{workflowId}/runs:
+    post:
+      tags: [LaunchLoop]
+      operationId: runWorkflow
+      summary: Run the deterministic LaunchLoop package builder
+      parameters:
+        - { $ref: "#/components/parameters/WorkflowId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/workflows/{workflowId}/answers:
+    post:
+      tags: [LaunchLoop]
+      operationId: answerWorkflowQuestions
+      summary: Save one or more grounded event facts
+      parameters:
+        - { $ref: "#/components/parameters/WorkflowId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/api/answers-request.schema.json" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/workflows/{workflowId}/submit:
+    post:
+      tags: [LaunchLoop]
+      operationId: submitWorkflow
+      summary: Submit the exact package for four-eyes approval
+      parameters:
+        - { $ref: "#/components/parameters/WorkflowId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/approvals/{approvalId}/decision:
+    post:
+      tags: [Approvals]
+      operationId: decideApproval
+      summary: Approve or reject the exact submitted package
+      parameters:
+        - { $ref: "#/components/parameters/ApprovalId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/api/approval-decision-request.schema.json" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Report process liveness
+      security: []
+      responses:
+        "200":
+          description: Process is live
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties: { status: { const: ok } }
+  /api/v1/health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Report required dependency readiness
+      security: []
+      responses:
+        "200": { $ref: "#/components/responses/ReadinessResponse" }
+        "503": { $ref: "#/components/responses/ReadinessResponse" }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: sessionid
+  parameters:
+    CsrfToken:
+      name: X-CSRFToken
+      in: header
+      required: true
+      schema: { type: string, minLength: 1 }
+      description: Same-origin Django CSRF token from the csrftoken cookie.
+    WorkflowId:
+      name: workflowId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ApprovalId:
+      name: approvalId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    SessionResponse:
+      description: Current authenticated session
+      content:
+        application/json:
+          schema: { $ref: "../schemas/api/session-response.schema.json" }
+    DemoStateResponse:
+      description: Current durable synthetic LaunchLoop state
+      content:
+        application/json:
+          schema: { $ref: "../schemas/launchloop/demo-state.schema.json" }
+    ProblemResponse:
+      description: RFC 9457 problem with stable CivicLoop extensions
+      content:
+        application/problem+json:
+          schema: { $ref: "../schemas/api/problem-details.schema.json" }
+    ReadinessResponse:
+      description: Readiness state and bounded dependency results
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [status, dependencies]
+            properties:
+              status: { enum: [ready, not_ready] }
+              dependencies:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties: false
+                  required: [ready]
+                  properties: { ready: { type: boolean } }
