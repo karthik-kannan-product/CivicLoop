@@ -71,6 +71,9 @@ set its absolute host path even while the feature flag remains disabled. Follow
 [the administrator security runbook](docs/admin-security.md); the architecture
 decision is recorded in
 [ADR-0002](docs/adr/0002-owner-identity-and-mfa.md).
+
+For the complete, resumable local-to-GitHub-to-server delivery process, use the
+[development-to-server runbook](docs/development-to-vultr-runbook.md).
 ### Authenticated demo journey
 
 The self-hosted application now provides a temporary, synthetic two-role demo:
