@@ -127,7 +127,7 @@ docker compose run --rm --no-deps web manage purge_administrator_sessions
 Example root cron entry (choose a time appropriate for the host):
 
 ```cron
-17 3 * * * cd /srv/civicloop/app && /usr/bin/docker compose run --rm --no-deps web manage purge_administrator_sessions >>/var/log/civicloop-session-cleanup.log 2>&1
+17 3 * * * cd /opt/civicloop/app && /usr/bin/docker compose run --rm --no-deps web manage purge_administrator_sessions >>/var/log/civicloop-session-cleanup.log 2>&1
 ```
 
 Restrict and rotate that log. It must never contain credentials; treat any

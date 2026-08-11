@@ -162,7 +162,7 @@ Run read-only checks first. Do not print `.env` or secret-file contents.
 
 ```bash
 hostname
-cd /srv/civicloop/app
+cd /opt/civicloop/app
 git remote -v
 git branch --show-current
 git rev-parse HEAD
@@ -184,7 +184,7 @@ Fetch the reviewed branch, verify the commit exists, and check out the exact
 approved SHA. Never use an unreviewed server-local commit.
 
 ```bash
-cd /srv/civicloop/app
+cd /opt/civicloop/app
 git fetch origin
 git cat-file -e <approved-sha>^{commit}
 git checkout --detach <approved-sha>
