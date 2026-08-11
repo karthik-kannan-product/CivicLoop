@@ -236,6 +236,7 @@ def test_password_endpoint_fails_closed_when_rate_limit_backend_is_unavailable(
     assert "valkey" not in response.content.decode().lower()
 
 
+@override_settings(CIVICLOOP_ADMIN_IDENTITY_ENABLED=False)
 def test_administrator_api_is_not_exposed_when_feature_is_disabled(db) -> None:
     response = Client().get("/api/v1/admin/security/status")
 
