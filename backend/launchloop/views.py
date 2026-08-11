@@ -49,11 +49,33 @@ def _operator(request: HttpRequest) -> DemoActor:
     return actor
 
 
-def _respond(operation: Callable[[], dict[str, Any]]) -> JsonResponse:
+def _problem(request: HttpRequest, error: DemoError) -> JsonResponse:
+    title = error.code.replace("_", " ").capitalize()
+
+    payload = {
+        "type": f"urn:civicloop:problem:{error.code}",
+        "title": title,
+        "status": error.status,
+        "detail": error.message,
+        "instance": request.path,
+        "code": error.code,
+        "message": error.message,
+    }
+    return JsonResponse(
+        payload,
+        status=error.status,
+        content_type="application/problem+json",
+    )
+
+
+def _respond(
+    request: HttpRequest,
+    operation: Callable[[], dict[str, Any]],
+) -> JsonResponse:
     try:
         return JsonResponse(operation())
     except DemoError as error:
-        return JsonResponse({"code": error.code, "message": error.message}, status=error.status)
+        return _problem(request, error)
 
 
 def _session_payload(actor: DemoActor) -> dict[str, Any]:
@@ -69,7 +91,7 @@ def _session_payload(actor: DemoActor) -> dict[str, Any]:
 @ensure_csrf_cookie
 @require_GET
 def auth_session(request: HttpRequest) -> JsonResponse:
-    return _respond(lambda: _session_payload(_actor(request)))
+    return _respond(request, lambda: _session_payload(_actor(request)))
 
 
 @require_POST
@@ -87,7 +109,7 @@ def auth_login(request: HttpRequest) -> JsonResponse:
             reset_demo()
         return _session_payload(actor_for_user(user))
 
-    return _respond(operation)
+    return _respond(request, operation)
 
 
 @require_POST
@@ -98,23 +120,27 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def demo_state(request: HttpRequest) -> JsonResponse:
-    return _respond(lambda: (_actor(request), serialize_demo(current_workflow()))[1])
+    return _respond(request, lambda: (_actor(request), serialize_demo(current_workflow()))[1])
 
 
 @require_POST
 def demo_reset(request: HttpRequest) -> JsonResponse:
-    return _respond(lambda: (_operator(request), serialize_demo(reset_demo()))[1])
+    return _respond(request, lambda: (_operator(request), serialize_demo(reset_demo()))[1])
 
 
 @require_POST
 def workflow_run(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
-    return _respond(lambda: serialize_demo(run_workflow(workflow_id, _actor(request))))
+    return _respond(
+        request,
+        lambda: serialize_demo(run_workflow(workflow_id, _actor(request))),
+    )
 
 
 @require_POST
 def workflow_answers(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
     return _respond(
-        lambda: serialize_demo(answer_questions(workflow_id, _actor(request), _body(request)))
+        request,
+        lambda: serialize_demo(answer_questions(workflow_id, _actor(request), _body(request))),
     )
 
 
@@ -124,7 +150,7 @@ def workflow_submit(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
         submit_workflow(workflow_id, _actor(request))
         return serialize_demo(workflow_for(workflow_id))
 
-    return _respond(operation)
+    return _respond(request, operation)
 
 
 @require_POST
@@ -140,4 +166,4 @@ def approval_decision(request: HttpRequest, approval_id: UUID) -> JsonResponse:
         )
         return serialize_demo(approval.workflow)
 
-    return _respond(operation)
+    return _respond(request, operation)

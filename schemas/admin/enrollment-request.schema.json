@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:enrollment-request",
+  "title": "TOTP enrollment request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["label"],
+  "properties": {
+    "label": { "type": "string", "minLength": 1, "maxLength": 64 }
+  }
+}

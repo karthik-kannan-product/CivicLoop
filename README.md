@@ -55,8 +55,25 @@ The loop is intentionally scoped to event campaign launch. It is not a full nonp
 
 CivicLoop now includes the container foundation for the self-hosted application.
 The current increment provides the web shell, health contracts, PostgreSQL,
-Valkey, and Celery process modes. Authentication and live LaunchLoop agents are
-delivered in later reviewed increments.
+Valkey, Celery process modes, a synthetic authenticated demo, and a separately
+feature-gated single-owner administrator security surface.
+
+### Administrator security
+
+The owner identity is separate from LaunchLoop's synthetic users. It uses a
+password plus TOTP, single-use recovery codes, database-enforced session limits,
+fresh verification for sensitive changes, fail-closed Valkey throttling, and
+append-only PostgreSQL security events. The administrator API is specified in
+OpenAPI 3.1 with JSON Schema 2020-12 payload contracts.
+
+Before the first Compose start, create the external identity key-ring file and
+set its absolute host path even while the feature flag remains disabled. Follow
+[the administrator security runbook](docs/admin-security.md); the architecture
+decision is recorded in
+[ADR-0002](docs/adr/0002-owner-identity-and-mfa.md).
+
+For the complete, resumable local-to-GitHub-to-server delivery process, use the
+[development-to-server runbook](docs/development-to-vultr-runbook.md).
 ### Authenticated demo journey
 
 The self-hosted application now provides a temporary, synthetic two-role demo:
@@ -83,7 +100,8 @@ command; the foundation cannot start when the Docker daemon is unavailable.
 
 ```powershell
 Copy-Item .env.example .env
-# Replace the example passwords and secret in the untracked .env file.
+# Follow docs/admin-security.md to create the external key ring.
+# Replace the example passwords, host path, and secret in the untracked .env file.
 docker compose up -d --build
 for ($attempt = 1; $attempt -le 30; $attempt++) {
   docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000
@@ -98,6 +116,10 @@ if ($LASTEXITCODE -ne 0) {
 ```
 
 Open http://localhost:8000.
+
+When explicitly enabled, the owner interface is at `/admin/security`. Django's
+framework administration route is `/internal/django-admin/`; it does not grant
+CivicLoop owner authorization.
 
 ### Verify
 
@@ -128,6 +150,20 @@ that local data. This foundation’s architecture is described in the
 [CivicLoop v1 architecture design](docs/2026-07-30-civicloop-v1-architecture-design.md),
 the [broader CivicLoop vision](docs/civicloop-vision.md),
 and the [repository boundary](docs/repository-boundary.md).
+
+## API documentation
+
+With CivicLoop running, open `/api/docs` for the self-hosted Swagger UI.
+The canonical OpenAPI 3.1 document is `openapi/civicloop-v1.yaml`, and reusable
+JSON Schema 2020-12 contracts live in `schemas/`.
+
+Validate the contracts with:
+
+```powershell
+uv run python scripts/validate_api_contracts.py
+```
+
+See `docs/api-contracts.md` for contributor rules and authentication details.
 
 ## Run LaunchLoop Locally
 

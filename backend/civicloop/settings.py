@@ -8,6 +8,54 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 REPOSITORY_ROOT = BASE_DIR.parent
 
 ENVIRONMENT = os.getenv("CIVICLOOP_ENV", "development")
+
+
+def _environment_boolean(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ImproperlyConfigured(f"{name} must be a boolean.")
+
+
+CIVICLOOP_ADMIN_IDENTITY_ENABLED = _environment_boolean(
+    "CIVICLOOP_ADMIN_IDENTITY_ENABLED",
+    False,
+)
+configured_identity_key_file = os.getenv("CIVICLOOP_IDENTITY_KEY_FILE", "").strip()
+CIVICLOOP_IDENTITY_KEY_FILE = (
+    Path(configured_identity_key_file) if configured_identity_key_file else None
+)
+if CIVICLOOP_ADMIN_IDENTITY_ENABLED:
+    identity_key_file_is_safe = (
+        CIVICLOOP_IDENTITY_KEY_FILE is not None
+        and CIVICLOOP_IDENTITY_KEY_FILE.is_file()
+        and os.access(CIVICLOOP_IDENTITY_KEY_FILE, os.R_OK)
+    )
+    if identity_key_file_is_safe and os.name != "nt":
+        identity_key_file_is_safe = not bool(
+            CIVICLOOP_IDENTITY_KEY_FILE.stat().st_mode & 0o077
+        )
+    if not identity_key_file_is_safe:
+        raise ImproperlyConfigured(
+            "The administrator identity key file must be configured as a readable "
+            "regular file with owner-only permissions."
+        )
+
+ADMIN_PREAUTH_SECONDS = 5 * 60
+ADMIN_IDLE_SECONDS = 30 * 60
+ADMIN_ABSOLUTE_SECONDS = 12 * 60 * 60
+ADMIN_FRESH_SECONDS = 10 * 60
+ADMIN_ACTIVITY_UPDATE_SECONDS = 60
+ADMIN_TRUSTED_PROXY_IPS = frozenset(
+    value.strip()
+    for value in os.getenv("CIVICLOOP_ADMIN_TRUSTED_PROXY_IPS", "").split(",")
+    if value.strip()
+)
 DEVELOPMENT_SECRET_KEY = "development-only-not-for-production"
 DOCUMENTED_PLACEHOLDER_SECRET_KEY = "replace-with-at-least-50-random-characters"
 INSECURE_PRODUCTION_SECRET_KEYS = {
@@ -63,8 +111,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_otp",
+    "api_contracts",
     "foundation",
     "health",
+    "identity",
     "launchloop",
 ]
 
@@ -75,6 +126,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "identity.middleware.AdministratorSessionMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -120,6 +172,12 @@ STATIC_URL = "/assets/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 FRONTEND_DIST = REPOSITORY_ROOT / "frontend" / "dist"
 FRONTEND_INDEX = FRONTEND_DIST / "index.html"
+ADMIN_FRONTEND_INDEX = FRONTEND_DIST / "admin.html"
+SWAGGER_INDEX = FRONTEND_DIST / "swagger.html"
+API_CONTRACT_ROOTS = {
+    "openapi": REPOSITORY_ROOT / "openapi",
+    "schemas": REPOSITORY_ROOT / "schemas",
+}
 
 if (FRONTEND_DIST / "assets").exists():
     STATICFILES_DIRS = [FRONTEND_DIST / "assets"]
@@ -133,6 +191,27 @@ STORAGES = {
     },
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+]
+
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
 
 try:
     configured_agent_concurrency = int(os.getenv("AGENT_MAX_CONCURRENCY", "3"))

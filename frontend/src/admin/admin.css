@@ -1,0 +1,69 @@
+:root {
+  --admin-ink: #17211f;
+  --admin-muted: #56645f;
+  --admin-canvas: #eef2ed;
+  --admin-surface: #ffffff;
+  --admin-border: #c4cec8;
+  --admin-brand: #173f37;
+  --admin-action: #1f6859;
+  --admin-focus: #e5ad3d;
+  --admin-danger: #782f28;
+  --admin-danger-soft: #f8e5e2;
+  --admin-warning: #694300;
+  --admin-warning-soft: #fff0c7;
+  color: var(--admin-ink);
+  background: var(--admin-canvas);
+  font-family: Inter, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--admin-focus); outline-offset: 3px; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: 0.65; }
+h1, p { margin-top: 0; }
+h1 { font-size: clamp(1.75rem, 5vw, 2.5rem); letter-spacing: -0.035em; line-height: 1.1; margin-bottom: 0.75rem; }
+
+.admin-shell { display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; }
+.admin-header { align-items: center; background: var(--admin-brand); color: white; display: flex; justify-content: space-between; padding: 0.875rem clamp(1rem, 4vw, 3rem); }
+.admin-header p { color: #c5d9d3; font-size: 0.875rem; margin: 0; }
+.admin-brand { align-items: center; color: white; display: flex; gap: 0.75rem; text-decoration: none; }
+.admin-brand span { align-items: center; background: white; border-radius: 0.375rem; color: var(--admin-brand); display: flex; font-size: 0.75rem; font-weight: 900; height: 2.25rem; justify-content: center; width: 2.25rem; }
+.admin-main { margin: 0 auto; max-width: 48rem; padding: clamp(1.25rem, 5vw, 4rem) 1rem; width: 100%; }
+.admin-focus-target { outline: 0; }
+.admin-card { background: var(--admin-surface); border: 1px solid var(--admin-border); padding: clamp(1.25rem, 4vw, 2.5rem); }
+.admin-card > p:not(.admin-eyebrow) { color: var(--admin-muted); max-width: 40rem; }
+.admin-eyebrow { color: var(--admin-action); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; margin-bottom: 0.375rem; text-transform: uppercase; }
+.admin-form { display: grid; gap: 0.75rem; }
+.admin-form label, .admin-secret-label { font-size: 0.875rem; font-weight: 750; margin-top: 0.5rem; }
+.admin-form input { background: white; border: 1px solid #8a9993; border-radius: 0.25rem; min-height: 2.875rem; padding: 0.625rem 0.75rem; width: 100%; }
+.admin-button { border: 1px solid transparent; border-radius: 0.25rem; font-weight: 750; min-height: 2.75rem; padding: 0.625rem 1rem; }
+.admin-button--primary { background: var(--admin-action); color: white; margin-top: 0.75rem; }
+.admin-button--secondary { background: white; border-color: #75857f; color: var(--admin-brand); }
+.admin-button--text { background: transparent; color: var(--admin-brand); text-decoration: underline; text-underline-offset: 0.2rem; }
+.admin-error { background: var(--admin-danger-soft); border-left: 4px solid var(--admin-danger); color: var(--admin-danger); font-weight: 700; margin-bottom: 1rem; padding: 0.875rem 1rem; }
+.admin-warning { background: var(--admin-warning-soft); border-left: 4px solid var(--admin-focus); color: var(--admin-warning); margin: 1.25rem 0; padding: 1rem; }
+.admin-enrollment { display: grid; gap: 2rem; grid-template-columns: minmax(0, 1fr) minmax(14rem, 0.8fr); }
+.admin-qr { background: white; border: 1px solid var(--admin-border); display: inline-flex; margin: 0.5rem 0 1rem; padding: 0.75rem; }
+.admin-secret-label { display: block; margin-bottom: 0.375rem; }
+.admin-secret { background: #edf1ee; display: block; font-size: 1rem; overflow-wrap: anywhere; padding: 0.75rem; }
+.admin-code-list { columns: 2; font-size: 0.875rem; padding-left: 1.5rem; }
+.admin-code-list li { break-inside: avoid; margin-bottom: 0.5rem; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+.admin-footer { color: var(--admin-muted); font-size: 0.75rem; padding: 1rem; text-align: center; }
+
+@media (max-width: 42rem) {
+  .admin-header p { display: none; }
+  .admin-enrollment { grid-template-columns: 1fr; }
+  .admin-code-list { columns: 1; }
+  .admin-actions { align-items: stretch; flex-direction: column; }
+}
+
+@media print {
+  .admin-header, .admin-footer, .admin-actions, .admin-warning { display: none; }
+  .admin-main { max-width: none; padding: 0; }
+  .admin-card { border: 0; padding: 0; }
+  .admin-code-list { columns: 2; }
+}

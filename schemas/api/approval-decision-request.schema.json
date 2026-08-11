@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:api:approval-decision-request",
+  "title": "Approval Decision Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision", "package_hash"],
+  "properties": {
+    "decision": { "enum": ["approve", "reject"] },
+    "package_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "reason": { "type": "string", "maxLength": 4000 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "reject" } } },
+      "then": { "required": ["reason"], "properties": { "reason": { "minLength": 1 } } }
+    }
+  ]
+}

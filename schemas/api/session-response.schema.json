@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:api:session-response",
+  "title": "Session Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["user"],
+  "properties": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["username", "display_name", "role"],
+      "properties": {
+        "username": { "type": "string" },
+        "display_name": { "type": "string" },
+        "role": { "enum": ["operator", "approver"] }
+      }
+    }
+  }
+}

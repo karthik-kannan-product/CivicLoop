@@ -266,3 +266,22 @@ def test_approver_cannot_change_event_facts_or_run_agents() -> None:
 
     assert response.status_code == 403
     assert response.json()["code"] == "operator_required"
+
+
+@pytest.mark.django_db
+def test_api_errors_use_problem_details_with_compatibility_extensions() -> None:
+    client = Client()
+
+    response = client.get("/api/v1/demo")
+
+    assert response.status_code == 401
+    assert response["Content-Type"].startswith("application/problem+json")
+    assert response.json() == {
+        "type": "urn:civicloop:problem:authentication_required",
+        "title": "Authentication required",
+        "status": 401,
+        "detail": "Sign in to use the demo workspace.",
+        "instance": "/api/v1/demo",
+        "code": "authentication_required",
+        "message": "Sign in to use the demo workspace.",
+    }

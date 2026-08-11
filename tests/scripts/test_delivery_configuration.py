@@ -44,12 +44,18 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert migrate in workflow
     assert runtime in workflow
     assert readiness in workflow
+    assert "--require-admin-identity" in workflow
+    assert "CIVICLOOP_IDENTITY_KEY_FILE: /tmp/civicloop-ci-identity-keyring.json" in workflow
+    assert "test_security_event_database.py" in workflow
+    assert "test_credential_concurrency.py" in workflow
+    assert "test_rate_limits.py" in workflow
+    assert "sudo chown 10001:10001 /tmp/civicloop-compose-identity-keyring.json" in workflow
     assert workflow.index(dependencies) < workflow.index(migrate) < workflow.index(runtime)
     assert "if: failure()" in workflow
     assert "docker compose ps -a" in workflow
     assert "docker compose logs" in workflow
     assert "if: always()" in workflow
-    assert workflow.index("if: failure()") < workflow.index("if: always()")
+    assert workflow.index("if: failure()") < workflow.rindex("if: always()")
     assert "docker compose ps --services --status running" in workflow
     assert "grep -Fxq web" in workflow
     assert "grep -Fxq worker" in workflow

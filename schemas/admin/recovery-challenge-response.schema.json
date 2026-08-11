@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:recovery-challenge-response",
+  "title": "Recovery authentication result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stage", "next_action"],
+  "properties": {
+    "stage": { "const": "recovery_restricted" },
+    "next_action": { "const": "replace_totp" }
+  }
+}

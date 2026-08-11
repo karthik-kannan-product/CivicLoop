@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:api:problem-details",
+  "title": "Problem Details",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["type", "title", "status", "detail", "instance", "code", "message"],
+  "properties": {
+    "type": { "type": "string", "format": "uri-reference" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+    "detail": { "type": "string", "minLength": 1 },
+    "instance": { "type": "string", "format": "uri-reference" },
+    "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "message": { "type": "string", "minLength": 1 }
+  }
+}

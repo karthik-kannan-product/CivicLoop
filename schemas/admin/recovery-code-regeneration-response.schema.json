@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:recovery-code-regeneration-response",
+  "title": "One-time regenerated recovery codes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recovery_codes", "revoked_session_count"],
+  "properties": {
+    "recovery_codes": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "readOnly": true,
+      "items": { "type": "string", "pattern": "^[A-Z2-7]{8}-[A-Z2-7]{26}$" }
+    },
+    "revoked_session_count": { "type": "integer", "minimum": 0 }
+  }
+}

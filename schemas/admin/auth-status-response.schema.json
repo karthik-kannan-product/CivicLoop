@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:admin:auth-status-response",
+  "title": "Administrator authentication status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stage"],
+  "properties": {
+    "stage": { "enum": ["anonymous", "password_verified", "recovery_restricted", "authenticated"] }
+  }
+}

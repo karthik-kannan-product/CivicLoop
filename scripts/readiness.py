@@ -9,6 +9,10 @@ from urllib.request import urlopen
 
 DEFAULT_REQUEST_DEADLINE_SECONDS = 5.0
 HEALTH_PATH = "/api/v1/health"
+ADMIN_STATUS_PATH = "/api/v1/admin/security/status"
+ADMIN_STAGES = frozenset(
+    {"anonymous", "password_verified", "recovery_restricted", "authenticated"}
+)
 
 
 class ReadinessArgumentParser(argparse.ArgumentParser):
@@ -34,6 +38,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--timeout", type=positive_timeout, default=DEFAULT_REQUEST_DEADLINE_SECONDS
     )
+    parser.add_argument(
+        "--require-admin-identity",
+        action="store_true",
+        help="Require the feature-gated administrator identity status endpoint.",
+    )
     return parser.parse_args(argv)
 
 
@@ -49,6 +58,10 @@ def fetch_json(url: str, timeout: float) -> dict[str, object]:
 
 def health_url(base_url: str, endpoint: str) -> str:
     return f"{base_url.rstrip('/')}{HEALTH_PATH}/{endpoint}"
+
+
+def application_url(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}{path}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -69,12 +82,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if ready_timeout <= 0:
             raise TimeoutError
         ready = fetch_json(health_url(base_url, "ready"), ready_timeout)
+        admin_status = None
+        if args.require_admin_identity:
+            admin_timeout = deadline - monotonic()
+            if admin_timeout <= 0:
+                raise TimeoutError
+            admin_status = fetch_json(
+                application_url(base_url, ADMIN_STATUS_PATH),
+                admin_timeout,
+            )
     except Exception:
         print("CivicLoop is not reachable or not ready.")
         return 1
 
     if live.get("status") != "ok" or ready.get("status") != "ready":
         print("CivicLoop is reachable but not ready.")
+        return 1
+    if args.require_admin_identity and (
+        admin_status is None or admin_status.get("stage") not in ADMIN_STAGES
+    ):
+        print("CivicLoop is reachable but administrator identity is not ready.")
         return 1
 
     print("CivicLoop is ready.")

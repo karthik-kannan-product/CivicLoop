@@ -5,6 +5,7 @@
 *.pfx
 *.cer
 loop1key.txt
+*identity-keyring*.json
 
 # Python
 __pycache__/
