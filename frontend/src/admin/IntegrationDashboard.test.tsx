@@ -3,15 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { IntegrationDashboard } from "./IntegrationDashboard";
+import { parseConnections } from "./integrations";
 
 const connection = {
   provider: "openai",
   state: "healthy",
   capabilities: ["connection_test", "inference"],
-  configuration: { region: "us", model: "openai/gpt-oss-20b" },
+  configuration: { model: "openai/gpt-oss-20b" },
   version: 3,
   created_at: "2026-08-10T10:00:00Z",
   updated_at: "2026-08-10T11:00:00Z",
+  credential_rotated_at: "2026-08-10T11:00:00Z",
+  responsible_actor_id: "00000000-0000-4000-8000-000000000010",
   last_successful_test_at: "2026-08-10T11:00:00Z",
   last_failure_category: null,
 };
@@ -31,6 +34,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   window.localStorage.clear();
   window.sessionStorage.clear();
+});
+
+test("rejects missing audit ownership and cross-provider configurations", () => {
+  expect(parseConnections({ connections: [{ ...connection, credential_rotated_at: undefined }] })).toEqual([]);
+  expect(parseConnections({ connections: [{ ...connection, provider: "eventbrite", configuration: { region: "us" } }] })).toEqual([]);
+  expect(parseConnections({ connections: [{ ...connection, provider: "iterable", configuration: { model: "openai/gpt-oss-20b" } }] })).toEqual([]);
 });
 
 test("renders the four provider cards while safely ignoring malformed metadata", async () => {
@@ -80,9 +89,10 @@ test("clears the entered credential after a version conflict and exposes only al
     .mockResolvedValueOnce(response({ connections: [connection] }))
     .mockResolvedValueOnce(response({ fresh: true }))
     .mockResolvedValueOnce(response({ code: "version_conflict", message: "Connection changed elsewhere." }, 409))
+    .mockResolvedValueOnce(response({ connections: [connection] }))
     .mockResolvedValueOnce(response({ events: [
-      { action: "credential_replaced", outcome: "success", correlation_id: "00000000-0000-4000-8000-000000000001", created_at: "2026-08-10T11:00:00Z" },
-      { action: "credential_exfiltrated", outcome: "success", correlation_id: "00000000-0000-4000-8000-000000000002", created_at: "2026-08-10T11:00:00Z" },
+      { action: "credential_replaced", outcome: "success", actor_id: "00000000-0000-4000-8000-000000000010", version: 3, failure_category: null, correlation_id: "00000000-0000-4000-8000-000000000001", created_at: "2026-08-10T11:00:00Z" },
+      { action: "credential_exfiltrated", outcome: "success", actor_id: null, version: 3, failure_category: null, correlation_id: "00000000-0000-4000-8000-000000000002", created_at: "2026-08-10T11:00:00Z" },
     ], next_cursor: null }));
   vi.stubGlobal("fetch", fetchMock);
 
@@ -94,7 +104,8 @@ test("clears the entered credential after a version conflict and exposes only al
   await user.click(screen.getByRole("button", { name: "Verify and continue" }));
   await user.type(await screen.findByLabelText("Credential for OpenAI"), "will-be-cleared");
   await user.click(screen.getByRole("button", { name: "Save credential" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Connection changed elsewhere.");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Metadata was refreshed");
+  expect(screen.queryByText("Connection changed elsewhere.")).not.toBeInTheDocument();
   expect(screen.queryByDisplayValue("will-be-cleared")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "View OpenAI history" }));

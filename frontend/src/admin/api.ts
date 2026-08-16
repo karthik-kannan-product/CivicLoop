@@ -57,11 +57,13 @@ export type IntegrationConnection = {
   version: number;
   created_at: string;
   updated_at: string;
+  credential_rotated_at: string | null;
+  responsible_actor_id: string | null;
   last_successful_test_at: string | null;
   last_failure_category: "authentication" | "authorization" | "rate_limit" | "timeout" | "network" | "invalid_response" | "provider_unavailable" | null;
 };
 export type ConnectionTest = { provider: IntegrationProvider; outcome: "healthy" | "degraded"; error_category: IntegrationConnection["last_failure_category"]; duration_ms: number; correlation_id: string; tested_at: string };
-export type IntegrationAuditEvent = { action: "credential_replaced" | "configuration_changed" | "connection_tested" | "connection_disabled"; outcome: "success" | "failure" | "denied" | "unavailable"; correlation_id: string; created_at: string };
+export type IntegrationAuditEvent = { action: "credential_replaced" | "configuration_changed" | "connection_tested" | "connection_disabled"; outcome: "success" | "failure" | "denied" | "unavailable"; actor_id: string | null; version: number; failure_category: IntegrationConnection["last_failure_category"]; correlation_id: string; created_at: string };
 export type CredentialReplacement = { credential: string; expected_version: number };
 export type ConfigurationPatch = { configuration: SafeConfiguration; expected_version: number };
 export type VersionedAction = { expected_version: number };
@@ -190,17 +192,17 @@ export const adminAPI = {
     adminRequest<{ events: SecurityEvent[]; next_cursor: string | null }>(
       `/api/v1/admin/security/events?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ""}limit=25`,
     ),
-  integrations: () => adminRequest<{ connections: unknown }>("/api/v1/admin/integrations"),
+  integrations: () => adminRequest<unknown>("/api/v1/admin/integrations"),
   replaceIntegrationCredential: (provider: IntegrationProvider, body: CredentialReplacement) =>
-    adminRequest<IntegrationConnection>(`/api/v1/admin/integrations/${provider}/credential`, { method: "PUT", body }),
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/credential`, { method: "PUT", body }),
   updateIntegrationConfiguration: (provider: IntegrationProvider, body: ConfigurationPatch) =>
-    adminRequest<IntegrationConnection>(`/api/v1/admin/integrations/${provider}/configuration`, { method: "PATCH", body }),
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/configuration`, { method: "PATCH", body }),
   testIntegration: (provider: IntegrationProvider, body: VersionedAction) =>
-    adminRequest<ConnectionTest>(`/api/v1/admin/integrations/${provider}/test`, { method: "POST", body }),
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/test`, { method: "POST", body }),
   disableIntegration: (provider: IntegrationProvider, body: VersionedAction) =>
-    adminRequest<IntegrationConnection>(`/api/v1/admin/integrations/${provider}/disable`, { method: "POST", body }),
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/disable`, { method: "POST", body }),
   integrationAudit: (provider: IntegrationProvider, cursor?: string) =>
-    adminRequest<{ events: unknown; next_cursor: string | null }>(
+    adminRequest<unknown>(
       `/api/v1/admin/integrations/${provider}/audit?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ""}limit=50`,
     ),
 };
