@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AdminAPIError, adminAPI, type AuthenticationStage, type Enrollment } from "./api";
 import { EnrollmentConfirm, EnrollmentStart, PasswordScreen, RecoveryScreen, TotpScreen } from "./AuthScreens";
+import { AdminNavigation, adminPathname } from "./AdminNavigation";
+import { IntegrationDashboard } from "./IntegrationDashboard";
 import { RecoveryCodes } from "./RecoveryCodes";
 import { SecurityDashboard } from "./SecurityDashboard";
 
@@ -76,17 +78,18 @@ export function AdminApp() {
   } else if (screen === "recovery_codes") {
     content = <RecoveryCodes codes={recoveryCodes} onContinue={() => { setRecoveryCodes([]); setScreen("authenticated"); }} />;
   } else {
-    content = <SecurityDashboard onLoggedOut={() => setScreen("anonymous")} />;
+    const current = adminPathname(window.location.pathname);
+    content = <><AdminNavigation current={current} />{current === "integrations" ? <IntegrationDashboard /> : <SecurityDashboard onLoggedOut={() => setScreen("anonymous")} />}</>;
   }
 
   return (
     <div className="admin-shell">
-      <header className="admin-header"><a className="admin-brand" href="/" aria-label="CivicLoop home"><span aria-hidden="true">CL</span><strong>CivicLoop</strong></a><p>Administrator security</p></header>
+      <header className="admin-header"><a className="admin-brand" href="/" aria-label="CivicLoop home"><span aria-hidden="true">CL</span><strong>CivicLoop</strong></a><p>Administrator console</p></header>
       <main className="admin-main admin-focus-target" ref={headingRef} tabIndex={-1}>
         {error && <div className="admin-error" role="alert">{error}</div>}
         {content}
       </main>
-      <footer className="admin-footer">Credentials remain in this browser session only and are never written to browser storage.</footer>
+      <footer className="admin-footer">Integration credentials are submitted once after fresh verification and are never written to browser storage.</footer>
     </div>
   );
 }

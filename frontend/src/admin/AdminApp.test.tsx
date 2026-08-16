@@ -142,3 +142,25 @@ test("renders a retry state when status is unavailable", async () => {
   expect(screen.queryByText("synthetic network detail")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 });
+
+test("selects integrations only after a fully authenticated session", async () => {
+  window.history.pushState({}, "", "/admin/integrations");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ stage: "authenticated" })));
+
+  render(<AdminApp />);
+
+  expect(await screen.findByRole("heading", { name: "Integration connections" })).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Administrator sections" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Integrations" })).toHaveAttribute("aria-current", "page");
+});
+
+test("keeps recovery-restricted administrators out of integrations", async () => {
+  window.history.pushState({}, "", "/admin/integrations");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ stage: "recovery_restricted" })));
+
+  render(<AdminApp />);
+
+  expect(await screen.findByRole("heading", { name: "Replace your authenticator" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Integration connections" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "Administrator sections" })).not.toBeInTheDocument();
+});
