@@ -36,6 +36,7 @@ export function IntegrationDashboard() {
   const credentialInput = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const freshRequest = useRef(0);
+  const historyInFlight = useRef(false);
 
   const load = useCallback(async (): Promise<boolean> => {
     setLoading(true); setError(null);
@@ -73,11 +74,8 @@ export function IntegrationDashboard() {
       setFreshAction(null);
       if (!action) return;
       if (action.kind === "credential") { setCredentialProvider(action.provider); return; }
-      if (action.kind === "configuration") {
-        setConfigurationProvider(action.provider);
-      } else {
-        setDisableProvider(action.provider);
-      }
+      if (action.kind === "configuration") { setConfigurationProvider(action.provider); return; }
+      setDisableProvider(action.provider); return;
       window.setTimeout(() => returnFocus.current?.focus(), 0);
     });
   }
@@ -124,10 +122,11 @@ export function IntegrationDashboard() {
     catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
   async function loadOlderHistory() {
-    if (!historyProvider || !historyCursor || busy) return;
+    if (!historyProvider || !historyCursor || historyInFlight.current) return;
+    historyInFlight.current = true;
     setBusy(true); setError(null);
     try { const page = parseAuditPage(await adminAPI.integrationAudit(historyProvider, historyCursor)); if (!page) throw new Error("invalid response"); setHistory((items) => [...items, ...page.events.filter((event) => !items.some((item) => item.correlation_id === event.correlation_id))]); setHistoryCursor(page.next_cursor); }
-    catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
+    catch (caught) { setError(errorMessage(caught)); } finally { historyInFlight.current = false; setBusy(false); }
   }
 
   return <div className="integrations-dashboard">

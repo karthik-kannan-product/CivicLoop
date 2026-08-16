@@ -13,6 +13,7 @@ const capabilities = new Set<IntegrationCapability>(["connection_test", "draft_c
 const failureCategories = new Set<NonNullable<IntegrationConnection["last_failure_category"]>>(["authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"]);
 const auditActions = new Set<IntegrationAuditEvent["action"]>(["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled"]);
 const auditOutcomes = new Set<IntegrationAuditEvent["outcome"]>(["success", "failure", "denied", "unavailable"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -54,7 +55,7 @@ export function parseConnections(value: unknown): IntegrationConnection[] {
 export function parseHealthCheck(value: unknown): { provider: IntegrationProvider; outcome: "healthy" | "degraded"; error_category: IntegrationConnection["last_failure_category"]; tested_at: string } | null {
   const raw = object(value);
   const testedAt = raw && date(raw.tested_at);
-  if (!raw || !INTEGRATION_PROVIDERS.includes(raw.provider as IntegrationProvider) || (raw.outcome !== "healthy" && raw.outcome !== "degraded") || !testedAt || !Number.isInteger(raw.duration_ms) || (raw.duration_ms as number) < 0 || (raw.duration_ms as number) > 30000 || typeof raw.correlation_id !== "string" || !(raw.error_category === null || failureCategories.has(raw.error_category as NonNullable<IntegrationConnection["last_failure_category"]>))) return null;
+  if (!raw || !INTEGRATION_PROVIDERS.includes(raw.provider as IntegrationProvider) || (raw.outcome !== "healthy" && raw.outcome !== "degraded") || !testedAt || !Number.isInteger(raw.duration_ms) || (raw.duration_ms as number) < 0 || (raw.duration_ms as number) > 30000 || typeof raw.correlation_id !== "string" || !UUID.test(raw.correlation_id) || !(raw.error_category === null || failureCategories.has(raw.error_category as NonNullable<IntegrationConnection["last_failure_category"]>))) return null;
   return { provider: raw.provider as IntegrationProvider, outcome: raw.outcome, error_category: raw.error_category as IntegrationConnection["last_failure_category"], tested_at: testedAt };
 }
 
@@ -68,7 +69,7 @@ export function parseAuditEvents(value: unknown): IntegrationAuditEvent[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const raw = object(item);
-    if (!raw || !auditActions.has(raw.action as IntegrationAuditEvent["action"]) || !auditOutcomes.has(raw.outcome as IntegrationAuditEvent["outcome"]) || !(raw.actor_id === null || typeof raw.actor_id === "string") || !Number.isInteger(raw.version) || (raw.version as number) < 1 || !(raw.failure_category === null || failureCategories.has(raw.failure_category as NonNullable<IntegrationConnection["last_failure_category"]>)) || typeof raw.correlation_id !== "string" || !date(raw.created_at)) return [];
+    if (!raw || !auditActions.has(raw.action as IntegrationAuditEvent["action"]) || !auditOutcomes.has(raw.outcome as IntegrationAuditEvent["outcome"]) || !(raw.actor_id === null || typeof raw.actor_id === "string" && UUID.test(raw.actor_id)) || !Number.isInteger(raw.version) || (raw.version as number) < 1 || !(raw.failure_category === null || failureCategories.has(raw.failure_category as NonNullable<IntegrationConnection["last_failure_category"]>)) || typeof raw.correlation_id !== "string" || !UUID.test(raw.correlation_id) || !date(raw.created_at)) return [];
     return [{ action: raw.action as IntegrationAuditEvent["action"], outcome: raw.outcome as IntegrationAuditEvent["outcome"], actor_id: raw.actor_id as string | null, version: raw.version as number, failure_category: raw.failure_category as IntegrationConnection["last_failure_category"], correlation_id: raw.correlation_id, created_at: raw.created_at as string }];
   });
 }

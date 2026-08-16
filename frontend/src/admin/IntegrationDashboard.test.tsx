@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { IntegrationDashboard } from "./IntegrationDashboard";
-import { parseConnections, parseHealthCheck } from "./integrations";
+import { parseAuditEvents, parseConnections, parseHealthCheck } from "./integrations";
 
 const connection = {
   provider: "openai",
@@ -45,6 +45,11 @@ test("rejects missing audit ownership and cross-provider configurations", () => 
 test("rejects incomplete or mismatched health-check metadata", () => {
   expect(parseHealthCheck({ provider: "openai", outcome: "healthy", error_category: null, tested_at: "2026-08-10T11:00:00Z" })).toBeNull();
   expect(parseHealthCheck({ provider: "openai", outcome: "healthy", error_category: null, tested_at: "2026-08-10T11:00:00Z", duration_ms: 1, correlation_id: "00000000-0000-4000-8000-000000000001" })).toMatchObject({ provider: "openai" });
+});
+
+test("rejects non-UUID health and audit identifiers", () => {
+  expect(parseHealthCheck({ provider: "openai", outcome: "healthy", error_category: null, tested_at: "2026-08-10T11:00:00Z", duration_ms: 1, correlation_id: "not-a-uuid" })).toBeNull();
+  expect(parseAuditEvents([{ action: "credential_replaced", outcome: "success", actor_id: "not-a-uuid", version: 3, failure_category: null, correlation_id: "not-a-uuid", created_at: "2026-08-10T11:00:00Z" }])).toEqual([]);
 });
 
 test("renders the four provider cards while safely ignoring malformed metadata", async () => {
