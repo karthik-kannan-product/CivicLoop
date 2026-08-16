@@ -140,6 +140,36 @@ def test_connection_test_records_only_sanitized_health_metadata(
 
 
 @pytest.mark.django_db
+def test_credential_replacement_reactivates_a_disabled_connection(integration_settings) -> None:
+    client, _profile, _metadata, _password = create_authenticated_owner()
+    first = json_request(
+        client,
+        "put",
+        "/api/v1/admin/integrations/eventbrite/credential",
+        {"credential": "synthetic-first-token", "expected_version": 1},
+    )
+    disabled = json_request(
+        client,
+        "post",
+        "/api/v1/admin/integrations/eventbrite/disable",
+        {"expected_version": first.json()["version"]},
+    )
+    replacement = json_request(
+        client,
+        "put",
+        "/api/v1/admin/integrations/eventbrite/credential",
+        {
+            "credential": "synthetic-reactivated-token",
+            "expected_version": disabled.json()["version"],
+        },
+    )
+
+    assert disabled.json()["state"] == "disabled"
+    assert replacement.status_code == 200
+    assert replacement.json()["state"] == "configured"
+
+
+@pytest.mark.django_db
 def test_recovery_restricted_administrator_cannot_access_integration_routes(
     integration_settings,
 ) -> None:

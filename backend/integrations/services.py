@@ -8,7 +8,7 @@ from typing import cast
 from uuid import UUID
 
 from django.core import signing
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
@@ -106,7 +106,7 @@ def replace_credential(
         connection = _locked_or_new(provider)
         _expect_version(connection, expected_version)
         store = PostgresSecretStore()
-        if connection.secret_id is None:
+        if connection.secret_id is None or connection.state == ConnectionState.DISABLED:
             reference = store.put(
                 provider=provider, scope=SCOPE_BY_PROVIDER[provider], value=credential
             )
@@ -319,12 +319,27 @@ def _locked_or_new(provider: str) -> IntegrationConnection:
     )
     if connection is not None:
         return connection
-    return cast(
-        IntegrationConnection,
-        IntegrationConnection.objects.create(
-            provider=provider, configuration=DEFAULT_CONFIGURATION[provider], capabilities=[]
-        ),
-    )
+    try:
+        with transaction.atomic():
+            return cast(
+                IntegrationConnection,
+                IntegrationConnection.objects.create(
+                    provider=provider,
+                    configuration=DEFAULT_CONFIGURATION[provider],
+                    capabilities=[],
+                ),
+            )
+    except IntegrityError:
+        connection = cast(
+            IntegrationConnection | None,
+            IntegrationConnection.objects.select_for_update()
+            .select_related("secret")
+            .filter(provider=provider)
+            .first(),
+        )
+        if connection is not None:
+            return connection
+        raise
 
 
 def _expect_version(connection: IntegrationConnection, expected_version: int) -> None:
