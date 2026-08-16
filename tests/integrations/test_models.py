@@ -22,7 +22,7 @@ def test_database_allows_only_one_connection_for_each_approved_provider() -> Non
         IntegrationConnection.objects.create(provider="eventbrite")
 
     with pytest.raises(IntegrityError), transaction.atomic():
-        IntegrationConnection.objects.create(provider="unknown")
+        IntegrationConnection.objects.bulk_create([IntegrationConnection(provider="unknown")])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -40,6 +40,31 @@ def test_configuration_is_closed_and_bounded() -> None:
 
     with pytest.raises(ValidationError):
         connection.full_clean()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_save_rejects_credential_like_configuration_without_relying_on_full_clean_call() -> None:
+    connection = IntegrationConnection(provider="iterable", configuration={"token": "synthetic"})
+
+    with pytest.raises(ValidationError):
+        connection.save()
+    assert not IntegrationConnection.objects.filter(provider="iterable").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_save_rejects_cross_provider_secret_reference() -> None:
+    secret = EncryptedSecret.objects.create(
+        provider="eventbrite",
+        scope="private_token",
+        ciphertext=b"not-a-real-ciphertext",
+        nonce=b"0123456789ab",
+        key_id="integration-test",
+    )
+    connection = IntegrationConnection(provider="openai", secret=secret)
+
+    with pytest.raises(ValidationError):
+        connection.save()
+    assert not IntegrationConnection.objects.filter(provider="openai").exists()
 
 
 @pytest.mark.django_db(transaction=True)

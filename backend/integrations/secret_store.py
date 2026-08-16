@@ -3,6 +3,7 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import timedelta
 from typing import cast
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -17,6 +18,13 @@ PURPOSE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 APPROVED_PURPOSES = frozenset(
     {"connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"}
 )
+PURPOSES_BY_PROVIDER: dict[str, frozenset[str]] = {
+    "eventbrite": frozenset({"connection_test", "draft_create", "metadata_read"}),
+    "iterable": frozenset({"connection_test", "draft_create", "metadata_read"}),
+    "openai": frozenset({"connection_test", "evaluation_judge", "inference"}),
+    "groq": frozenset({"connection_test", "evaluation_judge", "inference"}),
+}
+WORKFLOW_BOUND_PURPOSES = frozenset({"draft_create", "evaluation_judge", "inference"})
 
 
 class SecretStore(ABC):
@@ -26,9 +34,15 @@ class SecretStore(ABC):
 
     @abstractmethod
     def lease(
-        self, reference: SecretReference, *, purpose: str, ttl: timedelta
-    ) -> SecretLease:
-        """Return a short-lived provider- and purpose-bound credential lease."""
+        self,
+        reference: SecretReference,
+        *,
+        caller_id: UUID,
+        workflow_id: UUID | None,
+        purpose: str,
+        ttl: timedelta,
+    ) -> "_LeaseContext":
+        """Return a context that exposes plaintext only during a validated call."""
 
     @abstractmethod
     def replace(self, reference: SecretReference, *, value: bytes) -> SecretReference:
@@ -60,8 +74,28 @@ class PostgresSecretStore(SecretStore):
         )
         return self._reference(secret)
 
-    def lease(self, reference: SecretReference, *, purpose: str, ttl: timedelta) -> SecretLease:
-        self._validate_lease_request(reference, purpose, ttl)
+    def lease(
+        self,
+        reference: SecretReference,
+        *,
+        caller_id: UUID,
+        workflow_id: UUID | None,
+        purpose: str,
+        ttl: timedelta,
+    ) -> "_LeaseContext":
+        self._validate_lease_request(reference, caller_id, workflow_id, purpose, ttl)
+        return _LeaseContext(self, reference, caller_id, workflow_id, purpose, timezone.now() + ttl)
+
+    def _open_lease(
+        self,
+        reference: SecretReference,
+        caller_id: UUID,
+        workflow_id: UUID | None,
+        purpose: str,
+        expires_at: object,
+    ) -> SecretLease:
+        if not isinstance(expires_at, type(timezone.now())) or timezone.now() >= expires_at:
+            raise SecretUnavailable()
         secret = self._secret_for_reference(reference, current_version=True)
         if secret.status != SecretStatus.ACTIVE:
             raise SecretUnavailable()
@@ -76,9 +110,11 @@ class PostgresSecretStore(SecretStore):
             raise SecretUnavailable() from None
         return SecretLease(
             reference=self._reference(secret),
+            caller_id=caller_id,
+            workflow_id=workflow_id,
             purpose=purpose,
-            expires_at=timezone.now() + ttl,
-            _plaintext=plaintext,
+            expires_at=expires_at,
+            _plaintext=bytearray(plaintext),
         )
 
     def replace(self, reference: SecretReference, *, value: bytes) -> SecretReference:
@@ -155,10 +191,20 @@ class PostgresSecretStore(SecretStore):
             raise SecretUnavailable()
 
     @staticmethod
-    def _validate_lease_request(reference: SecretReference, purpose: str, ttl: timedelta) -> None:
+    def _validate_lease_request(
+        reference: SecretReference,
+        caller_id: UUID,
+        workflow_id: UUID | None,
+        purpose: str,
+        ttl: timedelta,
+    ) -> None:
         if (
             not isinstance(reference, SecretReference)
+            or not isinstance(caller_id, UUID)
+            or (workflow_id is not None and not isinstance(workflow_id, UUID))
             or purpose not in APPROVED_PURPOSES
+            or purpose not in PURPOSES_BY_PROVIDER.get(reference.provider, frozenset())
+            or (purpose in WORKFLOW_BOUND_PURPOSES and workflow_id is None)
             or PURPOSE_PATTERN.fullmatch(purpose) is None
             or not isinstance(ttl, timedelta)
             or not timedelta(0) < ttl <= timedelta(seconds=MAX_LEASE_SECONDS)
@@ -185,3 +231,37 @@ class PostgresSecretStore(SecretStore):
         ):
             raise SecretUnavailable()
         return secret
+
+
+class _LeaseContext:
+    def __init__(
+        self,
+        store: PostgresSecretStore,
+        reference: SecretReference,
+        caller_id: UUID,
+        workflow_id: UUID | None,
+        purpose: str,
+        expires_at: object,
+    ) -> None:
+        self._store = store
+        self._reference = reference
+        self._caller_id = caller_id
+        self._workflow_id = workflow_id
+        self._purpose = purpose
+        self._expires_at = expires_at
+        self._lease: SecretLease | None = None
+
+    def __enter__(self) -> SecretLease:
+        self._lease = self._store._open_lease(
+            self._reference,
+            self._caller_id,
+            self._workflow_id,
+            self._purpose,
+            self._expires_at,
+        )
+        return self._lease
+
+    def __exit__(self, _exc_type: object, _exc_value: object, _traceback: object) -> None:
+        if self._lease is not None:
+            self._lease._close()
+            self._lease = None

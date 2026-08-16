@@ -41,21 +41,28 @@ class SecretMetadata:
 @dataclass(repr=False)
 class SecretLease:
     reference: SecretReference
+    caller_id: UUID
+    workflow_id: UUID | None
     purpose: str
     expires_at: datetime
-    _plaintext: bytes | None = field(repr=False)
+    _plaintext: bytearray | None = field(repr=False)
 
     def read(self) -> bytes:
         if self._plaintext is None or timezone.now() >= self.expires_at:
             raise SecretUnavailable()
-        return self._plaintext
+        return bytes(self._plaintext)
+
+    def _close(self) -> None:
+        if self._plaintext is not None:
+            self._plaintext[:] = b"\0" * len(self._plaintext)
+            self._plaintext = None
 
     def __enter__(self) -> "SecretLease":
         self.read()
         return self
 
     def __exit__(self, _exc_type: object, _exc_value: object, _traceback: object) -> None:
-        self._plaintext = None
+        self._close()
 
     def __repr__(self) -> str:
         return "SecretLease(redacted)"

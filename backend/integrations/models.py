@@ -154,17 +154,24 @@ class IntegrationConnection(models.Model):
     def __str__(self) -> str:
         return f"{self.provider} integration ({self.state})"
 
+    def save(self, *args: object, **kwargs: object) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
+
     def clean(self) -> None:
         super().clean()
         configuration = self.configuration
         allowed_configuration = CONFIGURATION_BY_PROVIDER.get(self.provider)
         if not isinstance(configuration, dict) or allowed_configuration is None:
             raise ValidationError({"configuration": "Integration configuration is invalid."})
-        if set(configuration) != set(allowed_configuration):
+        if configuration and set(configuration) != set(allowed_configuration):
             raise ValidationError({"configuration": "Integration configuration is invalid."})
-        for key, allowed_values in allowed_configuration.items():
-            if configuration.get(key) not in allowed_values:
-                raise ValidationError({"configuration": "Integration configuration is invalid."})
+        if configuration:
+            for key, allowed_values in allowed_configuration.items():
+                if configuration.get(key) not in allowed_values:
+                    raise ValidationError(
+                        {"configuration": "Integration configuration is invalid."}
+                    )
         capabilities = self.capabilities
         if (
             not isinstance(capabilities, list)
@@ -175,6 +182,8 @@ class IntegrationConnection(models.Model):
             raise ValidationError({"capabilities": "Integration capabilities are invalid."})
         if len(json.dumps(configuration, separators=(",", ":"))) > 256:
             raise ValidationError({"configuration": "Integration configuration is invalid."})
+        if self.secret_id is not None and self.secret.provider != self.provider:
+            raise ValidationError({"secret": "Integration secret provider is invalid."})
 
 class IntegrationHealthCheck(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

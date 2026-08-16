@@ -3,6 +3,7 @@ import json
 import os
 from datetime import timedelta
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from identity.exceptions import IdentityError
@@ -13,6 +14,8 @@ from integrations.secret_store import PostgresSecretStore
 PLAINTEXT = b"synthetic-eventbrite-private-token"
 REPLACEMENT = b"synthetic-rotated-eventbrite-private-token"
 KEY = bytes(range(32))
+CALLER_ID = UUID("56077722-0ef6-4d6a-9c8c-512d2c914cad")
+WORKFLOW_ID = UUID("58076a98-e490-44ab-a42d-cc3f24d0e37c")
 
 
 def write_key_ring(path: Path) -> None:
@@ -40,10 +43,21 @@ def test_put_metadata_and_purpose_bound_lease(secret_store: PostgresSecretStore)
     reference = secret_store.put(provider="eventbrite", scope="private_token", value=PLAINTEXT)
 
     metadata = secret_store.metadata(reference)
-    with secret_store.lease(
-        reference, purpose="connection_test", ttl=timedelta(seconds=30)
-    ) as lease:
+    lease_context = secret_store.lease(
+        reference,
+        caller_id=CALLER_ID,
+        workflow_id=None,
+        purpose="connection_test",
+        ttl=timedelta(seconds=30),
+    )
+    assert not hasattr(lease_context, "read")
+    with lease_context as lease:
         assert lease.read() == PLAINTEXT
+        assert lease.caller_id == CALLER_ID
+        assert lease.workflow_id is None
+
+    with pytest.raises(SecretUnavailable):
+        lease.read()
 
     assert metadata.provider == "eventbrite"
     assert metadata.scope == "private_token"
@@ -59,11 +73,64 @@ def test_mismatched_unknown_or_expired_leases_fail_closed(
 
     wrong_provider = reference.with_provider("iterable")
     with pytest.raises(SecretUnavailable):
-        secret_store.lease(wrong_provider, purpose="connection_test", ttl=timedelta(seconds=30))
+        with secret_store.lease(
+            wrong_provider,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="connection_test",
+            ttl=timedelta(seconds=30),
+        ):
+            pass
     with pytest.raises(SecretUnavailable):
-        secret_store.lease(reference, purpose="not-an-approved-purpose", ttl=timedelta(seconds=30))
+        secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="not_an_approved_purpose",
+            ttl=timedelta(seconds=30),
+        )
     with pytest.raises(SecretUnavailable):
-        secret_store.lease(reference, purpose="connection_test", ttl=timedelta(seconds=0))
+        with secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="connection_test",
+            ttl=timedelta(seconds=0),
+        ):
+            pass
+
+
+@pytest.mark.django_db
+def test_provider_purpose_allowlist_and_workflow_binding_fail_closed(
+    secret_store: PostgresSecretStore,
+) -> None:
+    eventbrite = secret_store.put(provider="eventbrite", scope="private_token", value=PLAINTEXT)
+    openai = secret_store.put(provider="openai", scope="project_key", value=PLAINTEXT)
+
+    with pytest.raises(SecretUnavailable):
+        secret_store.lease(
+            eventbrite,
+            caller_id=CALLER_ID,
+            workflow_id=WORKFLOW_ID,
+            purpose="inference",
+            ttl=timedelta(seconds=30),
+        )
+    with pytest.raises(SecretUnavailable):
+        secret_store.lease(
+            openai,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="inference",
+            ttl=timedelta(seconds=30),
+        )
+    with secret_store.lease(
+        openai,
+        caller_id=CALLER_ID,
+        workflow_id=WORKFLOW_ID,
+        purpose="inference",
+        ttl=timedelta(seconds=30),
+    ) as lease:
+        assert lease.read() == PLAINTEXT
 
 
 @pytest.mark.django_db
@@ -74,9 +141,20 @@ def test_replace_invalidates_stale_reference_and_preserves_audit_metadata(
     replacement = secret_store.replace(reference, value=REPLACEMENT)
 
     with pytest.raises(SecretUnavailable):
-        secret_store.lease(reference, purpose="connection_test", ttl=timedelta(seconds=30))
+        with secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="connection_test",
+            ttl=timedelta(seconds=30),
+        ):
+            pass
     with secret_store.lease(
-        replacement, purpose="connection_test", ttl=timedelta(seconds=30)
+        replacement,
+        caller_id=CALLER_ID,
+        workflow_id=None,
+        purpose="connection_test",
+        ttl=timedelta(seconds=30),
     ) as lease:
         assert lease.read() == REPLACEMENT
 
@@ -98,7 +176,14 @@ def test_disable_blocks_new_leases_without_deleting_metadata(
     assert metadata.status == "disabled"
     assert metadata.disabled_at is not None
     with pytest.raises(SecretUnavailable):
-        secret_store.lease(reference, purpose="inference", ttl=timedelta(seconds=30))
+        with secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=WORKFLOW_ID,
+            purpose="inference",
+            ttl=timedelta(seconds=30),
+        ):
+            pass
 
 
 @pytest.mark.django_db
@@ -106,16 +191,23 @@ def test_secret_bearing_lease_is_redacted_and_rejected_by_security_event_sanitiz
     secret_store: PostgresSecretStore,
 ) -> None:
     reference = secret_store.put(provider="openai", scope="project_key", value=PLAINTEXT)
-    lease = secret_store.lease(reference, purpose="inference", ttl=timedelta(seconds=30))
+    lease_context = secret_store.lease(
+        reference,
+        caller_id=CALLER_ID,
+        workflow_id=WORKFLOW_ID,
+        purpose="inference",
+        ttl=timedelta(seconds=30),
+    )
 
-    with pytest.raises(IdentityError):
-        record_security_event(
-            action="integration_test",
-            outcome="failure",
-            owner=None,
-            source_ip=None,
-            session_id=None,
-            details={"lease": lease},
-        )
+    with lease_context as lease:
+        with pytest.raises(IdentityError):
+            record_security_event(
+                action="integration_test",
+                outcome="failure",
+                owner=None,
+                source_ip=None,
+                session_id=None,
+                details={"lease": lease},
+            )
 
     assert PLAINTEXT.decode("ascii") not in repr(lease)
