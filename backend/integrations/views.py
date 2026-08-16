@@ -1,14 +1,17 @@
 import json
+import uuid
 from collections.abc import Callable
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_http_methods
 from identity.models import AdministratorProfile, AdministratorSession
+from identity.request_context import source_ip
+from identity.services.security import record_security_event
 from identity.services.sessions import administrator_session_is_fresh
 
 from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
-from integrations.models import IntegrationConnection, IntegrationHealthCheck
+from integrations.models import IntegrationConnection, IntegrationHealthCheck, Provider
 from integrations.services import (
     IntegrationServiceError,
     disable_connection,
@@ -20,10 +23,14 @@ from integrations.services import (
 )
 
 MAX_REQUEST_BYTES = 20 * 1024
+SAFE_PROVIDERS = frozenset(Provider.values)
 
 
 def _require_feature() -> None:
-    if not settings.CIVICLOOP_INTEGRATIONS_ENABLED:
+    if not (
+        settings.CIVICLOOP_ADMIN_IDENTITY_ENABLED
+        and settings.CIVICLOOP_INTEGRATIONS_ENABLED
+    ):
         raise Http404
 
 
@@ -46,11 +53,71 @@ def _problem(
     )
 
 
+def _audit_event(
+    request: HttpRequest,
+    *,
+    action: str,
+    outcome: str,
+    provider: str | None,
+    failure_category: str,
+    version: int | None = None,
+) -> None:
+    metadata = getattr(request, "administrator_session", None)
+    profile = metadata.profile if isinstance(metadata, AdministratorSession) else None
+    if profile is None:
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            profile = AdministratorProfile.objects.filter(user_id=user.pk).first()
+    safe_provider = provider if provider in SAFE_PROVIDERS else None
+    record_security_event(
+        action=action,
+        outcome=outcome,
+        owner=profile,
+        source_ip=source_ip(request),
+        session_id=metadata.id if isinstance(metadata, AdministratorSession) else None,
+        target_type="integration_connection" if safe_provider is not None else "integration_admin",
+        target_id=safe_provider or "",
+        details={
+            "version": version,
+            "failure_category": failure_category,
+            "correlation_id": str(uuid.uuid4()),
+        },
+    )
+
+
+def _audit_unavailable(request: HttpRequest) -> JsonResponse:
+    return _problem(
+        request,
+        503,
+        "integration_unavailable",
+        "Integration unavailable",
+        "The integration service is temporarily unavailable.",
+    )
+
+
 def _administrator(
-    request: HttpRequest, *, fresh: bool = False
+    request: HttpRequest,
+    *,
+    action: str,
+    provider: str | None = None,
+    fresh: bool = False,
 ) -> tuple[AdministratorSession | None, JsonResponse | None]:
     metadata = getattr(request, "administrator_session", None)
     if not isinstance(metadata, AdministratorSession) or metadata.recovery_restricted:
+        try:
+            _audit_event(
+                request,
+                action=action,
+                outcome="denied",
+                provider=provider,
+                failure_category=(
+                    "recovery_restricted"
+                    if isinstance(metadata, AdministratorSession) and metadata.recovery_restricted
+                    else "authentication"
+                ),
+            )
+        except Exception:
+            return None, _audit_unavailable(request)
         return None, _problem(
             request,
             401,
@@ -59,6 +126,16 @@ def _administrator(
             "Administrator authentication is required.",
         )
     if fresh and not administrator_session_is_fresh(metadata):
+        try:
+            _audit_event(
+                request,
+                action=action,
+                outcome="denied",
+                provider=provider,
+                failure_category="freshness",
+            )
+        except Exception:
+            return None, _audit_unavailable(request)
         return None, _problem(
             request,
             403,
@@ -152,7 +229,7 @@ def _connection_payload(connection: IntegrationConnection) -> dict[str, object]:
 @require_GET
 def connections(request: HttpRequest) -> JsonResponse:
     _require_feature()
-    _metadata, denied = _administrator(request)
+    _metadata, denied = _administrator(request, action="integration.connections_listed")
     if denied is not None:
         return denied
     return JsonResponse(
@@ -164,7 +241,12 @@ def connections(request: HttpRequest) -> JsonResponse:
 @require_http_methods(["PUT"])
 def credential(request: HttpRequest, provider: str) -> JsonResponse:
     _require_feature()
-    metadata, denied = _administrator(request, fresh=True)
+    metadata, denied = _administrator(
+        request,
+        action="integration.credential_replaced",
+        provider=provider,
+        fresh=True,
+    )
     if denied is not None:
         return denied
     assert metadata is not None
@@ -203,7 +285,12 @@ def credential(request: HttpRequest, provider: str) -> JsonResponse:
 @require_http_methods(["PATCH"])
 def configuration(request: HttpRequest, provider: str) -> JsonResponse:
     _require_feature()
-    metadata, denied = _administrator(request, fresh=True)
+    metadata, denied = _administrator(
+        request,
+        action="integration.configuration_changed",
+        provider=provider,
+        fresh=True,
+    )
     if denied is not None:
         return denied
     assert metadata is not None
@@ -249,7 +336,17 @@ def _versioned_action(
     provider: str,
 ) -> JsonResponse:
     _require_feature()
-    metadata, denied = _administrator(request, fresh=action is disable_connection)
+    audit_action = (
+        "integration.connection_disabled"
+        if action is disable_connection
+        else "integration.connection_tested"
+    )
+    metadata, denied = _administrator(
+        request,
+        action=audit_action,
+        provider=provider,
+        fresh=action is disable_connection,
+    )
     if denied is not None:
         return denied
     assert metadata is not None
@@ -302,7 +399,11 @@ def disable(request: HttpRequest, provider: str) -> JsonResponse:
 @require_GET
 def audit(request: HttpRequest, provider: str) -> JsonResponse:
     _require_feature()
-    metadata, denied = _administrator(request)
+    metadata, denied = _administrator(
+        request,
+        action="integration.audit_listed",
+        provider=provider,
+    )
     if denied is not None:
         return denied
     assert metadata is not None
