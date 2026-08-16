@@ -25,11 +25,11 @@
       "additionalProperties": false,
       "required": ["action", "outcome", "actor_id", "version", "failure_category", "correlation_id", "created_at"],
       "properties": {
-        "action": { "enum": ["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled"] },
+        "action": { "enum": ["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled", "audit_listed"] },
         "outcome": { "enum": ["success", "failure", "denied", "unavailable"] },
         "actor_id": { "type": ["string", "null"], "format": "uuid" },
-        "version": { "type": "integer", "minimum": 1 },
-        "failure_category": { "type": ["string", "null"], "enum": [null, "authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"] },
+        "version": { "type": ["integer", "null"], "minimum": 1 },
+        "failure_category": { "type": ["string", "null"], "enum": [null, "authentication", "authorization", "freshness", "recovery_restricted", "rate_limit", "rate_limit_unavailable", "version_conflict", "key_unavailable", "provider_not_found", "invalid_request", "integration_unavailable", "timeout", "network", "invalid_response", "provider_unavailable"] },
         "correlation_id": { "type": "string", "format": "uuid" },
         "created_at": { "type": "string", "format": "date-time" }
       }

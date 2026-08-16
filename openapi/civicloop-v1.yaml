@@ -34,6 +34,34 @@ paths:
         "401": { $ref: "#/components/responses/ProblemResponse" }
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/status:
+    get:
+      tags: [Administrator integrations]
+      operationId: getIntegrationReadiness
+      summary: Report whether local integration credential protection is ready
+      security: []
+      responses:
+        "200":
+          description: Integration credential protection is ready
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties: { status: { const: ready } }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "503":
+          description: Integration credential protection is not ready
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status]
+                properties: { status: { const: not_ready } }
   /api/v1/admin/integrations/{provider}/credential:
     put:
       tags: [Administrator integrations]
@@ -59,6 +87,8 @@ paths:
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
         "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/admin/integrations/{provider}/configuration:
     patch:
       tags: [Administrator integrations]
@@ -84,6 +114,8 @@ paths:
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
         "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/admin/integrations/{provider}/test:
     post:
       tags: [Administrator integrations]
@@ -109,6 +141,8 @@ paths:
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
         "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/admin/integrations/{provider}/disable:
     post:
       tags: [Administrator integrations]
@@ -134,6 +168,8 @@ paths:
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
         "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/admin/integrations/{provider}/audit:
     get:
       tags: [Administrator integrations]
@@ -612,7 +648,7 @@ components:
       description: Sensitive response must never be cached.
       schema: { type: string, const: no-store }
     RetryAfter:
-      description: Seconds until another authentication attempt may be made.
+      description: Stable number of seconds before another limited attempt may be made.
       schema: { type: integer, minimum: 1 }
   responses:
     SessionResponse:

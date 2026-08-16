@@ -13,7 +13,13 @@
       "additionalProperties": false,
       "required": ["credential", "expected_version"],
       "properties": {
-        "credential": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true },
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "description": "Credential whose UTF-8 representation is at most 16384 bytes."
+        },
         "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
       }
     },
