@@ -43,6 +43,28 @@ def test_identity_key_mount_is_limited_to_web_and_management_contexts() -> None:
     assert services["scheduler"]["environment"]["CIVICLOOP_ADMIN_IDENTITY_ENABLED"] == "false"
 
 
+def test_integration_key_mount_is_limited_to_web_and_worker() -> None:
+    specification = yaml.safe_load((REPOSITORY_ROOT / "compose.yaml").read_text())
+    services = specification["services"]
+    secret_target = "/run/secrets/civicloop-integration-keyring.json:ro"
+
+    mounted_services = {
+        name
+        for name, service in services.items()
+        if any(secret_target in volume for volume in service.get("volumes", []))
+    }
+
+    assert mounted_services == {"web", "worker"}
+    assert services["worker"]["environment"]["CIVICLOOP_IDENTITY_KEY_FILE"] == ""
+    assert all(
+        not any(
+            "/run/secrets/civicloop-identity-keyring.json:ro" in volume
+            for volume in services[service_name].get("volumes", [])
+        )
+        for service_name in ("worker", "scheduler")
+    )
+
+
 def test_administrator_focus_target_does_not_collapse_the_mobile_layout() -> None:
     styles = (REPOSITORY_ROOT / "frontend" / "src" / "admin" / "admin.css").read_text()
     focus_rule = styles.split(".admin-focus-target {", 1)[1].split("}", 1)[0]

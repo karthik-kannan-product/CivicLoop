@@ -63,6 +63,42 @@ def test_readiness_can_require_administrator_identity(
 
 @patch("scripts.readiness.monotonic", return_value=100.0)
 @patch("scripts.readiness.urlopen")
+def test_readiness_can_require_administrator_integrations(
+    mock_open: Mock, _mock_monotonic: Mock
+) -> None:
+    mock_open.side_effect = [
+        FakeResponse({"status": "ok"}),
+        FakeResponse({"status": "ready", "dependencies": {}}),
+        FakeResponse({"status": "ready"}),
+    ]
+
+    assert main(
+        ["--base-url", "http://civicloop.test", "--require-admin-integrations"]
+    ) == 0
+    assert mock_open.call_args_list[-1].args[0] == (
+        "http://civicloop.test/api/v1/admin/integrations/status"
+    )
+
+
+@patch("scripts.readiness.monotonic", return_value=100.0)
+@patch("scripts.readiness.urlopen")
+def test_readiness_fails_closed_when_administrator_integrations_are_not_ready(
+    mock_open: Mock, _mock_monotonic: Mock, capsys: CaptureFixture[str]
+) -> None:
+    mock_open.side_effect = [
+        FakeResponse({"status": "ok"}),
+        FakeResponse({"status": "ready", "dependencies": {}}),
+        FakeResponse({"status": "not_ready"}),
+    ]
+
+    assert main(["--require-admin-integrations"]) == 1
+    assert capsys.readouterr().out == (
+        "CivicLoop is reachable but administrator integrations are not ready.\n"
+    )
+
+
+@patch("scripts.readiness.monotonic", return_value=100.0)
+@patch("scripts.readiness.urlopen")
 def test_readiness_rejects_invalid_administrator_stage(
     mock_open: Mock, _mock_monotonic: Mock, capsys: CaptureFixture[str]
 ) -> None:

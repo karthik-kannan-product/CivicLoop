@@ -52,6 +52,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ${CIVICLOOP_IDENTITY_KEY_HOST_PATH:?Set an absolute host identity-key path}:/run/secrets/civicloop-identity-keyring.json:ro
+      - ${CIVICLOOP_INTEGRATION_KEY_HOST_PATH:?Set an absolute host integration-key path}:/run/secrets/civicloop-integration-keyring.json:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -68,6 +69,9 @@ services:
     command: ["worker"]
     environment:
       CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
+      CIVICLOOP_IDENTITY_KEY_FILE: ""
+    volumes:
+      - ${CIVICLOOP_INTEGRATION_KEY_HOST_PATH:?Set an absolute host integration-key path}:/run/secrets/civicloop-integration-keyring.json:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
