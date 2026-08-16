@@ -77,3 +77,33 @@ def test_cache_outage_fails_closed_without_exposing_backend_error(
 
     assert str(raised.value) == "Integration rate limiting is temporarily unavailable."
     assert "valkey" not in str(raised.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("action", "maximum", "retry_after"),
+    [
+        ("credential", 5, 300),
+        ("configuration", 20, 60),
+        ("test", 10, 60),
+        ("disable", 5, 300),
+    ],
+)
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_each_integration_mutation_has_a_bounded_limit(
+    action: str,
+    maximum: int,
+    retry_after: int,
+) -> None:
+    kwargs = {
+        "action": action,
+        "owner_id": UUID("4d815a9e-19f6-4485-a18d-f1ccf91b6ee2"),
+        "provider": "eventbrite",
+        "source_ip": "192.0.2.10",
+    }
+    for _ in range(maximum):
+        check_integration_limit(**kwargs)
+
+    with pytest.raises(IntegrationRateLimited) as raised:
+        check_integration_limit(**kwargs)
+
+    assert raised.value.retry_after_seconds == retry_after

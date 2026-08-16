@@ -11,8 +11,9 @@ IntegrationAction = Literal["credential", "configuration", "test", "disable"]
 
 
 class IntegrationRateLimited(Exception):
-    def __init__(self, retry_after_seconds: int) -> None:
+    def __init__(self, retry_after_seconds: int, *, newly_limited: bool) -> None:
         self.retry_after_seconds = retry_after_seconds
+        self.newly_limited = newly_limited
         super().__init__("Too many integration administration attempts.")
 
 
@@ -62,12 +63,12 @@ def check_integration_limit(
     scope = RateLimitScope(counter_key=f"{base_key}:count", blocked_key=f"{base_key}:blocked")
     try:
         if cache.get(scope.blocked_key) is not None:
-            raise IntegrationRateLimited(limit.window_seconds)
+            raise IntegrationRateLimited(limit.window_seconds, newly_limited=False)
         added = cache.add(scope.counter_key, 1, timeout=limit.window_seconds)
         attempt_count = 1 if added else cache.incr(scope.counter_key)
         if attempt_count > limit.maximum:
             cache.set(scope.counter_key, limit.maximum + 1, timeout=limit.window_seconds)
-            cache.add(
+            newly_limited = cache.add(
                 scope.blocked_key,
                 limit.window_seconds,
                 timeout=limit.window_seconds,
@@ -77,5 +78,5 @@ def check_integration_limit(
     except Exception:
         raise IntegrationRateLimitUnavailable() from None
     if attempt_count > limit.maximum:
-        raise IntegrationRateLimited(limit.window_seconds)
+        raise IntegrationRateLimited(limit.window_seconds, newly_limited=newly_limited)
     return scope

@@ -31,6 +31,17 @@ class AdministratorSessionMiddleware(MiddlewareMixin):
             and metadata.recovery_restricted
             and request.resolver_match.view_name not in RECOVERY_ROUTE_ALLOWLIST
         ):
+            if request.resolver_match.view_name in {
+                "admin-integration-list",
+                "admin-integration-credential",
+                "admin-integration-configuration",
+                "admin-integration-test",
+                "admin-integration-disable",
+                "admin-integration-audit",
+            }:
+                from integrations.views import recovery_restricted_response
+
+                return recovery_restricted_response(request)
             return JsonResponse(
                 {
                     "type": "https://civicloop.karthikkannan.ca/problems/recovery-restricted",

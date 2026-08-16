@@ -12,6 +12,12 @@ from identity.services.sessions import administrator_session_is_fresh
 
 from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
 from integrations.models import IntegrationConnection, IntegrationHealthCheck, Provider
+from integrations.rate_limits import (
+    IntegrationAction,
+    IntegrationRateLimited,
+    IntegrationRateLimitUnavailable,
+    check_integration_limit,
+)
 from integrations.services import (
     IntegrationServiceError,
     disable_connection,
@@ -24,6 +30,14 @@ from integrations.services import (
 
 MAX_REQUEST_BYTES = 20 * 1024
 SAFE_PROVIDERS = frozenset(Provider.values)
+AUDIT_ACTION_BY_VIEW_NAME = {
+    "admin-integration-list": "integration.connections_listed",
+    "admin-integration-credential": "integration.credential_replaced",
+    "admin-integration-configuration": "integration.configuration_changed",
+    "admin-integration-test": "integration.connection_tested",
+    "admin-integration-disable": "integration.connection_disabled",
+    "admin-integration-audit": "integration.audit_listed",
+}
 
 
 def _require_feature() -> None:
@@ -93,6 +107,83 @@ def _audit_unavailable(request: HttpRequest) -> JsonResponse:
         "Integration unavailable",
         "The integration service is temporarily unavailable.",
     )
+
+
+def recovery_restricted_response(request: HttpRequest) -> JsonResponse:
+    _require_feature()
+    resolver_match = request.resolver_match
+    view_name = resolver_match.view_name if resolver_match is not None else ""
+    action = AUDIT_ACTION_BY_VIEW_NAME.get(view_name, "integration.access_denied")
+    provider_value = resolver_match.kwargs.get("provider") if resolver_match is not None else None
+    provider = provider_value if isinstance(provider_value, str) else None
+    try:
+        _audit_event(
+            request,
+            action=action,
+            outcome="denied",
+            provider=provider,
+            failure_category="recovery_restricted",
+        )
+    except Exception:
+        return _audit_unavailable(request)
+    return _problem(
+        request,
+        403,
+        "recovery_restricted",
+        "Recovery required",
+        "Complete administrator account recovery to continue.",
+    )
+
+
+def _enforce_rate_limit(
+    request: HttpRequest,
+    *,
+    metadata: AdministratorSession,
+    provider: str,
+    limit_action: IntegrationAction,
+    audit_action: str,
+) -> JsonResponse | None:
+    try:
+        check_integration_limit(
+            action=limit_action,
+            owner_id=metadata.profile_id,
+            provider=provider,
+            source_ip=source_ip(request),
+        )
+    except IntegrationRateLimited as error:
+        if error.newly_limited:
+            try:
+                _audit_event(
+                    request,
+                    action=audit_action,
+                    outcome="denied",
+                    provider=provider,
+                    failure_category="rate_limit",
+                )
+            except Exception:
+                return _audit_unavailable(request)
+        response = _problem(
+            request,
+            429,
+            "rate_limited",
+            "Too many attempts",
+            "Too many integration administration attempts. Try again later.",
+        )
+        response["Retry-After"] = str(error.retry_after_seconds)
+        return response
+    except IntegrationRateLimitUnavailable:
+        try:
+            _audit_event(
+                request,
+                action=audit_action,
+                outcome="unavailable",
+                provider=provider,
+                failure_category="rate_limit_unavailable",
+            )
+        except Exception:
+            pass
+        return _audit_unavailable(request)
+    return None
 
 
 def _administrator(
@@ -192,6 +283,57 @@ def _service_problem(request: HttpRequest, error: IntegrationServiceError) -> Js
     return _problem(request, status, error.code, title, message)
 
 
+def _service_failure_problem(
+    request: HttpRequest,
+    *,
+    error: IntegrationServiceError,
+    action: str,
+    provider: str,
+    version: int | None,
+) -> JsonResponse:
+    failure_category_by_code = {
+        "provider_not_found": "provider_not_found",
+        "version_conflict": "version_conflict",
+        "invalid_request": "invalid_request",
+        "integration_unavailable": "integration_unavailable",
+    }
+    failure_category = failure_category_by_code.get(error.code)
+    if failure_category is not None:
+        try:
+            _audit_event(
+                request,
+                action=action,
+                outcome="denied",
+                provider=provider,
+                failure_category=failure_category,
+                version=version,
+            )
+        except Exception:
+            return _audit_unavailable(request)
+    return _service_problem(request, error)
+
+
+def _key_unavailable_problem(
+    request: HttpRequest,
+    *,
+    action: str,
+    provider: str,
+    version: int | None,
+) -> JsonResponse:
+    try:
+        _audit_event(
+            request,
+            action=action,
+            outcome="unavailable",
+            provider=provider,
+            failure_category="key_unavailable",
+            version=version,
+        )
+    except Exception:
+        pass
+    return _audit_unavailable(request)
+
+
 def _connection_payload(connection: IntegrationConnection) -> dict[str, object]:
     secret = connection.secret if connection.secret_id else None
     rotated_at = None
@@ -250,10 +392,20 @@ def credential(request: HttpRequest, provider: str) -> JsonResponse:
     if denied is not None:
         return denied
     assert metadata is not None
+    limited = _enforce_rate_limit(
+        request,
+        metadata=metadata,
+        provider=provider,
+        limit_action="credential",
+        audit_action="integration.credential_replaced",
+    )
+    if limited is not None:
+        return limited
     body = _body(request)
     value = body.get("credential") if body is not None else None
     version = _expected_version(body)
-    if not isinstance(value, str) or not 1 <= len(value) <= 16384 or version is None:
+    encoded_value = value.encode("utf-8") if isinstance(value, str) else None
+    if encoded_value is None or not 1 <= len(encoded_value) <= 16384 or version is None:
         return _problem(
             request,
             400,
@@ -264,21 +416,28 @@ def credential(request: HttpRequest, provider: str) -> JsonResponse:
     try:
         connection = replace_credential(
             provider=provider,
-            credential=value.encode(),
+            credential=encoded_value,
             expected_version=version,
             actor=metadata,
             request=request,
         )
     except (IntegrationCryptoError, SecretUnavailable):
-        return _problem(
+        return _key_unavailable_problem(
             request,
-            503,
-            "integration_unavailable",
-            "Integration unavailable",
-            "The integration service is temporarily unavailable.",
+            action="integration.credential_replaced",
+            provider=provider,
+            version=version,
         )
     except IntegrationServiceError as error:
-        return _service_problem(request, error)
+        return _service_failure_problem(
+            request,
+            error=error,
+            action="integration.credential_replaced",
+            provider=provider,
+            version=version,
+        )
+    except Exception:
+        return _audit_unavailable(request)
     return JsonResponse(_connection_payload(connection), headers={"Cache-Control": "no-store"})
 
 
@@ -294,6 +453,15 @@ def configuration(request: HttpRequest, provider: str) -> JsonResponse:
     if denied is not None:
         return denied
     assert metadata is not None
+    limited = _enforce_rate_limit(
+        request,
+        metadata=metadata,
+        provider=provider,
+        limit_action="configuration",
+        audit_action="integration.configuration_changed",
+    )
+    if limited is not None:
+        return limited
     body = _body(request)
     config = body.get("configuration") if body is not None else None
     version = _expected_version(body)
@@ -318,15 +486,22 @@ def configuration(request: HttpRequest, provider: str) -> JsonResponse:
             request=request,
         )
     except (IntegrationCryptoError, SecretUnavailable):
-        return _problem(
+        return _key_unavailable_problem(
             request,
-            503,
-            "integration_unavailable",
-            "Integration unavailable",
-            "The integration service is temporarily unavailable.",
+            action="integration.configuration_changed",
+            provider=provider,
+            version=version,
         )
     except IntegrationServiceError as error:
-        return _service_problem(request, error)
+        return _service_failure_problem(
+            request,
+            error=error,
+            action="integration.configuration_changed",
+            provider=provider,
+            version=version,
+        )
+    except Exception:
+        return _audit_unavailable(request)
     return JsonResponse(_connection_payload(connection), headers={"Cache-Control": "no-store"})
 
 
@@ -350,6 +525,16 @@ def _versioned_action(
     if denied is not None:
         return denied
     assert metadata is not None
+    limit_action: IntegrationAction = "disable" if action is disable_connection else "test"
+    limited = _enforce_rate_limit(
+        request,
+        metadata=metadata,
+        provider=provider,
+        limit_action=limit_action,
+        audit_action=audit_action,
+    )
+    if limited is not None:
+        return limited
     version = _expected_version(_body(request))
     if version is None:
         return _problem(
@@ -362,15 +547,22 @@ def _versioned_action(
     try:
         value = action(provider=provider, expected_version=version, actor=metadata, request=request)
     except (IntegrationCryptoError, SecretUnavailable):
-        return _problem(
+        return _key_unavailable_problem(
             request,
-            503,
-            "integration_unavailable",
-            "Integration unavailable",
-            "The integration service is temporarily unavailable.",
+            action=audit_action,
+            provider=provider,
+            version=version,
         )
     except IntegrationServiceError as error:
-        return _service_problem(request, error)
+        return _service_failure_problem(
+            request,
+            error=error,
+            action=audit_action,
+            provider=provider,
+            version=version,
+        )
+    except Exception:
+        return _audit_unavailable(request)
     if isinstance(value, IntegrationHealthCheck):
         return JsonResponse(
             {
