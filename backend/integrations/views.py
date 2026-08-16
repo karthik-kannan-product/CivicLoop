@@ -4,7 +4,7 @@ from collections.abc import Callable
 from django.conf import settings
 from django.http import Http404, HttpRequest, JsonResponse
 from django.views.decorators.http import require_GET, require_http_methods
-from identity.models import AdministratorProfile
+from identity.models import AdministratorProfile, AdministratorSession
 from identity.services.sessions import administrator_session_is_fresh
 
 from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
@@ -46,9 +46,11 @@ def _problem(
     )
 
 
-def _administrator(request: HttpRequest, *, fresh: bool = False):
+def _administrator(
+    request: HttpRequest, *, fresh: bool = False
+) -> tuple[AdministratorSession | None, JsonResponse | None]:
     metadata = getattr(request, "administrator_session", None)
-    if metadata is None or metadata.recovery_restricted:
+    if not isinstance(metadata, AdministratorSession) or metadata.recovery_restricted:
         return None, _problem(
             request,
             401,
@@ -165,6 +167,7 @@ def credential(request: HttpRequest, provider: str) -> JsonResponse:
     metadata, denied = _administrator(request, fresh=True)
     if denied is not None:
         return denied
+    assert metadata is not None
     body = _body(request)
     value = body.get("credential") if body is not None else None
     version = _expected_version(body)
@@ -203,6 +206,7 @@ def configuration(request: HttpRequest, provider: str) -> JsonResponse:
     metadata, denied = _administrator(request, fresh=True)
     if denied is not None:
         return denied
+    assert metadata is not None
     body = _body(request)
     config = body.get("configuration") if body is not None else None
     version = _expected_version(body)
@@ -240,12 +244,15 @@ def configuration(request: HttpRequest, provider: str) -> JsonResponse:
 
 
 def _versioned_action(
-    action: Callable[..., object], request: HttpRequest, provider: str
+    action: Callable[..., IntegrationConnection | IntegrationHealthCheck],
+    request: HttpRequest,
+    provider: str,
 ) -> JsonResponse:
     _require_feature()
     metadata, denied = _administrator(request, fresh=action is disable_connection)
     if denied is not None:
         return denied
+    assert metadata is not None
     version = _expected_version(_body(request))
     if version is None:
         return _problem(
@@ -298,6 +305,7 @@ def audit(request: HttpRequest, provider: str) -> JsonResponse:
     metadata, denied = _administrator(request)
     if denied is not None:
         return denied
+    assert metadata is not None
     try:
         limit = int(request.GET.get("limit", "50"))
         page = integration_audit(

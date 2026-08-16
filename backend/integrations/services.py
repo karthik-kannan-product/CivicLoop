@@ -3,11 +3,14 @@
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import cast
+from uuid import UUID
 
 from django.core import signing
 from django.db import transaction
 from django.db.models import Q
+from django.http import HttpRequest
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from identity.models import AdministratorProfile, AdministratorSecurityEvent, AdministratorSession
@@ -20,7 +23,6 @@ from integrations.models import (
     HealthOutcome,
     IntegrationConnection,
     IntegrationHealthCheck,
-    Provider,
 )
 from integrations.providers import (
     EventbriteProbe,
@@ -28,29 +30,30 @@ from integrations.providers import (
     IterableProbe,
     OpenAIProbe,
     ProbeResult,
+    ProviderProbe,
 )
 from integrations.secret_store import PostgresSecretStore
 from integrations.transport import BoundedHTTPSProbeTransport
 from integrations.types import SecretReference
 
-PROVIDERS = frozenset(Provider.values)
-CAPABILITIES_BY_PROVIDER = {
-    Provider.EVENTBRITE: ["connection_test", "draft_create", "metadata_read"],
-    Provider.ITERABLE: ["connection_test", "draft_create", "metadata_read"],
-    Provider.OPENAI: ["connection_test", "evaluation_judge", "inference"],
-    Provider.GROQ: ["connection_test", "evaluation_judge", "inference"],
+PROVIDERS = frozenset({"eventbrite", "groq", "iterable", "openai"})
+CAPABILITIES_BY_PROVIDER: dict[str, list[str]] = {
+    "eventbrite": ["connection_test", "draft_create", "metadata_read"],
+    "iterable": ["connection_test", "draft_create", "metadata_read"],
+    "openai": ["connection_test", "evaluation_judge", "inference"],
+    "groq": ["connection_test", "evaluation_judge", "inference"],
 }
-DEFAULT_CONFIGURATION = {
-    Provider.EVENTBRITE: {},
-    Provider.ITERABLE: {"region": "us"},
-    Provider.OPENAI: {"model": "openai/gpt-oss-20b"},
-    Provider.GROQ: {"model": "openai/gpt-oss-20b"},
+DEFAULT_CONFIGURATION: dict[str, dict[str, str]] = {
+    "eventbrite": {},
+    "iterable": {"region": "us"},
+    "openai": {"model": "openai/gpt-oss-20b"},
+    "groq": {"model": "openai/gpt-oss-20b"},
 }
-SCOPE_BY_PROVIDER = {
-    Provider.EVENTBRITE: "private_token",
-    Provider.ITERABLE: "api_key",
-    Provider.OPENAI: "project_key",
-    Provider.GROQ: "api_key",
+SCOPE_BY_PROVIDER: dict[str, str] = {
+    "eventbrite": "private_token",
+    "iterable": "api_key",
+    "openai": "project_key",
+    "groq": "api_key",
 }
 CURSOR_SALT = "civicloop.integrations.audit.v1"
 
@@ -67,13 +70,13 @@ class AuditPage:
     next_cursor: str | None
 
 
-def probe_for(provider: str):
+def probe_for(provider: str) -> ProviderProbe:
     transport = BoundedHTTPSProbeTransport()
     probes = {
-        Provider.EVENTBRITE: EventbriteProbe,
-        Provider.ITERABLE: IterableProbe,
-        Provider.OPENAI: OpenAIProbe,
-        Provider.GROQ: GroqProbe,
+        "eventbrite": EventbriteProbe,
+        "iterable": IterableProbe,
+        "openai": OpenAIProbe,
+        "groq": GroqProbe,
     }
     try:
         return probes[provider](transport)
@@ -82,11 +85,19 @@ def probe_for(provider: str):
 
 
 def list_connections() -> list[IntegrationConnection]:
-    return list(IntegrationConnection.objects.select_related("secret").order_by("provider"))
+    return cast(
+        list[IntegrationConnection],
+        list(IntegrationConnection.objects.select_related("secret").order_by("provider")),
+    )
 
 
 def replace_credential(
-    *, provider: str, credential: bytes, expected_version: int, actor: AdministratorSession, request
+    *,
+    provider: str,
+    credential: bytes,
+    expected_version: int,
+    actor: AdministratorSession,
+    request: HttpRequest,
 ) -> IntegrationConnection:
     _validate_provider(provider)
     if not credential or len(credential) > 16384:
@@ -128,7 +139,7 @@ def update_configuration(
     configuration: dict[str, str],
     expected_version: int,
     actor: AdministratorSession,
-    request,
+    request: HttpRequest,
 ) -> IntegrationConnection:
     _validate_provider(provider)
     with transaction.atomic():
@@ -154,15 +165,18 @@ def update_configuration(
 
 
 def disable_connection(
-    *, provider: str, expected_version: int, actor: AdministratorSession, request
+    *, provider: str, expected_version: int, actor: AdministratorSession, request: HttpRequest
 ) -> IntegrationConnection:
     _validate_provider(provider)
     with transaction.atomic():
         try:
-            connection = (
-                IntegrationConnection.objects.select_for_update()
-                .select_related("secret")
-                .get(provider=provider)
+            connection = cast(
+                IntegrationConnection,
+                (
+                    IntegrationConnection.objects.select_for_update()
+                    .select_related("secret")
+                    .get(provider=provider)
+                ),
             )
         except IntegrationConnection.DoesNotExist:
             raise IntegrationServiceError("provider_not_found") from None
@@ -193,7 +207,7 @@ def disable_connection(
 
 
 def test_connection(
-    *, provider: str, expected_version: int, actor: AdministratorSession, request
+    *, provider: str, expected_version: int, actor: AdministratorSession, request: HttpRequest
 ) -> IntegrationHealthCheck:
     _validate_provider(provider)
     connection = _connection_for_test(provider, expected_version)
@@ -218,16 +232,22 @@ def test_connection(
         result = ProbeResult(ok=False, error_category="network")
     duration_ms = min(int((time.monotonic() - started) * 1000), 30000)
     with transaction.atomic():
-        connection = IntegrationConnection.objects.select_for_update().get(pk=connection.pk)
+        connection = cast(
+            IntegrationConnection,
+            IntegrationConnection.objects.select_for_update().get(pk=connection.pk),
+        )
         _expect_version(connection, expected_version)
         outcome = HealthOutcome.HEALTHY if result.ok else HealthOutcome.DEGRADED
         error_category = "" if result.ok else result.error_category or "network"
-        health_check = IntegrationHealthCheck.objects.create(
-            connection=connection,
-            outcome=outcome,
-            error_category=error_category,
-            duration_ms=duration_ms,
-            correlation_id=uuid.uuid4(),
+        health_check = cast(
+            IntegrationHealthCheck,
+            IntegrationHealthCheck.objects.create(
+                connection=connection,
+                outcome=outcome,
+                error_category=error_category,
+                duration_ms=duration_ms,
+                correlation_id=uuid.uuid4(),
+            ),
         )
         connection.state = ConnectionState.HEALTHY if result.ok else ConnectionState.DEGRADED
         connection.last_failure_category = error_category
@@ -277,7 +297,10 @@ def integration_audit(
 
 def _connection_for_test(provider: str, expected_version: int) -> IntegrationConnection:
     try:
-        connection = IntegrationConnection.objects.select_related("secret").get(provider=provider)
+        connection = cast(
+            IntegrationConnection,
+            IntegrationConnection.objects.select_related("secret").get(provider=provider),
+        )
     except IntegrationConnection.DoesNotExist:
         raise IntegrationServiceError("provider_not_found") from None
     _expect_version(connection, expected_version)
@@ -287,16 +310,20 @@ def _connection_for_test(provider: str, expected_version: int) -> IntegrationCon
 
 
 def _locked_or_new(provider: str) -> IntegrationConnection:
-    connection = (
+    connection = cast(
+        IntegrationConnection | None,
         IntegrationConnection.objects.select_for_update()
         .select_related("secret")
         .filter(provider=provider)
-        .first()
+        .first(),
     )
     if connection is not None:
         return connection
-    return IntegrationConnection.objects.create(
-        provider=provider, configuration=DEFAULT_CONFIGURATION[provider], capabilities=[]
+    return cast(
+        IntegrationConnection,
+        IntegrationConnection.objects.create(
+            provider=provider, configuration=DEFAULT_CONFIGURATION[provider], capabilities=[]
+        ),
     )
 
 
@@ -314,9 +341,9 @@ def _expect_version(connection: IntegrationConnection, expected_version: int) ->
 def _valid_configuration(provider: str, configuration: dict[str, str]) -> bool:
     if not isinstance(configuration, dict):
         return False
-    if provider == Provider.EVENTBRITE:
+    if provider == "eventbrite":
         return configuration == {}
-    if provider == Provider.ITERABLE:
+    if provider == "iterable":
         return set(configuration) == {"region"} and configuration.get("region") in {"us", "eu"}
     return configuration == {"model": "openai/gpt-oss-20b"}
 
@@ -330,7 +357,7 @@ def _audit(
     action: str,
     outcome: str,
     actor: AdministratorSession,
-    request,
+    request: HttpRequest,
     provider: str,
     version: int,
     failure_category: str | None,
@@ -353,18 +380,21 @@ def _audit(
 
 
 def _encode_cursor(event: AdministratorSecurityEvent) -> str:
-    return signing.dumps(
-        [event.created_at.isoformat(), str(event.id)], salt=CURSOR_SALT, compress=True
+    return cast(
+        str,
+        signing.dumps(
+            [event.created_at.isoformat(), str(event.id)], salt=CURSOR_SALT, compress=True
+        ),
     )
 
 
-def _decode_cursor(cursor: str):
+def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
     try:
         values = signing.loads(cursor, salt=CURSOR_SALT)
         created_at = (
             parse_datetime(values[0]) if isinstance(values, list) and len(values) == 2 else None
         )
-        event_id = uuid.UUID(values[1]) if isinstance(values, list) and len(values) == 2 else None
+        event_id = UUID(values[1]) if isinstance(values, list) and len(values) == 2 else None
         if created_at is None or created_at.tzinfo is None or event_id is None:
             raise ValueError
         return created_at, event_id
