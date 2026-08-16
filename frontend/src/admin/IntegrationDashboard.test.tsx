@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { IntegrationDashboard } from "./IntegrationDashboard";
-import { parseConnections } from "./integrations";
+import { parseConnections, parseHealthCheck } from "./integrations";
 
 const connection = {
   provider: "openai",
@@ -40,6 +40,11 @@ test("rejects missing audit ownership and cross-provider configurations", () => 
   expect(parseConnections({ connections: [{ ...connection, credential_rotated_at: undefined }] })).toEqual([]);
   expect(parseConnections({ connections: [{ ...connection, provider: "eventbrite", configuration: { region: "us" } }] })).toEqual([]);
   expect(parseConnections({ connections: [{ ...connection, provider: "iterable", configuration: { model: "openai/gpt-oss-20b" } }] })).toEqual([]);
+});
+
+test("rejects incomplete or mismatched health-check metadata", () => {
+  expect(parseHealthCheck({ provider: "openai", outcome: "healthy", error_category: null, tested_at: "2026-08-10T11:00:00Z" })).toBeNull();
+  expect(parseHealthCheck({ provider: "openai", outcome: "healthy", error_category: null, tested_at: "2026-08-10T11:00:00Z", duration_ms: 1, correlation_id: "00000000-0000-4000-8000-000000000001" })).toMatchObject({ provider: "openai" });
 });
 
 test("renders the four provider cards while safely ignoring malformed metadata", async () => {

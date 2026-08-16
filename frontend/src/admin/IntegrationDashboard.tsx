@@ -37,10 +37,10 @@ export function IntegrationDashboard() {
   const returnFocus = useRef<HTMLElement | null>(null);
   const freshRequest = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     setLoading(true); setError(null);
-    try { setConnections(parseConnections(await adminAPI.integrations())); }
-    catch { setError("CivicLoop could not load integration connections."); }
+    try { setConnections(parseConnections(await adminAPI.integrations())); return true; }
+    catch { setError("CivicLoop could not load integration connections."); return false; }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -50,10 +50,19 @@ export function IntegrationDashboard() {
 
   async function run(operation: () => Promise<void>) {
     setBusy(true); setError(null); setNotice(null);
-    try { await operation(); } catch (caught) { if (caught instanceof AdminAPIError && caught.status === 409) void load(); setError(errorMessage(caught)); } finally { setBusy(false); }
+    try { await operation(); } catch (caught) {
+      if (caught instanceof AdminAPIError && caught.status === 409) {
+        const refreshed = await load();
+        setError(refreshed ? errorMessage(caught) : "Integration metadata could not be refreshed. Try again shortly.");
+      } else setError(errorMessage(caught));
+    } finally { setBusy(false); }
   }
   function begin(provider: IntegrationProvider, kind: "credential" | "configuration" | "disable", trigger: HTMLElement) {
     freshRequest.current += 1; returnFocus.current = trigger; setFreshAction({ provider, kind });
+  }
+  function closeDialog() {
+    setCredentialProvider(null); setConfigurationProvider(null); setDisableProvider(null);
+    window.setTimeout(() => returnFocus.current?.focus(), 0);
   }
   async function verifyFresh(password: string, token: string) {
     const request = freshRequest.current;
@@ -104,7 +113,7 @@ export function IntegrationDashboard() {
   async function testConnection(provider: IntegrationProvider) {
     await run(async () => {
       const result = parseHealthCheck(await adminAPI.testIntegration(provider, { expected_version: getConnection(provider).version }));
-      if (!result) throw new Error("invalid response");
+      if (!result || result.provider !== provider) throw new Error("invalid response");
       setConnections((items) => items.map((item) => item.provider === provider ? { ...item, state: result.outcome, last_successful_test_at: result.outcome === "healthy" ? result.tested_at : item.last_successful_test_at, last_failure_category: result.error_category } : item));
       setNotice(`${providerLabel[provider]} connection test ${result.outcome}.`);
     });
@@ -115,9 +124,9 @@ export function IntegrationDashboard() {
     catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
   async function loadOlderHistory() {
-    if (!historyProvider || !historyCursor) return;
+    if (!historyProvider || !historyCursor || busy) return;
     setBusy(true); setError(null);
-    try { const page = parseAuditPage(await adminAPI.integrationAudit(historyProvider, historyCursor)); if (!page) throw new Error("invalid response"); setHistory((items) => [...items, ...page.events]); setHistoryCursor(page.next_cursor); }
+    try { const page = parseAuditPage(await adminAPI.integrationAudit(historyProvider, historyCursor)); if (!page) throw new Error("invalid response"); setHistory((items) => [...items, ...page.events.filter((event) => !items.some((item) => item.correlation_id === event.correlation_id))]); setHistoryCursor(page.next_cursor); }
     catch (caught) { setError(errorMessage(caught)); } finally { setBusy(false); }
   }
 
@@ -128,10 +137,10 @@ export function IntegrationDashboard() {
       const item = getConnection(provider);
       return <article className="integration-card" key={provider}><div className="integration-card__heading"><div><h2>{providerLabel[provider]}</h2><p>{provider === "eventbrite" ? "Event publishing" : provider === "iterable" ? "Audience messaging" : "AI inference and evaluation"} · Last test: {date(item.last_successful_test_at)}</p></div><span className={`integration-state integration-state--${item.state}`}><span aria-hidden="true">{item.state === "healthy" ? "●" : item.state === "degraded" ? "!" : "○"}</span> {stateLabel[item.state]}</span></div><dl className="integration-metadata"><div><dt>Version</dt><dd>{item.version}</dd></div><div><dt>Credential rotation</dt><dd>{date(item.credential_rotated_at)}</dd></div><div><dt>Capabilities</dt><dd>{item.capabilities.length ? item.capabilities.map((capability) => capability.replaceAll("_", " ")).join(", ") : "None configured"}</dd></div><div><dt>Configuration</dt><dd>{item.configuration.region ?? "No region"}{item.configuration.model ? ` · ${item.configuration.model}` : ""}</dd></div>{item.last_failure_category && <div><dt>Last failure</dt><dd>{item.last_failure_category.replaceAll("_", " ")}</dd></div>}</dl><div className="integration-actions"><button className="admin-button admin-button--primary" disabled={busy} onClick={(event) => begin(provider, "credential", event.currentTarget)} type="button">Replace credential for {providerLabel[provider]}</button><button className="admin-button admin-button--secondary" disabled={busy} onClick={(event) => begin(provider, "configuration", event.currentTarget)} type="button">Update configuration</button><button className="admin-button admin-button--secondary" disabled={busy} onClick={() => void testConnection(provider)} type="button">Test connection (no external changes)</button><button className="admin-button admin-button--text" disabled={busy} onClick={() => void loadHistory(provider)} type="button">View {providerLabel[provider]} history</button>{item.state !== "disabled" && <button className="admin-button admin-button--danger" disabled={busy} onClick={(event) => begin(provider, "disable", event.currentTarget)} type="button">Disable connection</button>}</div></article>;
     })}</div>}
-    {credentialProvider && <IntegrationDialog busy={busy} description="This write-only value is submitted once and is never displayed again." onClose={() => { credentialInput.current && (credentialInput.current.value = ""); setCredentialProvider(null); window.setTimeout(() => returnFocus.current?.focus(), 0); }} title={`Replace ${providerLabel[credentialProvider]} credential`}><form className="admin-form" onSubmit={(event) => void saveCredential(event)}><label htmlFor="integration-credential">Credential for {providerLabel[credentialProvider]}</label><input ref={credentialInput} id="integration-credential" autoComplete="off" type="password" required /><div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={() => { credentialInput.current && (credentialInput.current.value = ""); setCredentialProvider(null); }} type="button">Cancel</button><button className="admin-button admin-button--primary" disabled={busy} type="submit">Save credential</button></div></form></IntegrationDialog>}
-    {configurationProvider && <IntegrationDialog busy={busy} description="Only the bounded, non-secret settings for this provider can be changed." onClose={() => setConfigurationProvider(null)} title={"Configure " + providerLabel[configurationProvider]}><form className="admin-form" onSubmit={(event) => void saveConfiguration(event)}>{configurationProvider === "eventbrite" ? <p>Eventbrite has no configurable non-secret settings.</p> : configurationProvider === "iterable" ? <><label htmlFor="integration-region">Region</label><select defaultValue={getConnection(configurationProvider).configuration.region ?? "us"} id="integration-region" name="region"><option value="us">US</option><option value="eu">EU</option></select></> : <><label htmlFor="integration-model">Model</label><select id="integration-model" name="model"><option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option></select></>}<div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={() => setConfigurationProvider(null)} type="button">Cancel</button><button className="admin-button admin-button--primary" disabled={busy} type="submit">Save configuration</button></div></form></IntegrationDialog>}
-    {disableProvider && <IntegrationDialog busy={busy} description="Disabling stops this connection but preserves its redacted audit history." onClose={() => setDisableProvider(null)} title={`Disable ${providerLabel[disableProvider]} connection`}><div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={() => setDisableProvider(null)} type="button">Cancel</button><button className="admin-button admin-button--danger" disabled={busy} onClick={() => void confirmDisable()} type="button">Confirm disable</button></div></IntegrationDialog>}
-    {historyProvider && <section className="security-panel integration-history" aria-labelledby="history-title"><div className="security-section-heading"><div><p className="admin-eyebrow">Redacted audit history</p><h2 id="history-title">{providerLabel[historyProvider]} history</h2></div><button className="admin-button admin-button--text" onClick={() => setHistoryProvider(null)} type="button">Close history</button></div>{busy ? <p aria-busy="true">Loading history…</p> : history.length ? <><ol className="security-event-list">{history.map((item) => <li key={item.correlation_id}><strong>{auditLabel[item.action]}</strong><span>{item.outcome} · version {item.version} · actor {item.actor_id ?? "unavailable"} · failure {item.failure_category ?? "none"} · correlation {item.correlation_id} · {date(item.created_at)}</span></li>)}</ol>{historyCursor && <button className="admin-button admin-button--secondary" onClick={() => void loadOlderHistory()} type="button">Load older history</button>}</> : <p className="security-empty">No permitted audit events are available.</p>}</section>}
-    {freshAction && <FreshVerificationDialog busy={busy} onCancel={() => { setFreshAction(null); window.setTimeout(() => returnFocus.current?.focus(), 0); }} onSubmit={verifyFresh} />}
+    {credentialProvider && <IntegrationDialog busy={busy} description="This write-only value is submitted once and is never displayed again." onClose={() => { credentialInput.current && (credentialInput.current.value = ""); closeDialog(); }} title={`Replace ${providerLabel[credentialProvider]} credential`}><form className="admin-form" onSubmit={(event) => void saveCredential(event)}><label htmlFor="integration-credential">Credential for {providerLabel[credentialProvider]}</label><input ref={credentialInput} id="integration-credential" autoComplete="off" type="password" required /><div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={() => { credentialInput.current && (credentialInput.current.value = ""); closeDialog(); }} type="button">Cancel</button><button className="admin-button admin-button--primary" disabled={busy} type="submit">Save credential</button></div></form></IntegrationDialog>}
+    {configurationProvider && <IntegrationDialog busy={busy} description="Only the bounded, non-secret settings for this provider can be changed." onClose={closeDialog} title={"Configure " + providerLabel[configurationProvider]}><form className="admin-form" onSubmit={(event) => void saveConfiguration(event)}>{configurationProvider === "eventbrite" ? <p>Eventbrite has no configurable non-secret settings.</p> : configurationProvider === "iterable" ? <><label htmlFor="integration-region">Region</label><select defaultValue={getConnection(configurationProvider).configuration.region ?? "us"} id="integration-region" name="region"><option value="us">US</option><option value="eu">EU</option></select></> : <><label htmlFor="integration-model">Model</label><select id="integration-model" name="model"><option value="openai/gpt-oss-20b">openai/gpt-oss-20b</option></select></>}<div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={closeDialog} type="button">Cancel</button><button className="admin-button admin-button--primary" disabled={busy} type="submit">Save configuration</button></div></form></IntegrationDialog>}
+    {disableProvider && <IntegrationDialog busy={busy} description="Disabling stops this connection but preserves its redacted audit history." onClose={closeDialog} title={`Disable ${providerLabel[disableProvider]} connection`}><div className="admin-actions"><button className="admin-button admin-button--secondary" disabled={busy} onClick={closeDialog} type="button">Cancel</button><button className="admin-button admin-button--danger" disabled={busy} onClick={() => void confirmDisable()} type="button">Confirm disable</button></div></IntegrationDialog>}
+    {historyProvider && <section className="security-panel integration-history" aria-labelledby="history-title"><div className="security-section-heading"><div><p className="admin-eyebrow">Redacted audit history</p><h2 id="history-title">{providerLabel[historyProvider]} history</h2></div><button className="admin-button admin-button--text" onClick={() => setHistoryProvider(null)} type="button">Close history</button></div>{busy ? <p aria-busy="true">Loading history…</p> : history.length ? <><ol className="security-event-list">{history.map((item) => <li key={item.correlation_id}><strong>{auditLabel[item.action]}</strong><span>{item.outcome} · version {item.version} · actor {item.actor_id ?? "unavailable"} · failure {item.failure_category ?? "none"} · correlation {item.correlation_id} · {date(item.created_at)}</span></li>)}</ol>{historyCursor && <button className="admin-button admin-button--secondary" disabled={busy} onClick={() => void loadOlderHistory()} type="button">Load older history</button>}</> : <p className="security-empty">No permitted audit events are available.</p>}</section>}
+    {freshAction && <FreshVerificationDialog busy={busy} onCancel={() => { freshRequest.current += 1; setFreshAction(null); window.setTimeout(() => returnFocus.current?.focus(), 0); }} onSubmit={verifyFresh} />}
   </div>;
 }

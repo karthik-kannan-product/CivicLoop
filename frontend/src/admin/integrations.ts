@@ -51,11 +51,11 @@ export function parseConnections(value: unknown): IntegrationConnection[] {
   return raw.connections.map(parseConnection).filter((item): item is IntegrationConnection => item !== null);
 }
 
-export function parseHealthCheck(value: unknown): { outcome: "healthy" | "degraded"; error_category: IntegrationConnection["last_failure_category"]; tested_at: string } | null {
+export function parseHealthCheck(value: unknown): { provider: IntegrationProvider; outcome: "healthy" | "degraded"; error_category: IntegrationConnection["last_failure_category"]; tested_at: string } | null {
   const raw = object(value);
   const testedAt = raw && date(raw.tested_at);
-  if (!raw || (raw.outcome !== "healthy" && raw.outcome !== "degraded") || !testedAt || !(raw.error_category === null || failureCategories.has(raw.error_category as NonNullable<IntegrationConnection["last_failure_category"]>))) return null;
-  return { outcome: raw.outcome, error_category: raw.error_category as IntegrationConnection["last_failure_category"], tested_at: testedAt };
+  if (!raw || !INTEGRATION_PROVIDERS.includes(raw.provider as IntegrationProvider) || (raw.outcome !== "healthy" && raw.outcome !== "degraded") || !testedAt || !Number.isInteger(raw.duration_ms) || (raw.duration_ms as number) < 0 || (raw.duration_ms as number) > 30000 || typeof raw.correlation_id !== "string" || !(raw.error_category === null || failureCategories.has(raw.error_category as NonNullable<IntegrationConnection["last_failure_category"]>))) return null;
+  return { provider: raw.provider as IntegrationProvider, outcome: raw.outcome, error_category: raw.error_category as IntegrationConnection["last_failure_category"], tested_at: testedAt };
 }
 
 export function parseAuditPage(value: unknown): { events: IntegrationAuditEvent[]; next_cursor: string | null } | null {
