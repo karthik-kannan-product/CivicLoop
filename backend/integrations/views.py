@@ -257,6 +257,14 @@ def _versioned_action(
         )
     try:
         value = action(provider=provider, expected_version=version, actor=metadata, request=request)
+    except (IntegrationCryptoError, SecretUnavailable):
+        return _problem(
+            request,
+            503,
+            "integration_unavailable",
+            "Integration unavailable",
+            "The integration service is temporarily unavailable.",
+        )
     except IntegrationServiceError as error:
         return _service_problem(request, error)
     if isinstance(value, IntegrationHealthCheck):
