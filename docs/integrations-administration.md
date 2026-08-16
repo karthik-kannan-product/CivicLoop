@@ -4,6 +4,27 @@ Integration credential administration is an opt-in owner capability. It is not
 enabled by shipping the application: both `CIVICLOOP_ADMIN_IDENTITY_ENABLED`
 and `CIVICLOOP_INTEGRATIONS_ENABLED` must be `true`.
 
+## Implementation handoff
+
+The integration-administration foundation was completed and independently
+reviewed on 2026-08-15. It includes the owner-only browser page, write-only
+credential replacement, encrypted persistence, bounded provider connection
+tests, redacted audit history, feature and readiness gates, OpenAPI/JSON Schema
+contracts, PostgreSQL invariants, CI coverage, and the opt-in Compose key mount.
+
+No production credential has been entered and no live provider connection has
+been enabled by this implementation. Production activation still requires the
+operator to provision the separate key ring, deploy the release, enable both
+feature flags, enter credentials through `/admin/integrations`, and run the
+documented harmless connection tests.
+
+The next implementation phase is Hermes, LiteLLM, OpenTelemetry, and Phoenix;
+those components were deliberately outside this administration slice. Resume
+from the approved private design at
+`develop/civicloop/specs/2026-08-08-civicloop-integrations-hermes-observability-design.md`
+and create a separate implementation plan for the remaining milestones before
+adding runtime or observability services.
+
 ## Provision the separate key ring
 
 Create the integration key ring outside the checkout, using a different file
