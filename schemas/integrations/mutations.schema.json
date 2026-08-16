@@ -18,6 +18,22 @@
       }
     },
     "ConfigurationPatch": {
+      "oneOf": [
+        { "$ref": "#/$defs/EventbriteConfigurationPatch" },
+        { "$ref": "#/$defs/IterableConfigurationPatch" },
+        { "$ref": "#/$defs/ModelConfigurationPatch" }
+      ]
+    },
+    "EventbriteConfigurationPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "expected_version"],
+      "properties": {
+        "configuration": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "IterableConfigurationPatch": {
       "type": "object",
       "additionalProperties": false,
       "required": ["configuration", "expected_version"],
@@ -25,10 +41,22 @@
         "configuration": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {
-            "region": { "enum": ["us", "eu"] },
-            "model": { "enum": ["openai/gpt-oss-20b"] }
-          }
+          "required": ["region"],
+          "properties": { "region": { "enum": ["us", "eu"] } }
+        },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "ModelConfigurationPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "expected_version"],
+      "properties": {
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model"],
+          "properties": { "model": { "enum": ["openai/gpt-oss-20b"] } }
         },
         "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
       }

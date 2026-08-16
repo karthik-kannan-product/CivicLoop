@@ -25,6 +25,7 @@ EXPECTED_SCHEMAS = {
 SENSITIVE_FIELD_NAMES = {
     "ciphertext",
     "credential",
+    "fingerprint",
     "key_id",
     "last_four",
     "masked",
@@ -33,6 +34,8 @@ SENSITIVE_FIELD_NAMES = {
     "secret",
     "token",
     "value",
+    "provider_response",
+    "response_body",
 }
 
 
@@ -62,16 +65,24 @@ def test_integration_schemas_are_closed_draft_2020_12_contracts() -> None:
 def test_responses_cannot_contain_credential_bearing_fields() -> None:
     for name in EXPECTED_SCHEMAS:
         schema = load_schema(name)
-        for definition in schema.get("$defs", {}).values():
-            if definition.get("type") != "object":
-                continue
-            properties = definition.get("properties", {})
+        _assert_no_sensitive_response_fields(schema)
+
+
+def _assert_no_sensitive_response_fields(value: object) -> None:
+    if isinstance(value, dict):
+        properties = value.get("properties")
+        if isinstance(properties, dict):
             response_properties = {
                 field
                 for field, field_schema in properties.items()
-                if not field_schema.get("writeOnly", False)
+                if not isinstance(field_schema, dict) or not field_schema.get("writeOnly", False)
             }
             assert not response_properties & SENSITIVE_FIELD_NAMES
+        for nested in value.values():
+            _assert_no_sensitive_response_fields(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _assert_no_sensitive_response_fields(nested)
 
 
 def test_mutation_operations_use_csrf_no_store_and_expected_versions() -> None:
@@ -90,4 +101,6 @@ def test_mutation_operations_use_csrf_no_store_and_expected_versions() -> None:
                 "#/components/parameters/CsrfToken"
             }
             request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
-            assert request_schema["$ref"].startswith("../schemas/integrations/mutations.schema.json#/$defs/")
+            assert request_schema["$ref"].startswith(
+                "../schemas/integrations/mutations.schema.json#/$defs/"
+            )

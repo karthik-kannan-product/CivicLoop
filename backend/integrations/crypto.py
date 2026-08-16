@@ -66,7 +66,7 @@ def _decode_base64url(value: str) -> bytes:
 
 def _key_file_has_owner_only_permissions(path: Path) -> bool:
     if os.name == "nt":
-        return True
+        return settings.ENVIRONMENT in {"development", "test"}
     return not bool(path.stat().st_mode & 0o077)
 
 

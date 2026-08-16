@@ -30,6 +30,8 @@
         "version",
         "created_at",
         "updated_at",
+        "credential_rotated_at",
+        "responsible_actor_id",
         "last_successful_test_at",
         "last_failure_category"
       ],
@@ -45,12 +47,46 @@
         "version": { "type": "integer", "minimum": 1 },
         "created_at": { "type": "string", "format": "date-time" },
         "updated_at": { "type": "string", "format": "date-time" },
+        "credential_rotated_at": { "type": ["string", "null"], "format": "date-time" },
+        "responsible_actor_id": { "type": ["string", "null"], "format": "uuid" },
         "last_successful_test_at": { "type": ["string", "null"], "format": "date-time" },
         "last_failure_category": {
           "type": ["string", "null"],
           "enum": [null, "authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "eventbrite" } } },
+          "then": { "properties": { "configuration": { "type": "object", "maxProperties": 0 } } }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "iterable" } } },
+          "then": {
+            "properties": {
+              "configuration": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["region"],
+                "properties": { "region": { "enum": ["us", "eu"] } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "enum": ["openai", "groq"] } } },
+          "then": {
+            "properties": {
+              "configuration": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["model"],
+                "properties": { "model": { "enum": ["openai/gpt-oss-20b"] } }
+              }
+            }
+          }
+        }
+      ]
     },
     "IntegrationConnectionList": {
       "type": "object",

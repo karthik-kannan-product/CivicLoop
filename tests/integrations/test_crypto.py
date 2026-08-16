@@ -39,6 +39,8 @@ def write_key_ring(path: Path, *, active_key_id: str = "integration-current", ke
         ),
         encoding="utf-8",
     )
+    if os.name != "nt":
+        path.chmod(0o600)
 
 
 def test_key_ring_loads_current_and_previous_256_bit_keys(tmp_path: Path) -> None:
@@ -82,6 +84,18 @@ def test_key_ring_rejects_group_or_world_readable_file(tmp_path: Path) -> None:
 
     with pytest.raises(IntegrationCryptoError):
         load_integration_key_ring(path)
+
+
+def test_windows_key_ring_fails_closed_outside_local_environments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "integration-keyring.json"
+    write_key_ring(path)
+    monkeypatch.setattr("integrations.crypto.os.name", "nt")
+
+    with override_settings(ENVIRONMENT="production"):
+        with pytest.raises(IntegrationCryptoError):
+            load_integration_key_ring(path)
 
 
 def test_encryption_uses_fresh_nonces_and_binds_secret_metadata(tmp_path: Path) -> None:
