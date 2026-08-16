@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import yaml
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import resolve
 from jsonschema import Draft202012Validator
 
@@ -96,13 +96,17 @@ def test_openapi_integration_surface_matches_live_django_routes_and_methods() ->
         path for path in specification["paths"] if path.startswith("/api/v1/admin/integrations")
     }
     assert documented_paths == set(LIVE_INTEGRATION_ROUTES)
-    for documented_path, (live_path, expected_view_name) in LIVE_INTEGRATION_ROUTES.items():
-        assert resolve(live_path).view_name == expected_view_name
-        response = Client().options(live_path)
-        assert response.status_code == 405
-        assert {method.strip().lower() for method in response["Allow"].split(",")} == (
-            INTEGRATION_OPERATIONS[documented_path]
-        )
+    with override_settings(
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,
+        CIVICLOOP_INTEGRATIONS_ENABLED=True,
+    ):
+        for documented_path, (live_path, expected_view_name) in LIVE_INTEGRATION_ROUTES.items():
+            assert resolve(live_path).view_name == expected_view_name
+            response = Client().options(live_path)
+            assert response.status_code == 405
+            assert {method.strip().lower() for method in response["Allow"].split(",")} == (
+                INTEGRATION_OPERATIONS[documented_path]
+            )
 
 
 def test_integration_schemas_are_closed_draft_2020_12_contracts() -> None:
