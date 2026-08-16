@@ -14,10 +14,150 @@ tags:
   - name: Authentication
   - name: Administrator authentication
   - name: Administrator security
+  - name: Administrator integrations
   - name: LaunchLoop
   - name: Approvals
   - name: Health
 paths:
+  /api/v1/admin/integrations:
+    get:
+      tags: [Administrator integrations]
+      operationId: listIntegrationConnections
+      summary: List redacted integration connection metadata
+      responses:
+        "200":
+          description: Redacted integration connection metadata
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/connection.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/{provider}/credential:
+    put:
+      tags: [Administrator integrations]
+      operationId: replaceIntegrationCredential
+      summary: Replace a write-only integration credential
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/CredentialReplacement" }
+      responses:
+        "200":
+          description: Redacted connection metadata after replacement
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/{provider}/configuration:
+    patch:
+      tags: [Administrator integrations]
+      operationId: updateIntegrationConfiguration
+      summary: Update bounded non-secret integration configuration
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/ConfigurationPatch" }
+      responses:
+        "200":
+          description: Redacted connection metadata after configuration change
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/{provider}/test:
+    post:
+      tags: [Administrator integrations]
+      operationId: testIntegrationConnection
+      summary: Run a harmless integration connection test
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/ConnectionTest" }
+      responses:
+        "200":
+          description: Sanitized connection test result
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/health-check.schema.json#/$defs/IntegrationHealthCheck" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/{provider}/disable:
+    post:
+      tags: [Administrator integrations]
+      operationId: disableIntegrationConnection
+      summary: Disable an integration connection without deleting its history
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/DisableConnection" }
+      responses:
+        "200":
+          description: Redacted disabled connection metadata
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/admin/integrations/{provider}/audit:
+    get:
+      tags: [Administrator integrations]
+      operationId: listIntegrationAuditEvents
+      summary: List redacted integration administration audit events
+      parameters:
+        - { $ref: "#/components/parameters/Provider" }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Redacted integration audit event page
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/integrations/health-check.schema.json#/$defs/IntegrationAuditPage" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/auth/session:
     get:
       tags: [Authentication]
@@ -462,6 +602,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema: { enum: [eventbrite, groq, iterable, openai] }
   headers:
     NoStore:
       description: Sensitive response must never be cached.

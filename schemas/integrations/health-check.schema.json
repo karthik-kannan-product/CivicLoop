@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:health-check",
+  "title": "Integration health and audit metadata",
+  "$ref": "#/$defs/IntegrationHealthCheck",
+  "$defs": {
+    "SafeErrorCategory": {
+      "enum": ["authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"]
+    },
+    "IntegrationHealthCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "outcome", "error_category", "duration_ms", "correlation_id", "tested_at"],
+      "properties": {
+        "provider": { "enum": ["eventbrite", "groq", "iterable", "openai"] },
+        "outcome": { "enum": ["healthy", "degraded"] },
+        "error_category": { "type": ["string", "null"], "enum": [null, "authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"] },
+        "duration_ms": { "type": "integer", "minimum": 0, "maximum": 30000 },
+        "correlation_id": { "type": "string", "format": "uuid" },
+        "tested_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "IntegrationAuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "outcome", "correlation_id", "created_at"],
+      "properties": {
+        "action": { "enum": ["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled"] },
+        "outcome": { "enum": ["success", "failure", "denied", "unavailable"] },
+        "correlation_id": { "type": "string", "format": "uuid" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "IntegrationAuditPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "next_cursor"],
+      "properties": {
+        "events": { "type": "array", "items": { "$ref": "#/$defs/IntegrationAuditEvent" } },
+        "next_cursor": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

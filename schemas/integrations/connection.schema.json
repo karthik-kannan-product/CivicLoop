@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:connection",
+  "title": "Integration connection metadata",
+  "$ref": "#/$defs/IntegrationConnectionList",
+  "$defs": {
+    "Provider": { "enum": ["eventbrite", "groq", "iterable", "openai"] },
+    "LifecycleState": {
+      "enum": ["not_configured", "configured", "healthy", "degraded", "disabled"]
+    },
+    "Capability": {
+      "enum": ["connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"]
+    },
+    "SafeConfiguration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "region": { "enum": ["us", "eu"] },
+        "model": { "enum": ["openai/gpt-oss-20b"] }
+      }
+    },
+    "IntegrationConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "state",
+        "capabilities",
+        "configuration",
+        "version",
+        "created_at",
+        "updated_at",
+        "last_successful_test_at",
+        "last_failure_category"
+      ],
+      "properties": {
+        "provider": { "$ref": "#/$defs/Provider" },
+        "state": { "$ref": "#/$defs/LifecycleState" },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/Capability" }
+        },
+        "configuration": { "$ref": "#/$defs/SafeConfiguration" },
+        "version": { "type": "integer", "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "last_successful_test_at": { "type": ["string", "null"], "format": "date-time" },
+        "last_failure_category": {
+          "type": ["string", "null"],
+          "enum": [null, "authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"]
+        }
+      }
+    },
+    "IntegrationConnectionList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connections"],
+      "properties": {
+        "connections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IntegrationConnection" }
+        }
+      }
+    }
+  }
+}
