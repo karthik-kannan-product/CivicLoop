@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -115,6 +116,29 @@ class EncryptedSecret(models.Model):
         return f"Encrypted integration secret {self.id}"
 
 
+class IntegrationConnectionQuerySet(models.QuerySet):
+    def bulk_create(self, objs: list["IntegrationConnection"], **kwargs: Any) -> list[Any]:
+        for connection in objs:
+            connection.clean()
+        return cast(list[Any], super().bulk_create(objs, **kwargs))
+
+    def update(self, **kwargs: Any) -> int:
+        if kwargs:
+            raise ValidationError("Integration connections must be changed through save().")
+        return 0
+
+    def bulk_update(
+        self,
+        objs: list["IntegrationConnection"],
+        fields: list[str],
+        **kwargs: Any,
+    ) -> int:
+        raise ValidationError("Integration connections must be changed through save().")
+
+
+IntegrationConnectionManager = models.Manager.from_queryset(IntegrationConnectionQuerySet)
+
+
 class IntegrationConnection(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     provider = models.CharField(max_length=32, choices=Provider.choices, unique=True)
@@ -137,6 +161,7 @@ class IntegrationConnection(models.Model):
     last_failure_category = models.CharField(
         max_length=32, choices=HealthErrorCategory.choices, blank=True
     )
+    objects = IntegrationConnectionManager()
 
     class Meta:
         constraints = [

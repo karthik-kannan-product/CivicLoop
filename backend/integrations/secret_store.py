@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
+from identity.models import AdministratorProfile
 
 from integrations.crypto import EncryptedEnvelope, decrypt_secret, encrypt_secret
 from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
@@ -15,16 +16,7 @@ from integrations.types import SecretLease, SecretMetadata, SecretReference
 
 MAX_LEASE_SECONDS = 5 * 60
 PURPOSE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-APPROVED_PURPOSES = frozenset(
-    {"connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"}
-)
-PURPOSES_BY_PROVIDER: dict[str, frozenset[str]] = {
-    "eventbrite": frozenset({"connection_test", "draft_create", "metadata_read"}),
-    "iterable": frozenset({"connection_test", "draft_create", "metadata_read"}),
-    "openai": frozenset({"connection_test", "evaluation_judge", "inference"}),
-    "groq": frozenset({"connection_test", "evaluation_judge", "inference"}),
-}
-WORKFLOW_BOUND_PURPOSES = frozenset({"draft_create", "evaluation_judge", "inference"})
+CONNECTION_TEST_PURPOSE = "connection_test"
 
 
 class SecretStore(ABC):
@@ -201,13 +193,14 @@ class PostgresSecretStore(SecretStore):
         if (
             not isinstance(reference, SecretReference)
             or not isinstance(caller_id, UUID)
-            or (workflow_id is not None and not isinstance(workflow_id, UUID))
-            or purpose not in APPROVED_PURPOSES
-            or purpose not in PURPOSES_BY_PROVIDER.get(reference.provider, frozenset())
-            or (purpose in WORKFLOW_BOUND_PURPOSES and workflow_id is None)
-            or PURPOSE_PATTERN.fullmatch(purpose) is None
+            or workflow_id is not None
+            or purpose != CONNECTION_TEST_PURPOSE
             or not isinstance(ttl, timedelta)
             or not timedelta(0) < ttl <= timedelta(seconds=MAX_LEASE_SECONDS)
+            or not AdministratorProfile.objects.filter(
+                id=caller_id,
+                status=AdministratorProfile.Status.ACTIVE,
+            ).exists()
         ):
             raise SecretUnavailable()
 
@@ -250,8 +243,13 @@ class _LeaseContext:
         self._purpose = purpose
         self._expires_at = expires_at
         self._lease: SecretLease | None = None
+        self._entered = False
+        self._closed = False
 
     def __enter__(self) -> SecretLease:
+        if self._entered or self._closed:
+            self._invalidate()
+            raise SecretUnavailable()
         self._lease = self._store._open_lease(
             self._reference,
             self._caller_id,
@@ -259,9 +257,14 @@ class _LeaseContext:
             self._purpose,
             self._expires_at,
         )
+        self._entered = True
         return self._lease
 
     def __exit__(self, _exc_type: object, _exc_value: object, _traceback: object) -> None:
+        self._invalidate()
+
+    def _invalidate(self) -> None:
         if self._lease is not None:
             self._lease._close()
             self._lease = None
+        self._closed = True

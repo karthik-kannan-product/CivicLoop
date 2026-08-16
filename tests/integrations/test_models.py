@@ -21,7 +21,7 @@ def test_database_allows_only_one_connection_for_each_approved_provider() -> Non
     with pytest.raises(IntegrityError), transaction.atomic():
         IntegrationConnection.objects.create(provider="eventbrite")
 
-    with pytest.raises(IntegrityError), transaction.atomic():
+    with pytest.raises(ValidationError):
         IntegrationConnection.objects.bulk_create([IntegrationConnection(provider="unknown")])
 
 
@@ -65,6 +65,37 @@ def test_save_rejects_cross_provider_secret_reference() -> None:
     with pytest.raises(ValidationError):
         connection.save()
     assert not IntegrationConnection.objects.filter(provider="openai").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_bulk_create_rejects_invalid_configuration_and_cross_provider_secret() -> None:
+    secret = EncryptedSecret.objects.create(
+        provider="eventbrite",
+        scope="private_token",
+        ciphertext=b"not-a-real-ciphertext",
+        nonce=b"0123456789ab",
+        key_id="integration-test",
+    )
+
+    with pytest.raises(ValidationError):
+        IntegrationConnection.objects.bulk_create(
+            [IntegrationConnection(provider="iterable", configuration={"token": "synthetic"})]
+        )
+    with pytest.raises(ValidationError):
+        IntegrationConnection.objects.bulk_create(
+            [IntegrationConnection(provider="openai", secret=secret)]
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_queryset_update_and_bulk_update_cannot_bypass_connection_invariants() -> None:
+    connection = IntegrationConnection.objects.create(provider="iterable")
+    connection.configuration = {"token": "synthetic"}
+
+    with pytest.raises(ValidationError):
+        IntegrationConnection.objects.filter(id=connection.id).update(configuration=connection.configuration)
+    with pytest.raises(ValidationError):
+        IntegrationConnection.objects.bulk_update([connection], ["configuration"])
 
 
 @pytest.mark.django_db(transaction=True)

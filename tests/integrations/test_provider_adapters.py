@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from integrations.providers import (
     EventbriteProbe,
     GroqProbe,
@@ -78,9 +77,19 @@ def test_provider_probes_use_only_documented_safe_get_requests(
     assert transport.calls == [(url, headers)]
 
 
-@pytest.mark.parametrize("status, expected_category", [(401, "authentication"), (403, "authorization"), (429, "rate_limit"), (500, "provider_unavailable")])
+@pytest.mark.parametrize(
+    "status, expected_category",
+    [
+        (401, "authentication"),
+        (403, "authorization"),
+        (429, "rate_limit"),
+        (500, "provider_unavailable"),
+    ],
+)
 def test_provider_probe_redacts_status_failures(status: int, expected_category: str) -> None:
-    transport = RecordingTransport(ProbeResponse(status=status, body=b'{"credential":"do-not-return"}'))
+    transport = RecordingTransport(
+        ProbeResponse(status=status, body=b'{"credential":"do-not-return"}')
+    )
 
     result = EventbriteProbe(transport).probe(b"synthetic-credential", configuration={})
 

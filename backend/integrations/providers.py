@@ -8,7 +8,6 @@ import json
 from dataclasses import dataclass
 from typing import Protocol
 
-
 SAFE_ERROR_CATEGORIES = frozenset(
     {
         "authentication",
@@ -72,7 +71,9 @@ class ProviderProbe:
             return ProbeResult(ok=False, error_category="invalid_response")
         return ProbeResult(ok=True)
 
-    def _request(self, credential: bytes, configuration: dict[str, str]) -> tuple[str, dict[str, str]]:
+    def _request(
+        self, credential: bytes, configuration: dict[str, str]
+    ) -> tuple[str, dict[str, str]]:
         raise NotImplementedError
 
     def _valid_body(self, body: bytes) -> bool:
@@ -109,7 +110,9 @@ def _credential_text(credential: bytes) -> str:
 
 
 class EventbriteProbe(ProviderProbe):
-    def _request(self, credential: bytes, configuration: dict[str, str]) -> tuple[str, dict[str, str]]:
+    def _request(
+        self, credential: bytes, configuration: dict[str, str]
+    ) -> tuple[str, dict[str, str]]:
         if configuration != {}:
             raise ValueError("invalid configuration")
         return (
@@ -119,7 +122,9 @@ class EventbriteProbe(ProviderProbe):
 
     def _valid_body(self, body: bytes) -> bool:
         payload = _json_object(body)
-        return payload is not None and isinstance(payload.get("id"), str | int) and bool(payload["id"])
+        return (
+            payload is not None and isinstance(payload.get("id"), str | int) and bool(payload["id"])
+        )
 
 
 class IterableProbe(ProviderProbe):
@@ -128,7 +133,9 @@ class IterableProbe(ProviderProbe):
         "eu": "https://api.eu.iterable.com/api/lists",
     }
 
-    def _request(self, credential: bytes, configuration: dict[str, str]) -> tuple[str, dict[str, str]]:
+    def _request(
+        self, credential: bytes, configuration: dict[str, str]
+    ) -> tuple[str, dict[str, str]]:
         region = configuration.get("region")
         if set(configuration) != {"region"} or region not in self._URLS:
             raise ValueError("invalid configuration")
@@ -142,15 +149,19 @@ class IterableProbe(ProviderProbe):
 class _ModelsProbe(ProviderProbe):
     _URL = ""
 
-    def _request(self, credential: bytes, configuration: dict[str, str]) -> tuple[str, dict[str, str]]:
+    def _request(
+        self, credential: bytes, configuration: dict[str, str]
+    ) -> tuple[str, dict[str, str]]:
         if configuration != {"model": "openai/gpt-oss-20b"}:
             raise ValueError("invalid configuration")
         return self._URL, {"Authorization": f"Bearer {_credential_text(credential)}"}
 
     def _valid_body(self, body: bytes) -> bool:
         payload = _json_object(body)
-        return payload is not None and payload.get("object") == "list" and isinstance(
-            payload.get("data"), list
+        return (
+            payload is not None
+            and payload.get("object") == "list"
+            and isinstance(payload.get("data"), list)
         )
 
 

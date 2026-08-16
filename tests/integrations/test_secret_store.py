@@ -6,7 +6,9 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from django.contrib.auth.models import User
 from identity.exceptions import IdentityError
+from identity.models import AdministratorProfile
 from identity.services.security import record_security_event
 from integrations.exceptions import SecretUnavailable
 from integrations.secret_store import PostgresSecretStore
@@ -36,6 +38,16 @@ def secret_store(settings, tmp_path: Path) -> PostgresSecretStore:
     write_key_ring(path)
     settings.CIVICLOOP_INTEGRATION_KEY_FILE = path
     return PostgresSecretStore()
+
+
+@pytest.fixture(autouse=True)
+def active_owner(db) -> AdministratorProfile:
+    user = User.objects.create_user(username="synthetic.integration.owner")
+    return AdministratorProfile.objects.create(
+        id=CALLER_ID,
+        user=user,
+        status=AdministratorProfile.Status.ACTIVE,
+    )
 
 
 @pytest.mark.django_db
@@ -101,7 +113,7 @@ def test_mismatched_unknown_or_expired_leases_fail_closed(
 
 
 @pytest.mark.django_db
-def test_provider_purpose_allowlist_and_workflow_binding_fail_closed(
+def test_only_connection_test_purpose_and_no_workflow_are_allowed(
     secret_store: PostgresSecretStore,
 ) -> None:
     eventbrite = secret_store.put(provider="eventbrite", scope="private_token", value=PLAINTEXT)
@@ -111,7 +123,7 @@ def test_provider_purpose_allowlist_and_workflow_binding_fail_closed(
         secret_store.lease(
             eventbrite,
             caller_id=CALLER_ID,
-            workflow_id=WORKFLOW_ID,
+            workflow_id=None,
             purpose="inference",
             ttl=timedelta(seconds=30),
         )
@@ -119,18 +131,52 @@ def test_provider_purpose_allowlist_and_workflow_binding_fail_closed(
         secret_store.lease(
             openai,
             caller_id=CALLER_ID,
-            workflow_id=None,
-            purpose="inference",
+            workflow_id=WORKFLOW_ID,
+            purpose="connection_test",
             ttl=timedelta(seconds=30),
         )
     with secret_store.lease(
         openai,
         caller_id=CALLER_ID,
-        workflow_id=WORKFLOW_ID,
-        purpose="inference",
+        workflow_id=None,
+        purpose="connection_test",
         ttl=timedelta(seconds=30),
     ) as lease:
         assert lease.read() == PLAINTEXT
+
+
+@pytest.mark.django_db
+def test_lease_rejects_non_owner_caller_and_cannot_be_reentered(
+    secret_store: PostgresSecretStore,
+) -> None:
+    reference = secret_store.put(provider="eventbrite", scope="private_token", value=PLAINTEXT)
+
+    with pytest.raises(SecretUnavailable):
+        secret_store.lease(
+            reference,
+            caller_id=UUID("2c28bd11-7f58-47b5-9f75-3c466dab3280"),
+            workflow_id=None,
+            purpose="connection_test",
+            ttl=timedelta(seconds=30),
+        )
+
+    context = secret_store.lease(
+        reference,
+        caller_id=CALLER_ID,
+        workflow_id=None,
+        purpose="connection_test",
+        ttl=timedelta(seconds=30),
+    )
+    with context as lease:
+        assert lease.read() == PLAINTEXT
+        with pytest.raises(SecretUnavailable):
+            context.__enter__()
+        with pytest.raises(SecretUnavailable):
+            lease.read()
+    with pytest.raises(SecretUnavailable):
+        lease.read()
+    with pytest.raises(SecretUnavailable):
+        context.__enter__()
 
 
 @pytest.mark.django_db
@@ -179,8 +225,8 @@ def test_disable_blocks_new_leases_without_deleting_metadata(
         with secret_store.lease(
             reference,
             caller_id=CALLER_ID,
-            workflow_id=WORKFLOW_ID,
-            purpose="inference",
+            workflow_id=None,
+            purpose="connection_test",
             ttl=timedelta(seconds=30),
         ):
             pass
@@ -194,8 +240,8 @@ def test_secret_bearing_lease_is_redacted_and_rejected_by_security_event_sanitiz
     lease_context = secret_store.lease(
         reference,
         caller_id=CALLER_ID,
-        workflow_id=WORKFLOW_ID,
-        purpose="inference",
+        workflow_id=None,
+        purpose="connection_test",
         ttl=timedelta(seconds=30),
     )
 
