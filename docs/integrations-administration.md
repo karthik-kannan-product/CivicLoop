@@ -38,7 +38,9 @@ CIVICLOOP_INTEGRATION_KEY_FILE=/run/secrets/civicloop-integration-keyring.json
 CIVICLOOP_INTEGRATION_KEY_HOST_PATH=/srv/civicloop/secrets/integration-keyring.json
 ```
 
-`web` and `worker` receive a read-only mount of the integration key ring.
+The opt-in `compose.integrations.yaml` override gives `web` and `worker` a
+read-only mount of the integration key ring. The base `compose.yaml` neither
+requires the host path nor mounts the key when integrations are disabled.
 `db`, `valkey`, `migrate`, and `scheduler` do not. The worker does not receive
 the owner identity key or an enabled owner-identity feature.
 
@@ -46,8 +48,8 @@ Start or update the stack normally, then verify both core and integration
 readiness from the web container:
 
 ```sh
-docker compose up -d --build
-docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
+docker compose -f compose.yaml -f compose.integrations.yaml up -d --build
+docker compose -f compose.yaml -f compose.integrations.yaml exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
 ```
 
 Core liveness remains available if the integration key is absent or invalid;
@@ -108,8 +110,8 @@ cookies.
    ```sh
    docker compose up -d db valkey
    docker compose run --rm migrate
-   docker compose up -d web worker scheduler
-   docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
+   docker compose -f compose.yaml -f compose.integrations.yaml up -d web worker scheduler
+   docker compose -f compose.yaml -f compose.integrations.yaml exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
    ```
 
 3. Authenticate as the test owner, inspect the restored provider metadata, and

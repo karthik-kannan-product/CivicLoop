@@ -49,6 +49,7 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "CIVICLOOP_IDENTITY_KEY_FILE: /tmp/civicloop-ci-identity-keyring.json" in workflow
     assert "CIVICLOOP_INTEGRATION_KEY_FILE: /tmp/civicloop-ci-integration-keyring.json" in workflow
     assert "CIVICLOOP_INTEGRATIONS_ENABLED: \"true\"" in workflow
+    assert "COMPOSE_FILE: compose.yaml:compose.integrations.yaml" in workflow
     assert "Create synthetic administrator integration key" in workflow
     assert "civicloop-compose-integration-keyring.json" in workflow
     assert "test_security_event_database.py" in workflow
@@ -71,3 +72,10 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
         "s/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/"
         in workflow
     )
+
+
+def test_integration_runbook_uses_opt_in_compose_override() -> None:
+    runbook = (REPOSITORY_ROOT / "docs" / "integrations-administration.md").read_text()
+
+    assert "-f compose.yaml -f compose.integrations.yaml up -d --build" in runbook
+    assert "base `compose.yaml` neither\nrequires the host path nor mounts the key" in runbook

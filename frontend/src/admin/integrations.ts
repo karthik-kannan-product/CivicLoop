@@ -1,6 +1,7 @@
 import {
   INTEGRATION_PROVIDERS,
   type IntegrationAuditEvent,
+  type IntegrationAuditFailureCategory,
   type IntegrationCapability,
   type IntegrationConnection,
   type IntegrationProvider,
@@ -11,7 +12,8 @@ import {
 const states = new Set<IntegrationState>(["not_configured", "configured", "healthy", "degraded", "disabled"]);
 const capabilities = new Set<IntegrationCapability>(["connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"]);
 const failureCategories = new Set<NonNullable<IntegrationConnection["last_failure_category"]>>(["authentication", "authorization", "rate_limit", "timeout", "network", "invalid_response", "provider_unavailable"]);
-const auditActions = new Set<IntegrationAuditEvent["action"]>(["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled"]);
+const auditFailureCategories = new Set<IntegrationAuditFailureCategory>([...failureCategories, "freshness", "recovery_restricted", "rate_limit_unavailable", "version_conflict", "key_unavailable", "provider_not_found", "invalid_request", "integration_unavailable"]);
+const auditActions = new Set<IntegrationAuditEvent["action"]>(["credential_replaced", "configuration_changed", "connection_tested", "connection_disabled", "audit_listed"]);
 const auditOutcomes = new Set<IntegrationAuditEvent["outcome"]>(["success", "failure", "denied", "unavailable"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -69,8 +71,8 @@ export function parseAuditEvents(value: unknown): IntegrationAuditEvent[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const raw = object(item);
-    if (!raw || !auditActions.has(raw.action as IntegrationAuditEvent["action"]) || !auditOutcomes.has(raw.outcome as IntegrationAuditEvent["outcome"]) || !(raw.actor_id === null || typeof raw.actor_id === "string" && UUID.test(raw.actor_id)) || !Number.isInteger(raw.version) || (raw.version as number) < 1 || !(raw.failure_category === null || failureCategories.has(raw.failure_category as NonNullable<IntegrationConnection["last_failure_category"]>)) || typeof raw.correlation_id !== "string" || !UUID.test(raw.correlation_id) || !date(raw.created_at)) return [];
-    return [{ action: raw.action as IntegrationAuditEvent["action"], outcome: raw.outcome as IntegrationAuditEvent["outcome"], actor_id: raw.actor_id as string | null, version: raw.version as number, failure_category: raw.failure_category as IntegrationConnection["last_failure_category"], correlation_id: raw.correlation_id, created_at: raw.created_at as string }];
+    if (!raw || !auditActions.has(raw.action as IntegrationAuditEvent["action"]) || !auditOutcomes.has(raw.outcome as IntegrationAuditEvent["outcome"]) || !(raw.actor_id === null || typeof raw.actor_id === "string" && UUID.test(raw.actor_id)) || !(raw.version === null || Number.isInteger(raw.version) && (raw.version as number) >= 1) || !(raw.failure_category === null || auditFailureCategories.has(raw.failure_category as IntegrationAuditFailureCategory)) || typeof raw.correlation_id !== "string" || !UUID.test(raw.correlation_id) || !date(raw.created_at)) return [];
+    return [{ action: raw.action as IntegrationAuditEvent["action"], outcome: raw.outcome as IntegrationAuditEvent["outcome"], actor_id: raw.actor_id as string | null, version: raw.version as number | null, failure_category: raw.failure_category as IntegrationAuditFailureCategory | null, correlation_id: raw.correlation_id, created_at: raw.created_at as string }];
   });
 }
 

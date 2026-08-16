@@ -52,6 +52,16 @@ test("rejects non-UUID health and audit identifiers", () => {
   expect(parseAuditEvents([{ action: "credential_replaced", outcome: "success", actor_id: "not-a-uuid", version: 3, failure_category: null, correlation_id: "not-a-uuid", created_at: "2026-08-10T11:00:00Z" }])).toEqual([]);
 });
 
+test("retains safe denial and unavailable audit metadata", () => {
+  const events = parseAuditEvents([
+    { action: "credential_replaced", outcome: "denied", actor_id: null, version: null, failure_category: "freshness", correlation_id: "00000000-0000-4000-8000-000000000001", created_at: "2026-08-10T11:00:00Z" },
+    { action: "audit_listed", outcome: "unavailable", actor_id: null, version: null, failure_category: "key_unavailable", correlation_id: "00000000-0000-4000-8000-000000000002", created_at: "2026-08-10T11:01:00Z" },
+  ]);
+
+  expect(events).toHaveLength(2);
+  expect(events.map((event) => event.failure_category)).toEqual(["freshness", "key_unavailable"]);
+});
+
 test("renders the four provider cards while safely ignoring malformed metadata", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ connections: [connection, { provider: "unsafe", state: "credential=secret" }] })));
 

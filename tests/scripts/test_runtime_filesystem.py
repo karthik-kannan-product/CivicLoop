@@ -44,9 +44,14 @@ def test_identity_key_mount_is_limited_to_web_and_management_contexts() -> None:
 
 
 def test_integration_key_mount_is_limited_to_web_and_worker() -> None:
-    specification = yaml.safe_load((REPOSITORY_ROOT / "compose.yaml").read_text())
+    base_compose = (REPOSITORY_ROOT / "compose.yaml").read_text()
+    specification = yaml.safe_load(
+        (REPOSITORY_ROOT / "compose.integrations.yaml").read_text()
+    )
     services = specification["services"]
     secret_target = "/run/secrets/civicloop-integration-keyring.json:ro"
+
+    assert "CIVICLOOP_INTEGRATION_KEY_HOST_PATH" not in base_compose
 
     mounted_services = {
         name
@@ -55,11 +60,12 @@ def test_integration_key_mount_is_limited_to_web_and_worker() -> None:
     }
 
     assert mounted_services == {"web", "worker"}
-    assert services["worker"]["environment"]["CIVICLOOP_IDENTITY_KEY_FILE"] == ""
+    base_services = yaml.safe_load(base_compose)["services"]
+    assert base_services["worker"]["environment"]["CIVICLOOP_IDENTITY_KEY_FILE"] == ""
     assert all(
         not any(
             "/run/secrets/civicloop-identity-keyring.json:ro" in volume
-            for volume in services[service_name].get("volumes", [])
+            for volume in base_services[service_name].get("volumes", [])
         )
         for service_name in ("worker", "scheduler")
     )

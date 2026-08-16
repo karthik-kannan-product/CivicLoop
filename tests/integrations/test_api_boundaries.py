@@ -68,7 +68,7 @@ def test_every_integration_api_is_hidden_unless_both_features_are_enabled(
         CIVICLOOP_ADMIN_IDENTITY_ENABLED=identity_enabled,
         CIVICLOOP_INTEGRATIONS_ENABLED=integrations_enabled,
     ):
-        client = Client()
+        client = Client(enforce_csrf_checks=True)
         responses = [
             client.get("/api/v1/admin/integrations"),
             json_request(
