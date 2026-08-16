@@ -232,6 +232,40 @@ def test_unknown_provider_audit_does_not_persist_raw_path_data(
 
 
 @pytest.mark.django_db
+def test_version_conflict_is_denied_and_audited_with_safe_expected_version(
+    integration_configuration,
+) -> None:
+    client, _profile, _metadata, _password = create_authenticated_owner()
+    path = "/api/v1/admin/integrations/eventbrite/credential"
+    created = json_request(
+        client,
+        "put",
+        path,
+        {"credential": "synthetic-first-token", "expected_version": 1},
+    )
+
+    conflict = json_request(
+        client,
+        "put",
+        path,
+        {"credential": "must-not-leak", "expected_version": 1},
+    )
+
+    assert created.status_code == 200
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "version_conflict"
+    audit = client.get("/api/v1/admin/integrations/eventbrite/audit")
+    denied = next(
+        event
+        for event in audit.json()["events"]
+        if event["failure_category"] == "version_conflict"
+    )
+    assert denied["outcome"] == "denied"
+    assert denied["version"] == 1
+    assert "must-not-leak" not in json.dumps(denied)
+
+
+@pytest.mark.django_db
 def test_live_rate_limit_has_stable_retry_after_and_one_bounded_audit_transition(
     integration_configuration,
 ) -> None:

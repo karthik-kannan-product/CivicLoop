@@ -4,9 +4,11 @@ Probe implementations deliberately expose only a boolean outcome and a fixed err
 category.  They never retain credentials or provider response bodies.
 """
 
-import json
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
+
+from integrations.types import SecretLease
 
 SAFE_ERROR_CATEGORIES = frozenset(
     {
@@ -21,10 +23,16 @@ SAFE_ERROR_CATEGORIES = frozenset(
 )
 
 
+class ProbeResponseShape(Enum):
+    EVENTBRITE_IDENTITY = "eventbrite_identity"
+    ITERABLE_LISTS = "iterable_lists"
+    MODEL_LIST = "model_list"
+
+
 @dataclass(frozen=True, repr=False)
 class ProbeResponse:
     status: int
-    body: bytes
+    shape: ProbeResponseShape | None
 
     def __repr__(self) -> str:
         return "ProbeResponse(redacted)"
@@ -47,18 +55,20 @@ class SafeProbeError(Exception):
 
 
 class ProbeTransport(Protocol):
-    def get(self, url: str, *, headers: dict[str, str]) -> ProbeResponse:
-        """Issue one bounded HTTPS GET request without redirects."""
+    def get(self, url: str, *, credential: SecretLease) -> ProbeResponse:
+        """Use one lease for one bounded HTTPS GET and return only parsed shape metadata."""
 
 
 class ProviderProbe:
     def __init__(self, transport: ProbeTransport) -> None:
         self._transport = transport
 
-    def probe(self, credential: bytes, *, configuration: dict[str, str]) -> ProbeResult:
+    def probe(self, credential: SecretLease, *, configuration: dict[str, str]) -> ProbeResult:
+        if not isinstance(credential, SecretLease):
+            return ProbeResult(ok=False, error_category="invalid_response")
         try:
-            url, headers = self._request(credential, configuration)
-            response = self._transport.get(url, headers=headers)
+            url = self._url(configuration)
+            response = self._transport.get(url, credential=credential)
         except SafeProbeError as exc:
             return ProbeResult(ok=False, error_category=exc.category)
         except (TypeError, UnicodeError, ValueError):
@@ -67,16 +77,15 @@ class ProviderProbe:
         category = _status_category(response.status)
         if category is not None:
             return ProbeResult(ok=False, error_category=category)
-        if response.status != 200 or not self._valid_body(response.body):
+        if response.status != 200 or response.shape is not self._expected_shape:
             return ProbeResult(ok=False, error_category="invalid_response")
         return ProbeResult(ok=True)
 
-    def _request(
-        self, credential: bytes, configuration: dict[str, str]
-    ) -> tuple[str, dict[str, str]]:
+    @property
+    def _expected_shape(self) -> ProbeResponseShape:
         raise NotImplementedError
 
-    def _valid_body(self, body: bytes) -> bool:
+    def _url(self, configuration: dict[str, str]) -> str:
         raise NotImplementedError
 
 
@@ -94,37 +103,15 @@ def _status_category(status: int) -> str | None:
     return None
 
 
-def _json_object(body: bytes) -> dict[str, object] | None:
-    try:
-        value = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _credential_text(credential: bytes) -> str:
-    value = credential.decode("utf-8")
-    if not value or "\r" in value or "\n" in value:
-        raise ValueError("invalid credential")
-    return value
-
-
 class EventbriteProbe(ProviderProbe):
-    def _request(
-        self, credential: bytes, configuration: dict[str, str]
-    ) -> tuple[str, dict[str, str]]:
+    @property
+    def _expected_shape(self) -> ProbeResponseShape:
+        return ProbeResponseShape.EVENTBRITE_IDENTITY
+
+    def _url(self, configuration: dict[str, str]) -> str:
         if configuration != {}:
             raise ValueError("invalid configuration")
-        return (
-            "https://www.eventbriteapi.com/v3/users/me/",
-            {"Authorization": f"Bearer {_credential_text(credential)}"},
-        )
-
-    def _valid_body(self, body: bytes) -> bool:
-        payload = _json_object(body)
-        return (
-            payload is not None and isinstance(payload.get("id"), str | int) and bool(payload["id"])
-        )
+        return "https://www.eventbriteapi.com/v3/users/me/"
 
 
 class IterableProbe(ProviderProbe):
@@ -133,36 +120,28 @@ class IterableProbe(ProviderProbe):
         "eu": "https://api.eu.iterable.com/api/lists",
     }
 
-    def _request(
-        self, credential: bytes, configuration: dict[str, str]
-    ) -> tuple[str, dict[str, str]]:
+    @property
+    def _expected_shape(self) -> ProbeResponseShape:
+        return ProbeResponseShape.ITERABLE_LISTS
+
+    def _url(self, configuration: dict[str, str]) -> str:
         region = configuration.get("region")
         if set(configuration) != {"region"} or region not in self._URLS:
             raise ValueError("invalid configuration")
-        return self._URLS[region], {"Api-Key": _credential_text(credential)}
-
-    def _valid_body(self, body: bytes) -> bool:
-        payload = _json_object(body)
-        return payload is not None and isinstance(payload.get("lists"), list)
+        return self._URLS[region]
 
 
 class _ModelsProbe(ProviderProbe):
     _URL = ""
 
-    def _request(
-        self, credential: bytes, configuration: dict[str, str]
-    ) -> tuple[str, dict[str, str]]:
+    @property
+    def _expected_shape(self) -> ProbeResponseShape:
+        return ProbeResponseShape.MODEL_LIST
+
+    def _url(self, configuration: dict[str, str]) -> str:
         if configuration != {"model": "openai/gpt-oss-20b"}:
             raise ValueError("invalid configuration")
-        return self._URL, {"Authorization": f"Bearer {_credential_text(credential)}"}
-
-    def _valid_body(self, body: bytes) -> bool:
-        payload = _json_object(body)
-        return (
-            payload is not None
-            and payload.get("object") == "list"
-            and isinstance(payload.get("data"), list)
-        )
+        return self._URL
 
 
 class OpenAIProbe(_ModelsProbe):

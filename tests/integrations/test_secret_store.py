@@ -77,12 +77,29 @@ def test_put_metadata_and_purpose_bound_lease(secret_store: PostgresSecretStore)
     )
     assert not hasattr(lease_context, "read")
     with lease_context as lease:
-        assert lease.read() == PLAINTEXT
+        retained_view: memoryview | None = None
+
+        def inspect_credential(credential: memoryview) -> bool:
+            nonlocal retained_view
+            retained_view = credential
+            assert credential.readonly
+            return credential == PLAINTEXT
+
+        backing = lease._plaintext
+        assert not hasattr(lease, "read")
+        assert lease.use(inspect_credential) is True
         assert lease.caller_id == CALLER_ID
         assert lease.workflow_id is None
+        assert lease._plaintext is None
+        assert backing == bytearray(len(PLAINTEXT))
+        assert retained_view is not None
+        with pytest.raises(ValueError):
+            retained_view.tobytes()
+        with pytest.raises(SecretUnavailable):
+            lease.use(lambda _credential: None)
 
     with pytest.raises(SecretUnavailable):
-        lease.read()
+        lease.use(lambda _credential: None)
 
     assert metadata.provider == "eventbrite"
     assert metadata.scope == "private_token"
@@ -155,7 +172,7 @@ def test_only_connection_test_purpose_and_no_workflow_are_allowed(
         purpose="connection_test",
         ttl=timedelta(seconds=30),
     ) as lease:
-        assert lease.read() == PLAINTEXT
+        assert lease.use(lambda credential: credential == PLAINTEXT) is True
 
 
 @pytest.mark.django_db
@@ -181,13 +198,13 @@ def test_lease_rejects_non_owner_caller_and_cannot_be_reentered(
         ttl=timedelta(seconds=30),
     )
     with context as lease:
-        assert lease.read() == PLAINTEXT
+        assert lease.use(lambda credential: credential == PLAINTEXT) is True
         with pytest.raises(SecretUnavailable):
             context.__enter__()
         with pytest.raises(SecretUnavailable):
-            lease.read()
+            lease.use(lambda _credential: None)
     with pytest.raises(SecretUnavailable):
-        lease.read()
+        lease.use(lambda _credential: None)
     with pytest.raises(SecretUnavailable):
         context.__enter__()
 
@@ -215,7 +232,7 @@ def test_replace_invalidates_stale_reference_and_preserves_audit_metadata(
         purpose="connection_test",
         ttl=timedelta(seconds=30),
     ) as lease:
-        assert lease.read() == REPLACEMENT
+        assert lease.use(lambda credential: credential == REPLACEMENT) is True
 
     metadata = secret_store.metadata(replacement)
     assert replacement.version == reference.version + 1
@@ -270,3 +287,36 @@ def test_secret_bearing_lease_is_redacted_and_rejected_by_security_event_sanitiz
             )
 
     assert PLAINTEXT.decode("ascii") not in repr(lease)
+
+
+@pytest.mark.django_db
+def test_lease_zeroizes_and_releases_credential_when_use_raises(
+    secret_store: PostgresSecretStore,
+) -> None:
+    reference = secret_store.put(provider="eventbrite", scope="private_token", value=PLAINTEXT)
+    retained_view: memoryview | None = None
+
+    with secret_store.lease(
+        reference,
+        caller_id=CALLER_ID,
+        workflow_id=None,
+        purpose="connection_test",
+        ttl=timedelta(seconds=30),
+    ) as lease:
+        backing = lease._plaintext
+
+        def fail_during_use(credential: memoryview) -> None:
+            nonlocal retained_view
+            retained_view = credential
+            raise RuntimeError("synthetic provider failure")
+
+        with pytest.raises(RuntimeError, match="synthetic provider failure"):
+            lease.use(fail_during_use)
+
+        assert lease._plaintext is None
+        assert backing == bytearray(len(PLAINTEXT))
+        assert retained_view is not None
+        with pytest.raises(ValueError):
+            retained_view.tobytes()
+        with pytest.raises(SecretUnavailable):
+            lease.use(lambda _credential: None)

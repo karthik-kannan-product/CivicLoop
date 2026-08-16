@@ -17,7 +17,7 @@ from identity.models import AdministratorProfile, AdministratorSecurityEvent, Ad
 from identity.request_context import source_ip
 from identity.services.security import record_security_event
 
-from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
+from integrations.exceptions import SecretUnavailable
 from integrations.models import (
     ConnectionState,
     HealthOutcome,
@@ -29,7 +29,6 @@ from integrations.providers import (
     GroqProbe,
     IterableProbe,
     OpenAIProbe,
-    ProbeResult,
     ProviderProbe,
 )
 from integrations.secret_store import PostgresSecretStore
@@ -212,24 +211,20 @@ def test_connection(
     _validate_provider(provider)
     connection = _connection_for_test(provider, expected_version)
     started = time.monotonic()
-    result = ProbeResult(ok=False, error_category="network")
-    try:
-        secret = connection.secret
-        if secret is None:
-            raise SecretUnavailable()
-        reference = SecretReference(
-            id=secret.id, provider=secret.provider, scope=secret.scope, version=secret.version
-        )
-        with PostgresSecretStore().lease(
-            reference,
-            caller_id=actor.id,
-            workflow_id=None,
-            purpose="connection_test",
-            ttl=timedelta(seconds=15),
-        ) as lease:
-            result = probe_for(provider).probe(lease.read(), configuration=connection.configuration)
-    except (SecretUnavailable, IntegrationCryptoError):
-        result = ProbeResult(ok=False, error_category="network")
+    secret = connection.secret
+    if secret is None:
+        raise SecretUnavailable()
+    reference = SecretReference(
+        id=secret.id, provider=secret.provider, scope=secret.scope, version=secret.version
+    )
+    with PostgresSecretStore().lease(
+        reference,
+        caller_id=actor.id,
+        workflow_id=None,
+        purpose="connection_test",
+        ttl=timedelta(seconds=15),
+    ) as lease:
+        result = probe_for(provider).probe(lease, configuration=connection.configuration)
     duration_ms = min(int((time.monotonic() - started) * 1000), 30000)
     with transaction.atomic():
         connection = cast(
