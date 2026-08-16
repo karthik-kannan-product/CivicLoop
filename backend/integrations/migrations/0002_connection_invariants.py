@@ -1,5 +1,7 @@
 # ruff: noqa: E501, I001
+from django.apps.registry import Apps
 from django.db import migrations
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
 CREATE_FUNCTION_SQL = """
@@ -61,14 +63,18 @@ DROP FUNCTION IF EXISTS integrations_enforce_connection_invariants();
 """
 
 
-def create_connection_invariant_trigger(apps, schema_editor) -> None:
+def create_connection_invariant_trigger(
+    apps: Apps, schema_editor: BaseDatabaseSchemaEditor
+) -> None:
     if schema_editor.connection.vendor != "postgresql":
         return
     schema_editor.execute(CREATE_FUNCTION_SQL)
     schema_editor.execute(CREATE_TRIGGER_SQL)
 
 
-def drop_connection_invariant_trigger(apps, schema_editor) -> None:
+def drop_connection_invariant_trigger(
+    apps: Apps, schema_editor: BaseDatabaseSchemaEditor
+) -> None:
     if schema_editor.connection.vendor != "postgresql":
         return
     schema_editor.execute(DROP_TRIGGER_SQL)

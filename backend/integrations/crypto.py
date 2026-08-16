@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
@@ -178,14 +178,17 @@ def decrypt_secret(
             raise ValueError("Invalid encrypted value")
         key_ring = _configured_key_ring()
         key = key_ring.keys[envelope.key_id]
-        return AESGCM(key).decrypt(
-            envelope.nonce,
-            envelope.ciphertext,
-            _aad(
-                secret_id=secret_id,
-                provider=provider,
-                scope=scope,
-                key_id=envelope.key_id,
+        return cast(
+            bytes,
+            AESGCM(key).decrypt(
+                envelope.nonce,
+                envelope.ciphertext,
+                _aad(
+                    secret_id=secret_id,
+                    provider=provider,
+                    scope=scope,
+                    key_id=envelope.key_id,
+                ),
             ),
         )
     except (IntegrationCryptoError, InvalidTag, KeyError, TypeError, ValueError):
