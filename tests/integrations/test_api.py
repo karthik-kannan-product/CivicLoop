@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from django.test import Client, override_settings
 from identity.models import AdministratorSecurityEvent
+from integrations.exceptions import SecretUnavailable
 from integrations.models import IntegrationConnection, IntegrationHealthCheck
+from integrations.types import SecretLease
 from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.identity.test_security_actions_api import create_authenticated_owner
@@ -203,10 +205,13 @@ def test_connection_test_records_only_sanitized_health_metadata(
         {"credential": "synthetic-eventbrite-token", "expected_version": 1},
     )
 
+    retained_leases: list[SecretLease] = []
+
     class HealthyProbe:
-        def probe(self, credential: bytes, *, configuration: dict[str, str]):
-            assert credential == b"synthetic-eventbrite-token"
+        def probe(self, credential: SecretLease, *, configuration: dict[str, str]):
+            assert not hasattr(credential, "read")
             assert configuration == {}
+            retained_leases.append(credential)
             from integrations.providers import ProbeResult
 
             return ProbeResult(ok=True)
@@ -223,6 +228,9 @@ def test_connection_test_records_only_sanitized_health_metadata(
     assert response.json()["outcome"] == "healthy"
     health_check = IntegrationHealthCheck.objects.get()
     assert health_check.error_category == ""
+    assert len(retained_leases) == 1
+    with pytest.raises(SecretUnavailable):
+        retained_leases[0].use(lambda _credential: None)
     assert "synthetic-eventbrite-token" not in json.dumps(
         list(IntegrationHealthCheck.objects.values()), default=str
     )
