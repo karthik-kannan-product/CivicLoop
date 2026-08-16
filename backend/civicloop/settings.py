@@ -26,6 +26,14 @@ CIVICLOOP_ADMIN_IDENTITY_ENABLED = _environment_boolean(
     "CIVICLOOP_ADMIN_IDENTITY_ENABLED",
     False,
 )
+CIVICLOOP_INTEGRATIONS_ENABLED = _environment_boolean(
+    "CIVICLOOP_INTEGRATIONS_ENABLED",
+    False,
+)
+configured_integration_key_file = os.getenv("CIVICLOOP_INTEGRATION_KEY_FILE", "").strip()
+CIVICLOOP_INTEGRATION_KEY_FILE = (
+    Path(configured_integration_key_file) if configured_integration_key_file else None
+)
 configured_identity_key_file = os.getenv("CIVICLOOP_IDENTITY_KEY_FILE", "").strip()
 CIVICLOOP_IDENTITY_KEY_FILE = (
     Path(configured_identity_key_file) if configured_identity_key_file else None
@@ -116,6 +124,7 @@ INSTALLED_APPS = [
     "foundation",
     "health",
     "identity",
+    "integrations",
     "launchloop",
 ]
 
