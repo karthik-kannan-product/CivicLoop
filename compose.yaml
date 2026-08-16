@@ -68,6 +68,7 @@ services:
     command: ["worker"]
     environment:
       CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
+      CIVICLOOP_IDENTITY_KEY_FILE: ""
     depends_on:
       migrate:
         condition: service_completed_successfully

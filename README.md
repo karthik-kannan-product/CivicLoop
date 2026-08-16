@@ -72,6 +72,15 @@ set its absolute host path even while the feature flag remains disabled. Follow
 decision is recorded in
 [ADR-0002](docs/adr/0002-owner-identity-and-mfa.md).
 
+### Administrator integrations
+
+Integration administration is separately feature-gated and requires the owner
+identity feature. It is disabled by default. Operators who choose to enable it
+must provision a distinct host-only key ring for integration credentials and
+follow [the integration administration runbook](docs/integrations-administration.md).
+The decision and trust-boundary rationale are recorded in
+[ADR-0003](docs/adr/0003-integration-administration-and-key-separation.md).
+
 For the complete, resumable local-to-GitHub-to-server delivery process, use the
 [development-to-server runbook](docs/development-to-vultr-runbook.md).
 ### Authenticated demo journey
@@ -117,9 +126,10 @@ if ($LASTEXITCODE -ne 0) {
 
 Open http://localhost:8000.
 
-When explicitly enabled, the owner interface is at `/admin/security`. Django's
-framework administration route is `/internal/django-admin/`; it does not grant
-CivicLoop owner authorization.
+When explicitly enabled, the owner interface is at `/admin/security`; with both
+administrator feature flags enabled, integration administration is at
+`/admin/integrations`. Django's framework administration route is
+`/internal/django-admin/`; it does not grant CivicLoop owner authorization.
 
 ### Verify
 

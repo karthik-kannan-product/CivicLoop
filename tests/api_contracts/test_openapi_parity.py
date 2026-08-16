@@ -58,6 +58,13 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/admin/security/sessions/revoke-others",
         "/api/v1/admin/security/sessions/{sessionId}/revocation",
         "/api/v1/admin/security/events",
+        "/api/v1/admin/integrations",
+        "/api/v1/admin/integrations/status",
+        "/api/v1/admin/integrations/{provider}/credential",
+        "/api/v1/admin/integrations/{provider}/configuration",
+        "/api/v1/admin/integrations/{provider}/test",
+        "/api/v1/admin/integrations/{provider}/disable",
+        "/api/v1/admin/integrations/{provider}/audit",
     }
 
 

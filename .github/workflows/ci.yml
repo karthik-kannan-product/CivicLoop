@@ -42,6 +42,8 @@ jobs:
       CELERY_BROKER_URL: redis://localhost:6379/1
       CIVICLOOP_ADMIN_IDENTITY_ENABLED: "true"
       CIVICLOOP_IDENTITY_KEY_FILE: /tmp/civicloop-ci-identity-keyring.json
+      CIVICLOOP_INTEGRATIONS_ENABLED: "true"
+      CIVICLOOP_INTEGRATION_KEY_FILE: /tmp/civicloop-ci-integration-keyring.json
     steps:
       # actions/checkout@v4
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -53,6 +55,9 @@ jobs:
       - name: Create synthetic administrator identity key
         run: >-
           python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-ci-identity-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-synthetic','keys':{'ci-synthetic':key}})); p.chmod(0o600)"
+      - name: Create synthetic administrator integration key
+        run: >-
+          python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-ci-integration-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-integration-synthetic','keys':{'ci-integration-synthetic':key}})); p.chmod(0o600)"
       - run: uv sync --locked
       - run: uv run python scripts/validate_api_contracts.py
       - run: uv run ruff check backend tests scripts
@@ -63,13 +68,13 @@ jobs:
       - run: >-
           uv run python backend/manage.py shell -c "from django.core.cache import caches; cache=caches['default']; cache.set('civicloop-ci-healthcheck', 'ok', 30); assert cache.get('civicloop-ci-healthcheck') == 'ok'"
       - run: >-
-          uv run pytest tests/identity/test_security_event_database.py tests/identity/test_credential_concurrency.py tests/identity/test_rate_limits.py -v
+          uv run pytest tests/identity/test_security_event_database.py tests/identity/test_credential_concurrency.py tests/identity/test_rate_limits.py tests/integrations/test_api.py tests/integrations/test_crypto.py tests/integrations/test_secret_store.py -v
       - run: uv run pytest -v
       - run: python loops/launchloop/launchloop.py > launchloop-results.json
       - run: >-
           python -c "import json; data=json.load(open('launchloop-results.json')); assert data['summary'] == {'passed': 6, 'total': 6}"
       - if: always()
-        run: rm -f /tmp/civicloop-ci-identity-keyring.json
+        run: rm -f /tmp/civicloop-ci-identity-keyring.json /tmp/civicloop-ci-integration-keyring.json
 
   frontend:
     runs-on: ubuntu-latest
@@ -93,6 +98,8 @@ jobs:
   compose:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
+    env:
+      COMPOSE_FILE: compose.yaml:compose.integrations.yaml
     steps:
       # actions/checkout@v4
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -102,18 +109,22 @@ jobs:
           sed -i 's/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/' .env
           sed -i 's/change-me/civicloop-ci-only/g' .env
           sed -i 's/CIVICLOOP_ADMIN_IDENTITY_ENABLED=false/CIVICLOOP_ADMIN_IDENTITY_ENABLED=true/' .env
+          sed -i 's/CIVICLOOP_INTEGRATIONS_ENABLED=false/CIVICLOOP_INTEGRATIONS_ENABLED=true/' .env
           sed -i 's|/srv/civicloop/secrets/identity-keyring.json|/tmp/civicloop-compose-identity-keyring.json|' .env
+          sed -i 's|/srv/civicloop/secrets/integration-keyring.json|/tmp/civicloop-compose-integration-keyring.json|' .env
       - name: Create synthetic Compose identity key
         run: |
           python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-compose-identity-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-compose-synthetic','keys':{'ci-compose-synthetic':key}})); p.chmod(0o600)"
+          python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-compose-integration-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-compose-integration-synthetic','keys':{'ci-compose-integration-synthetic':key}})); p.chmod(0o600)"
           sudo chown 10001:10001 /tmp/civicloop-compose-identity-keyring.json
+          sudo chown 10001:10001 /tmp/civicloop-compose-integration-keyring.json
       - run: docker compose build
       - run: docker compose up -d --wait --wait-timeout 120 db valkey
       - run: docker compose up --no-deps --exit-code-from migrate migrate
       - run: docker compose up -d --no-deps web worker scheduler
       - run: |
           for attempt in {1..30}; do
-            if docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity; then
+            if docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations; then
               running_services="$(docker compose ps --services --status running)"
               if printf '%s\n' "$running_services" | grep -Fxq web \
                 && printf '%s\n' "$running_services" | grep -Fxq worker \
@@ -131,4 +142,4 @@ jobs:
       - if: always()
         run: |
           docker compose down -v --remove-orphans
-          sudo rm -f /tmp/civicloop-compose-identity-keyring.json
+          sudo rm -f /tmp/civicloop-compose-identity-keyring.json /tmp/civicloop-compose-integration-keyring.json

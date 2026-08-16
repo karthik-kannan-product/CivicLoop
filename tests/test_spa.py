@@ -80,6 +80,40 @@ def test_administrator_entry_is_feature_gated_and_serves_separate_bundle(
     )
 
 
+@pytest.mark.parametrize(
+    ("identity_enabled", "integrations_enabled", "expected_status"),
+    [
+        (False, False, 404),
+        (False, True, 404),
+        (True, False, 404),
+        (True, True, 200),
+    ],
+)
+def test_integrations_administrator_entry_requires_both_feature_flags(
+    tmp_path: Path,
+    identity_enabled: bool,
+    integrations_enabled: bool,
+    expected_status: int,
+) -> None:
+    index = tmp_path / "admin.html"
+    index.write_text("<!doctype html><title>CivicLoop administrator</title>", encoding="utf-8")
+
+    with override_settings(
+        CIVICLOOP_ADMIN_IDENTITY_ENABLED=identity_enabled,
+        CIVICLOOP_INTEGRATIONS_ENABLED=integrations_enabled,
+        ADMIN_FRONTEND_INDEX=index,
+    ):
+        responses = [Client().get(path) for path in ("/admin/integrations", "/admin/integrations/")]
+
+    assert {response.status_code for response in responses} == {expected_status}
+    if expected_status == 200:
+        assert all("csrftoken" in response.cookies for response in responses)
+        assert all(
+            b"CivicLoop administrator" in b"".join(response.streaming_content)
+            for response in responses
+        )
+
+
 def test_django_admin_is_only_available_at_internal_route() -> None:
     client = Client()
 

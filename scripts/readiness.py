@@ -10,6 +10,7 @@ from urllib.request import urlopen
 DEFAULT_REQUEST_DEADLINE_SECONDS = 5.0
 HEALTH_PATH = "/api/v1/health"
 ADMIN_STATUS_PATH = "/api/v1/admin/security/status"
+INTEGRATIONS_STATUS_PATH = "/api/v1/admin/integrations/status"
 ADMIN_STAGES = frozenset(
     {"anonymous", "password_verified", "recovery_restricted", "authenticated"}
 )
@@ -42,6 +43,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--require-admin-identity",
         action="store_true",
         help="Require the feature-gated administrator identity status endpoint.",
+    )
+    parser.add_argument(
+        "--require-admin-integrations",
+        action="store_true",
+        help="Require the feature-gated administrator integrations readiness endpoint.",
     )
     return parser.parse_args(argv)
 
@@ -83,6 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise TimeoutError
         ready = fetch_json(health_url(base_url, "ready"), ready_timeout)
         admin_status = None
+        integrations_status = None
         if args.require_admin_identity:
             admin_timeout = deadline - monotonic()
             if admin_timeout <= 0:
@@ -90,6 +97,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             admin_status = fetch_json(
                 application_url(base_url, ADMIN_STATUS_PATH),
                 admin_timeout,
+            )
+        if args.require_admin_integrations:
+            integrations_timeout = deadline - monotonic()
+            if integrations_timeout <= 0:
+                raise TimeoutError
+            integrations_status = fetch_json(
+                application_url(base_url, INTEGRATIONS_STATUS_PATH),
+                integrations_timeout,
             )
     except Exception:
         print("CivicLoop is not reachable or not ready.")
@@ -102,6 +117,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         admin_status is None or admin_status.get("stage") not in ADMIN_STAGES
     ):
         print("CivicLoop is reachable but administrator identity is not ready.")
+        return 1
+    if args.require_admin_integrations and (
+        integrations_status is None or integrations_status.get("status") != "ready"
+    ):
+        print("CivicLoop is reachable but administrator integrations are not ready.")
         return 1
 
     print("CivicLoop is ready.")

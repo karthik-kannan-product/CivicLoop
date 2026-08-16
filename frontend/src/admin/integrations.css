@@ -1,0 +1,12 @@
+.integrations-dashboard { display: grid; gap: 1rem; }
+.integrations-heading, .integration-card__heading { align-items: flex-start; display: flex; gap: 1rem; justify-content: space-between; }
+.integrations-heading > div > p:last-child, .integration-card p, .integration-credential > p { color: var(--admin-muted); margin-bottom: 0; }
+.integration-grid { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.integration-card { background: var(--admin-surface); border: 1px solid var(--admin-border); display: grid; gap: 1rem; padding: 1.25rem; }
+.integration-card h2 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+.integration-card p { font-size: 0.8125rem; }
+.integration-state { font-size: 0.75rem; font-weight: 800; padding: 0.375rem 0.625rem; white-space: nowrap; }
+.integration-state--healthy { background: #dceee8; color: #176252; }.integration-state--degraded { background: var(--admin-warning-soft); color: var(--admin-warning); }.integration-state--disabled { background: #e8eaea; color: #45514c; }.integration-state--configured, .integration-state--not_configured { background: #edf1ee; color: var(--admin-brand); }
+.integration-metadata { display: grid; gap: 0.625rem; margin: 0; }.integration-metadata div { border-top: 1px solid var(--admin-border); padding-top: 0.625rem; }.integration-metadata dt { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; }.integration-metadata dd { margin: 0.125rem 0 0; overflow-wrap: anywhere; }
+.integration-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }.integration-actions .admin-button { flex: 1 1 12rem; }.admin-button--danger { background: var(--admin-danger-soft); border-color: var(--admin-danger); color: var(--admin-danger); }.integration-credential, .integration-history { margin-top: 1rem; }
+@media (max-width: 42rem) { .integrations-heading, .integration-card__heading { align-items: stretch; flex-direction: column; }.integration-grid { grid-template-columns: 1fr; }.integration-actions { flex-direction: column; }.integration-actions .admin-button { flex: 0 0 auto; } }

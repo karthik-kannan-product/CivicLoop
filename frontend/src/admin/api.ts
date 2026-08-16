@@ -44,6 +44,31 @@ export type SecurityEvent = {
   created_at: string;
 };
 
+export const INTEGRATION_PROVIDERS = ["eventbrite", "groq", "iterable", "openai"] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+export type IntegrationState = "not_configured" | "configured" | "healthy" | "degraded" | "disabled";
+export type IntegrationCapability = "connection_test" | "draft_create" | "evaluation_judge" | "inference" | "metadata_read";
+export type SafeConfiguration = { region?: "us" | "eu"; model?: "openai/gpt-oss-20b" };
+export type IntegrationConnection = {
+  provider: IntegrationProvider;
+  state: IntegrationState;
+  capabilities: IntegrationCapability[];
+  configuration: SafeConfiguration;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  credential_rotated_at: string | null;
+  responsible_actor_id: string | null;
+  last_successful_test_at: string | null;
+  last_failure_category: "authentication" | "authorization" | "rate_limit" | "timeout" | "network" | "invalid_response" | "provider_unavailable" | null;
+};
+export type ConnectionTest = { provider: IntegrationProvider; outcome: "healthy" | "degraded"; error_category: IntegrationConnection["last_failure_category"]; duration_ms: number; correlation_id: string; tested_at: string };
+export type IntegrationAuditFailureCategory = NonNullable<IntegrationConnection["last_failure_category"]> | "freshness" | "recovery_restricted" | "rate_limit_unavailable" | "version_conflict" | "key_unavailable" | "provider_not_found" | "invalid_request" | "integration_unavailable";
+export type IntegrationAuditEvent = { action: "credential_replaced" | "configuration_changed" | "connection_tested" | "connection_disabled" | "audit_listed"; outcome: "success" | "failure" | "denied" | "unavailable"; actor_id: string | null; version: number | null; failure_category: IntegrationAuditFailureCategory | null; correlation_id: string; created_at: string };
+export type CredentialReplacement = { credential: string; expected_version: number };
+export type ConfigurationPatch = { configuration: SafeConfiguration; expected_version: number };
+export type VersionedAction = { expected_version: number };
+
 type Problem = {
   code?: string;
   message?: string;
@@ -70,7 +95,7 @@ function csrfToken(): string {
 
 export async function adminRequest<T>(
   path: string,
-  options: { method?: "GET" | "POST" | "PUT"; body?: Record<string, string> } = {},
+  options: { method?: "GET" | "POST" | "PUT" | "PATCH"; body?: Record<string, unknown> } = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
   const csrf = method === "GET" ? "" : csrfToken();
@@ -167,5 +192,18 @@ export const adminAPI = {
   events: (cursor?: string) =>
     adminRequest<{ events: SecurityEvent[]; next_cursor: string | null }>(
       `/api/v1/admin/security/events?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ""}limit=25`,
+    ),
+  integrations: () => adminRequest<unknown>("/api/v1/admin/integrations"),
+  replaceIntegrationCredential: (provider: IntegrationProvider, body: CredentialReplacement) =>
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/credential`, { method: "PUT", body }),
+  updateIntegrationConfiguration: (provider: IntegrationProvider, body: ConfigurationPatch) =>
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/configuration`, { method: "PATCH", body }),
+  testIntegration: (provider: IntegrationProvider, body: VersionedAction) =>
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/test`, { method: "POST", body }),
+  disableIntegration: (provider: IntegrationProvider, body: VersionedAction) =>
+    adminRequest<unknown>(`/api/v1/admin/integrations/${provider}/disable`, { method: "POST", body }),
+  integrationAudit: (provider: IntegrationProvider, cursor?: string) =>
+    adminRequest<unknown>(
+      `/api/v1/admin/integrations/${provider}/audit?${cursor ? `cursor=${encodeURIComponent(cursor)}&` : ""}limit=50`,
     ),
 };

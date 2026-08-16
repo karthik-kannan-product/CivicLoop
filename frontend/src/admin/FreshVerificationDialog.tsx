@@ -16,7 +16,7 @@ export function FreshVerificationDialog({
   useEffect(() => passwordRef.current?.focus(), []);
 
   function keepFocusInside(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !busy) {
       event.preventDefault();
       onCancel();
       return;

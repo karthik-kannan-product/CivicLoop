@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:mutations",
+  "title": "Integration mutation requests",
+  "$ref": "#/$defs/CredentialReplacement",
+  "$defs": {
+    "ExpectedVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "CredentialReplacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credential", "expected_version"],
+      "properties": {
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "description": "Credential whose UTF-8 representation is at most 16384 bytes."
+        },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "ConfigurationPatch": {
+      "oneOf": [
+        { "$ref": "#/$defs/EventbriteConfigurationPatch" },
+        { "$ref": "#/$defs/IterableConfigurationPatch" },
+        { "$ref": "#/$defs/ModelConfigurationPatch" }
+      ]
+    },
+    "EventbriteConfigurationPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "expected_version"],
+      "properties": {
+        "configuration": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "IterableConfigurationPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "expected_version"],
+      "properties": {
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["region"],
+          "properties": { "region": { "enum": ["us", "eu"] } }
+        },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "ModelConfigurationPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configuration", "expected_version"],
+      "properties": {
+        "configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model"],
+          "properties": { "model": { "enum": ["openai/gpt-oss-20b"] } }
+        },
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "ConnectionTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_version"],
+      "properties": {
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    },
+    "DisableConnection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_version"],
+      "properties": {
+        "expected_version": { "$ref": "#/$defs/ExpectedVersion" }
+      }
+    }
+  }
+}

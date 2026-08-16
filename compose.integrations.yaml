@@ -1,0 +1,8 @@
+services:
+  web:
+    volumes:
+      - ${CIVICLOOP_INTEGRATION_KEY_HOST_PATH:?Set an absolute host integration-key path}:/run/secrets/civicloop-integration-keyring.json:ro
+
+  worker:
+    volumes:
+      - ${CIVICLOOP_INTEGRATION_KEY_HOST_PATH:?Set an absolute host integration-key path}:/run/secrets/civicloop-integration-keyring.json:ro
