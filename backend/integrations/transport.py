@@ -1,20 +1,19 @@
 """A deliberately small HTTPS-only transport for harmless provider probes."""
 
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from integrations.providers import ProbeResponse, SafeProbeError
 
 CONNECT_TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 64 * 1024
-ALLOWED_HOSTS = frozenset(
+ALLOWED_PROBE_URLS = frozenset(
     {
-        "www.eventbriteapi.com",
-        "api.iterable.com",
-        "api.eu.iterable.com",
-        "api.openai.com",
-        "api.groq.com",
+        "https://www.eventbriteapi.com/v3/users/me/",
+        "https://api.iterable.com/api/lists",
+        "https://api.eu.iterable.com/api/lists",
+        "https://api.openai.com/v1/models",
+        "https://api.groq.com/openai/v1/models",
     }
 )
 
@@ -26,8 +25,7 @@ class _NoRedirects(HTTPRedirectHandler):
 
 class BoundedHTTPSProbeTransport:
     def get(self, url: str, *, headers: dict[str, str]) -> ProbeResponse:
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS or parsed.username:
+        if url not in ALLOWED_PROBE_URLS:
             raise SafeProbeError("network")
         request = Request(url, headers=headers, method="GET")
         opener = build_opener(_NoRedirects())

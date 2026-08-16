@@ -32,6 +32,28 @@ def test_transport_rejects_unapproved_urls_before_connecting(
     assert raised.value.category == "network"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.openai.com/v1/models?unexpected=1",
+        "https://api.openai.com:444/v1/models",
+        "https://api.openai.com/v1/files",
+    ],
+)
+def test_transport_rejects_non_probe_paths_queries_and_ports(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.setattr(
+        "integrations.transport.build_opener",
+        lambda *_args: pytest.fail("transport must not connect to a non-probe URL"),
+    )
+
+    with pytest.raises(SafeProbeError) as raised:
+        BoundedHTTPSProbeTransport().get(url, headers={})
+
+    assert raised.value.category == "network"
+
+
 def test_transport_bounds_response_bytes_and_classifies_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

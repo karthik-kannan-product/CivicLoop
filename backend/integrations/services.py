@@ -222,7 +222,7 @@ def test_connection(
         )
         with PostgresSecretStore().lease(
             reference,
-            caller_id=actor.profile_id,
+            caller_id=actor.id,
             workflow_id=None,
             purpose="connection_test",
             ttl=timedelta(seconds=15),

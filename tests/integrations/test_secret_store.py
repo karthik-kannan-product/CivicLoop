@@ -7,8 +7,9 @@ from uuid import UUID
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 from identity.exceptions import IdentityError
-from identity.models import AdministratorProfile
+from identity.models import AdministratorProfile, AdministratorSession
 from identity.services.security import record_security_event
 from integrations.exceptions import SecretUnavailable
 from integrations.secret_store import PostgresSecretStore
@@ -43,11 +44,23 @@ def secret_store(settings, tmp_path: Path) -> PostgresSecretStore:
 @pytest.fixture(autouse=True)
 def active_owner(db) -> AdministratorProfile:
     user = User.objects.create_user(username="synthetic.integration.owner")
-    return AdministratorProfile.objects.create(
-        id=CALLER_ID,
+    profile = AdministratorProfile.objects.create(
         user=user,
         status=AdministratorProfile.Status.ACTIVE,
     )
+    now = timezone.now()
+    AdministratorSession.objects.create(
+        id=CALLER_ID,
+        profile=profile,
+        session_key="synthetic-integration-lease-session",
+        authenticated_at=now,
+        last_activity_at=now,
+        mfa_verified_at=now,
+        absolute_expires_at=now + timedelta(hours=1),
+        expires_at=now + timedelta(hours=1),
+        device_label="Synthetic lease test",
+    )
+    return profile
 
 
 @pytest.mark.django_db

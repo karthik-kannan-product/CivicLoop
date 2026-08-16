@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
-from identity.models import AdministratorProfile
+from identity.models import AdministratorProfile, AdministratorSession
 
 from integrations.crypto import EncryptedEnvelope, decrypt_secret, encrypt_secret
 from integrations.exceptions import IntegrationCryptoError, SecretUnavailable
@@ -197,9 +197,12 @@ class PostgresSecretStore(SecretStore):
             or purpose != CONNECTION_TEST_PURPOSE
             or not isinstance(ttl, timedelta)
             or not timedelta(0) < ttl <= timedelta(seconds=MAX_LEASE_SECONDS)
-            or not AdministratorProfile.objects.filter(
+            or not AdministratorSession.objects.filter(
                 id=caller_id,
-                status=AdministratorProfile.Status.ACTIVE,
+                profile__status=AdministratorProfile.Status.ACTIVE,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+                absolute_expires_at__gt=timezone.now(),
             ).exists()
         ):
             raise SecretUnavailable()
