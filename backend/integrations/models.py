@@ -52,6 +52,12 @@ CONFIGURATION_BY_PROVIDER = {
 CAPABILITIES = frozenset(
     {"connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"}
 )
+CAPABILITIES_BY_PROVIDER = {
+    Provider.EVENTBRITE: ["connection_test", "draft_create", "metadata_read"],
+    Provider.ITERABLE: ["connection_test", "draft_create", "metadata_read"],
+    Provider.OPENAI: ["connection_test", "evaluation_judge", "inference"],
+    Provider.GROQ: ["connection_test", "evaluation_judge", "inference"],
+}
 
 
 class EncryptedSecret(models.Model):
@@ -198,13 +204,22 @@ class IntegrationConnection(models.Model):
                         {"configuration": "Integration configuration is invalid."}
                     )
         capabilities = self.capabilities
-        if (
-            not isinstance(capabilities, list)
-            or len(capabilities) > len(CAPABILITIES)
-            or len(capabilities) != len(set(capabilities))
-            or set(capabilities) - CAPABILITIES
-        ):
+        expected_capabilities = CAPABILITIES_BY_PROVIDER.get(self.provider)
+        if not isinstance(capabilities, list) or expected_capabilities is None:
             raise ValidationError({"capabilities": "Integration capabilities are invalid."})
+        if self.state == ConnectionState.NOT_CONFIGURED:
+            if self.secret_id is not None or capabilities:
+                raise ValidationError({"state": "Integration lifecycle is invalid."})
+        elif self.state in {
+            ConnectionState.CONFIGURED,
+            ConnectionState.HEALTHY,
+            ConnectionState.DEGRADED,
+            ConnectionState.DISABLED,
+        }:
+            if self.secret_id is None or capabilities != expected_capabilities:
+                raise ValidationError({"state": "Integration lifecycle is invalid."})
+        else:
+            raise ValidationError({"state": "Integration lifecycle is invalid."})
         if len(json.dumps(configuration, separators=(",", ":"))) > 256:
             raise ValidationError({"configuration": "Integration configuration is invalid."})
         if self.secret_id is not None and self.secret.provider != self.provider:

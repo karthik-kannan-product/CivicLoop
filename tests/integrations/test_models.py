@@ -1,6 +1,6 @@
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
 from integrations.models import EncryptedSecret, IntegrationConnection, IntegrationHealthCheck
 
@@ -27,7 +27,7 @@ def test_database_allows_only_one_connection_for_each_approved_provider() -> Non
 
 @pytest.mark.django_db(transaction=True)
 def test_database_rejects_invalid_lifecycle_state_and_non_positive_version() -> None:
-    with pytest.raises(IntegrityError), transaction.atomic():
+    with pytest.raises(ValidationError):
         IntegrationConnection.objects.create(provider="groq", state="unknown")
 
     with pytest.raises(IntegrityError), transaction.atomic():
@@ -99,6 +99,54 @@ def test_queryset_update_and_bulk_update_cannot_bypass_connection_invariants() -
 
 
 @pytest.mark.django_db(transaction=True)
+def test_postgresql_trigger_rejects_raw_sql_connection_invariant_bypasses() -> None:
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL trigger enforcement is verified in CI and Compose.")
+
+    eventbrite_secret = EncryptedSecret.objects.create(
+        provider="eventbrite",
+        scope="private_token",
+        ciphertext=b"not-a-real-ciphertext",
+        nonce=b"0123456789ab",
+        key_id="integration-test",
+    )
+    openai_secret = EncryptedSecret.objects.create(
+        provider="openai",
+        scope="project_key",
+        ciphertext=b"not-a-real-ciphertext",
+        nonce=b"0123456789ac",
+        key_id="integration-test",
+    )
+    integration = IntegrationConnection.objects.create(provider="eventbrite")
+
+    invalid_updates = [
+        ("configuration = %s::jsonb", ['{"token":"synthetic"}']),
+        ("capabilities = %s::jsonb", ['["inference"]']),
+        ("secret_id = %s", [str(openai_secret.id)]),
+        ("state = %s", ["configured"]),
+    ]
+    for assignment, values in invalid_updates:
+        with pytest.raises(DatabaseError), transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE integrations_integrationconnection SET {assignment} WHERE id = %s",
+                    [*values, str(integration.id)],
+                )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "UPDATE integrations_integrationconnection "
+            "SET secret_id = %s, capabilities = %s::jsonb, state = %s WHERE id = %s",
+            [
+                str(eventbrite_secret.id),
+                '["connection_test","draft_create","metadata_read"]',
+                "configured",
+                str(integration.id),
+            ],
+        )
+
+
+@pytest.mark.django_db(transaction=True)
 def test_health_history_requires_a_connection_and_protects_history_from_deletion() -> None:
     connection = IntegrationConnection.objects.create(provider="openai")
     health_check = IntegrationHealthCheck.objects.create(
@@ -132,7 +180,12 @@ def test_connection_protects_its_encrypted_secret_from_cascade_deletion() -> Non
         nonce=b"0123456789ab",
         key_id="integration-test",
     )
-    connection = IntegrationConnection.objects.create(provider="groq", secret=secret)
+    connection = IntegrationConnection.objects.create(
+        provider="groq",
+        state="configured",
+        secret=secret,
+        capabilities=["connection_test", "evaluation_judge", "inference"],
+    )
 
     with pytest.raises(ProtectedError):
         secret.delete()
