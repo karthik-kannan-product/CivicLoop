@@ -26,6 +26,8 @@ def test_integration_readiness_accepts_a_valid_keyring(tmp_path: Path) -> None:
     key = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode("ascii")
     key_file = tmp_path / "integration-keyring.json"
     key_file.write_text(json.dumps({"active_key_id": "test", "keys": {"test": key}}))
+    if os.name != "nt":
+        key_file.chmod(0o600)
 
     with override_settings(
         CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,

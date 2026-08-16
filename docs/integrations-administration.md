@@ -61,3 +61,89 @@ until all credentials encrypted with them have been replaced. Restart `web` and
 `worker`, verify integration readiness, then rotate credentials through the
 administrator interface. Remove an old key only after its dependent encrypted
 credentials are no longer present and after a restore test.
+
+## Disable and contain an integration incident
+
+Disable administration first; this removes the integration browser route and
+API on every recreated web process without stopping core liveness:
+
+```sh
+# Edit the host-only .env and set CIVICLOOP_INTEGRATIONS_ENABLED=false.
+docker compose up -d --force-recreate web worker scheduler
+docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity
+```
+
+Confirm `/admin/integrations` and `/api/v1/admin/integrations` return 404.
+This feature flag does not revoke a credential already accepted by an external
+provider. In the affected provider’s console, disable or revoke that credential
+and create a replacement with the minimum scopes required by CivicLoop. Record
+the provider incident/reference ID outside CivicLoop; do not paste the old or
+new credential into tickets, shell history, logs, or this repository.
+
+After provider-side containment, either restore the known-good key ring or
+create a new one as described above. Set
+`CIVICLOOP_INTEGRATIONS_ENABLED=true`, force-recreate `web` and `worker`, run
+the combined readiness command, then use `/admin/integrations` to replace and
+test the provider credential. Verify the provider shows the old credential
+revoked before closing the incident.
+
+## Restore-test encrypted credentials
+
+Perform this procedure only on an isolated, disposable restore environment;
+never point it at production provider endpoints or reuse production session
+cookies.
+
+1. Restore a PostgreSQL backup into the isolated Compose database and restore
+   the matching integration key-ring backup to the host path named by
+   `CIVICLOOP_INTEGRATION_KEY_HOST_PATH`. Replace only the backup locations
+   below; they must remain outside the checkout:
+
+   ```sh
+   docker compose up -d db
+   docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" --clean --if-exists -d "$POSTGRES_DB"' < /secure/restore/civicloop-postgres.dump
+   sudo install -m 0600 -o 10001 -g 10001 /secure/restore/integration-keyring.json /srv/civicloop/secrets/integration-keyring.json
+   ```
+2. Start the candidate image and apply its migrations:
+
+   ```sh
+   docker compose up -d db valkey
+   docker compose run --rm migrate
+   docker compose up -d web worker scheduler
+   docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
+   ```
+
+3. Authenticate as the test owner, inspect the restored provider metadata, and
+   run a provider connection test only against a provider sandbox or a
+   deliberately disabled credential. A successful key-ring readiness response
+   and a redacted connection result prove that the database and key-ring backup
+   pair can be read without exposing plaintext.
+4. Destroy the disposable database volume and restore host, including any
+   copied key ring, after recording only the pass/fail result and image digest.
+
+## Roll back a release
+
+Integration migrations are additive. Do not run reverse migrations against a
+live incident database as a shortcut for rollback. Instead, record the current
+image digest and migration state, disable the integrations feature flag, tag
+the previously verified immutable image as the Compose local image, and
+recreate the application processes:
+
+```sh
+# Replace only the digest with a previously verified release image.
+docker image tag civicloop@sha256:PREVIOUS_VERIFIED_DIGEST civicloop:local
+docker compose up -d --force-recreate web worker scheduler
+docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity
+```
+
+If the release changed persistent data, restore the pre-release PostgreSQL
+backup together with the matching integration key-ring backup into an isolated
+environment first, complete the restore test above, and schedule the live
+restore under the organization’s change-control process.
+
+After the prior image is running, verify core readiness with
+`--require-admin-identity`; re-enable integrations only after the matching key
+ring, database state, and provider-side credential status have been confirmed.
+Hand off the rollback with the image digests, migration state, backup/restore
+test result, readiness output status, provider incident reference, and the
+operator responsible for the next review. Do not include credential values or
+key-ring contents in the handoff.
