@@ -52,15 +52,15 @@ As of 2026-08-04, the repository contains a working deterministic LaunchLoop ver
 | --- | --- | --- |
 | User experience | React mission-control workspace, event brief, three visible lanes, review package, approval panel, receipt, and timeline | General event management, Focus mode, decision queue, operational metrics, and full accessibility verification |
 | Authentication | Django sessions and CSRF; two seeded synthetic accounts mapped to operator and approver roles | First-run admin, invitations, password reset, session administration, TOTP MFA, rate limiting, and production identity lifecycle |
-| Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
+| Workflow | Durable event revisions, workflow transitions, deterministic package generation, three persisted specialist runs with activity, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, retries, cancellation, leases, outbox, and live activity streaming |
 | Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
 | Integrations | A persisted `sandbox_iterable` simulation receipt with zero external actions | Formal connector interfaces, Eventbrite sandbox, failure simulation, reconciliation, and live connectors |
-| Agents | Deterministic Python package engine and six standalone LaunchLoop eval scenarios | Hermes adapter, bounded specialist tasks, JSON Schema validation/repair, provider metadata, and global concurrency semaphore |
+| Agents | Deterministic Python package engine, tool-free Hermes-compatible specialist adapter, three persisted runs per revision, and six standalone LaunchLoop eval scenarios | Configured Hermes provider, bounded background tasks, JSON Schema validation/repair, provider metadata, and global cross-process concurrency semaphore |
 | Data | PostgreSQL models and migrations for the authenticated demo; browser-local state for GitHub Pages | Full identity, organization, agent, policy, outbox, metrics, and retention models |
 | Runtime | One multi-stage image; Django/Gunicorn web, Celery worker, Celery beat scheduler, PostgreSQL, Valkey, health endpoints, read-only app containers | Real background workflow tasks, Caddy/TLS distribution, Mailpit, Phoenix, backup/restore tooling, and production secrets files |
 | Delivery | GitHub Actions tests and GitHub Pages deployment; Docker Compose development and production-oriented local files | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and release/rollback automation |
 
-The Celery worker and scheduler are foundation process modes today. The only Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes synchronously in Django. Likewise, `AGENT_MAX_CONCURRENCY` is parsed and capped at three, but no agent runtime or cross-process semaphore is connected yet.
+The Celery worker and scheduler are foundation process modes today. The only Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes synchronously in Django. It records three tool-free, deterministic Hermes-compatible specialist runs and their queued/analyzing/completed activity against the immutable revision. `AGENT_MAX_CONCURRENCY` is capped at three and surfaced to the UI; a configured live Hermes provider, background execution, and a cross-process semaphore remain future work.
 
 ## 5. System Context
 
@@ -167,13 +167,15 @@ The authenticated demo persists these entities:
 | `EventRevision` | Immutable JSON snapshot, version, and author; version unique per event |
 | `Workflow` | UUID lifecycle aggregate, selected revision, generated package, and SHA-256 package hash |
 | `WorkflowTransition` | Durable actor-attributed state history used by the timeline |
+| `AgentRun` | One named specialist result per workflow revision; provider, status, summary, and timing are persisted |
+| `AgentActivity` | Ordered queued/analyzing/completed activity events for a specialist run |
 | `ApprovalRequest` | One request per workflow, submitter, approver, decision, and locked package hash |
 | `ConnectorExecution` | One idempotent simulated delivery receipt per approval |
 | `AuditEvent` | Actor, action, target, and structured details for consequential service actions |
 
 The model is intentionally single-organization and has no tenant identifier. Adding multi-tenancy would affect nearly every authorization query and must be a deliberate future architecture decision.
 
-The target model additionally introduces `Invitation`, `OrganizationSettings`, `AgentRun`, `AgentStep`, `DraftAsset`, `PolicyVersion`, `ApprovalDecision`, and `OutboxEvent`. It will also strengthen audit immutability, retention metadata, and correlation identifiers.
+The target model additionally introduces `Invitation`, `OrganizationSettings`, `AgentStep`, `DraftAsset`, `PolicyVersion`, `ApprovalDecision`, and `OutboxEvent`. It will also strengthen audit immutability, retention metadata, and correlation identifiers.
 
 ## 10. LaunchLoop Workflow
 

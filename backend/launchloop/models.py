@@ -3,6 +3,12 @@ import uuid
 from django.contrib.auth.models import User
 from django.db import models
 
+AGENT_SPECIALISTS = (
+    "event_readiness",
+    "campaign_composer",
+    "audience_policy",
+)
+
 
 class DemoActor(models.Model):
     class Role(models.TextChoices):
@@ -84,6 +90,69 @@ class WorkflowTransition(models.Model):
 
     def __str__(self) -> str:
         return f"{self.workflow_id}: {self.action}"
+
+
+class AgentRun(models.Model):
+    class Specialist(models.TextChoices):
+        EVENT_READINESS = "event_readiness", "Event Readiness"
+        CAMPAIGN_COMPOSER = "campaign_composer", "Campaign Composer"
+        AUDIENCE_POLICY = "audience_policy", "Audience and Policy"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    workflow = models.ForeignKey(Workflow, related_name="agent_runs", on_delete=models.CASCADE)
+    revision = models.ForeignKey(EventRevision, on_delete=models.PROTECT)
+    specialist = models.CharField(max_length=32, choices=Specialist.choices)
+    provider = models.CharField(max_length=64)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    summary = models.CharField(max_length=240)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("workflow", "revision", "specialist"),
+                name="launchloop_unique_agent_run_per_revision",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(specialist__in=AGENT_SPECIALISTS),
+                name="launchloop_known_agent_specialist",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.workflow_id}: {self.specialist} ({self.status})"
+
+
+class AgentActivity(models.Model):
+    class Kind(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        ANALYZING = "analyzing", "Analyzing"
+        COMPLETED = "completed", "Completed"
+
+    agent_run = models.ForeignKey(AgentRun, related_name="activity", on_delete=models.CASCADE)
+    sequence = models.PositiveSmallIntegerField()
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    message = models.CharField(max_length=240)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("agent_run", "sequence"),
+                name="launchloop_unique_agent_activity_sequence",
+            )
+        ]
+        ordering = ("sequence", "id")
+
+    def __str__(self) -> str:
+        return f"{self.agent_run_id}: {self.kind}"
 
 
 class ApprovalRequest(models.Model):

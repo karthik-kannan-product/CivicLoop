@@ -95,7 +95,11 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
           onRun={() => void mutate(`/api/v1/workflows/${workflowId}/runs`)}
           onResolve={(answers) => void mutate(`/api/v1/workflows/${workflowId}/answers`, answers)}
         />
-        <LaneBoard campaignPackage={state.workflow.package} />
+        <LaneBoard
+          agentCapacity={state.agent_capacity}
+          agentRuns={state.agent_runs}
+          campaignPackage={state.workflow.package}
+        />
         {state.workflow.package && <ReviewPackage campaignPackage={state.workflow.package} />}
         <DecisionPanel
           state={state}

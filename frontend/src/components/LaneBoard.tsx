@@ -1,4 +1,4 @@
-import type { CampaignPackage } from "../types";
+import type { AgentActivity, AgentRun, CampaignPackage } from "../types";
 
 const waitingLanes = [
   {
@@ -18,16 +18,50 @@ const waitingLanes = [
   },
 ];
 
-export function LaneBoard({ campaignPackage }: { campaignPackage: CampaignPackage | null }) {
-  const lanes = campaignPackage ? Object.values(campaignPackage.lanes) : waitingLanes;
+type Props = {
+  agentCapacity?: { active: number; limit: number };
+  agentRuns?: AgentRun[];
+  campaignPackage?: CampaignPackage | null;
+};
+
+type LaneView = {
+  label: string;
+  status: string;
+  summary: string;
+  activity?: AgentActivity[];
+};
+
+function specialistLabel(specialist: AgentRun["specialist"]): string {
+  return {
+    event_readiness: "Event Readiness",
+    campaign_composer: "Campaign Composer",
+    audience_policy: "Audience and Policy",
+  }[specialist];
+}
+
+export function LaneBoard({ agentCapacity, agentRuns = [], campaignPackage = null }: Props) {
+  const lanes: LaneView[] = agentRuns.length
+    ? agentRuns.map((run) => ({
+        label: specialistLabel(run.specialist),
+        status: run.status,
+        summary: run.summary,
+        activity: run.activity,
+      }))
+    : campaignPackage
+      ? Object.values(campaignPackage.lanes)
+      : waitingLanes;
+  const capacity = agentCapacity ?? { active: 0, limit: 3 };
   return (
     <section className="lanes-section" aria-labelledby="lanes-title">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Deterministic fake-agent run</p>
+          <p className="eyebrow">Hermes-compatible specialist activity</p>
           <h2 id="lanes-title">Specialist lanes</h2>
         </div>
-        <span className="safety-note">No external actions</span>
+        <div className="lane-board__meta">
+          <span className="capacity-note">{capacity.active} active of {capacity.limit} allowed</span>
+          <span className="safety-note">No external actions</span>
+        </div>
       </div>
       <div className="lanes">
         {lanes.map((lane) => (
@@ -38,10 +72,19 @@ export function LaneBoard({ campaignPackage }: { campaignPackage: CampaignPackag
             </p>
             <h3>{lane.label}</h3>
             <p>{lane.summary}</p>
+            {lane.activity && lane.activity.length > 0 && (
+              <ol className="lane__activity" aria-label={`${lane.label} activity`}>
+                {lane.activity.map((activity) => (
+                  <li key={`${activity.kind}-${activity.created_at}`}>
+                    <span>{activity.kind.replaceAll("_", " ")}</span>
+                    {activity.message}
+                  </li>
+                ))}
+              </ol>
+            )}
           </article>
         ))}
       </div>
     </section>
   );
 }
-

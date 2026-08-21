@@ -37,6 +37,21 @@ export type CampaignPackage = {
   evidence: string[];
 };
 
+export type AgentActivity = {
+  kind: "queued" | "analyzing" | "completed";
+  message: string;
+  created_at: string;
+};
+
+export type AgentRun = {
+  specialist: "event_readiness" | "campaign_composer" | "audience_policy";
+  provider: "deterministic_hermes";
+  status: "queued" | "running" | "completed" | "failed";
+  summary: string;
+  revision: number;
+  activity: AgentActivity[];
+};
+
 export type DemoState = {
   deployment_mode?: "server" | "browser_local";
   actors: Actor[];
@@ -75,6 +90,11 @@ export type DemoState = {
       message: string;
     };
   } | null;
+  agent_capacity?: {
+    active: number;
+    limit: number;
+  };
+  agent_runs?: AgentRun[];
   timeline: Array<{
     id: number;
     actor: string;

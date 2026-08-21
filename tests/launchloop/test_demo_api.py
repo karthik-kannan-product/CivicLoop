@@ -46,6 +46,21 @@ def test_complete_demo_journey_is_durable_and_four_eyes_approved() -> None:
         "venue_address",
         "access_instructions",
     ]
+    agent_runs = blocked.json()["agent_runs"]
+    assert [run["specialist"] for run in agent_runs] == [
+        "event_readiness",
+        "campaign_composer",
+        "audience_policy",
+    ]
+    assert {run["provider"] for run in agent_runs} == {"deterministic_hermes"}
+    assert {run["status"] for run in agent_runs} == {"completed"}
+    assert all(run["revision"] == 1 for run in agent_runs)
+    assert all(
+        [activity["kind"] for activity in run["activity"]]
+        == ["queued", "analyzing", "completed"]
+        for run in agent_runs
+    )
+    assert blocked.json()["agent_capacity"] == {"active": 0, "limit": 3}
 
     resolved = post_json(
         client,

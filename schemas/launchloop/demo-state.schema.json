@@ -4,7 +4,7 @@
   "title": "LaunchLoop Demo State",
   "type": "object",
   "additionalProperties": false,
-  "required": ["deployment_mode", "actors", "event", "workflow", "approval", "execution", "timeline"],
+  "required": ["deployment_mode", "actors", "event", "workflow", "approval", "execution", "agent_capacity", "agent_runs", "timeline"],
   "properties": {
     "deployment_mode": { "const": "server" },
     "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
@@ -12,6 +12,8 @@
     "workflow": { "$ref": "#/$defs/workflow" },
     "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/approval" }] },
     "execution": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/execution" }] },
+    "agent_capacity": { "$ref": "#/$defs/agentCapacity" },
+    "agent_runs": { "type": "array", "items": { "$ref": "#/$defs/agentRun" } },
     "timeline": { "type": "array", "items": { "$ref": "#/$defs/transition" } }
   },
   "$defs": {
@@ -162,6 +164,38 @@
             "message": { "type": "string" }
           }
         }
+      }
+    },
+    "agentCapacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["active", "limit"],
+      "properties": {
+        "active": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "limit": { "const": 3 }
+      }
+    },
+    "agentRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specialist", "provider", "status", "summary", "revision", "activity"],
+      "properties": {
+        "specialist": { "enum": ["event_readiness", "campaign_composer", "audience_policy"] },
+        "provider": { "const": "deterministic_hermes" },
+        "status": { "enum": ["queued", "running", "completed", "failed"] },
+        "summary": { "type": "string" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "activity": { "type": "array", "items": { "$ref": "#/$defs/agentActivity" } }
+      }
+    },
+    "agentActivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "message", "created_at"],
+      "properties": {
+        "kind": { "enum": ["queued", "analyzing", "completed"] },
+        "message": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
       }
     },
     "transition": {

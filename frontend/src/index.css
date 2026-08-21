@@ -418,6 +418,16 @@ h3 {
   background: var(--success);
 }
 
+.lane__state--queued,
+.lane__state--running {
+  color: var(--brand-bright);
+}
+
+.lane__state--queued .lane__dot,
+.lane__state--running .lane__dot {
+  background: var(--brand-bright);
+}
+
 .lane__state--needs_input,
 .lane__state--blocked {
   color: var(--warning);
@@ -431,6 +441,43 @@ h3 {
 .lane p:last-child {
   font-size: 0.875rem;
   margin-bottom: 0;
+}
+
+.lane-board__meta {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.capacity-note {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.lane__activity {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+}
+
+.lane__activity li {
+  align-items: baseline;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: auto 1fr;
+}
+
+.lane__activity span {
+  color: var(--brand);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .review-grid {
@@ -677,6 +724,10 @@ h3 {
 @media (max-width: 420px) {
   .topbar__actions {
     width: 100%;
+  }
+
+  .lane-board__meta {
+    align-items: flex-start;
   }
 
   .persona select,

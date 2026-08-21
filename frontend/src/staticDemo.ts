@@ -1,4 +1,4 @@
-import type { CampaignPackage, DemoState } from "./types";
+import type { AgentRun, CampaignPackage, DemoState } from "./types";
 
 const STORAGE_KEY = "civicloop_launchloop_demo_v1";
 const WORKFLOW_ID = "00000000-0000-4000-8000-000000000001";
@@ -67,8 +67,51 @@ function initialState(): DemoState {
     },
     approval: null,
     execution: null,
+    agent_capacity: { active: 0, limit: 3 },
+    agent_runs: [],
     timeline: [timelineItem(1, "Maya Chen", "demo_reset", "", "draft")],
   };
+}
+
+function agentRuns(state: DemoState, campaign: CampaignPackage): AgentRun[] {
+  const createdAt = new Date().toISOString();
+  const definitions: Array<{
+    specialist: AgentRun["specialist"];
+    analyzing: string;
+    summary: string;
+  }> = [
+    {
+      specialist: "event_readiness",
+      analyzing: "Checking required event facts against the revision.",
+      summary: campaign.lanes.event_readiness.summary,
+    },
+    {
+      specialist: "campaign_composer",
+      analyzing: "Preparing review-only campaign drafts.",
+      summary: "Prepared invitation, reminder, and social drafts for review.",
+    },
+    {
+      specialist: "audience_policy",
+      analyzing: "Matching the approved audience and checking sponsor policy.",
+      summary: campaign.lanes.audience_policy.summary,
+    },
+  ];
+  return definitions.map((definition) => ({
+    specialist: definition.specialist,
+    provider: "deterministic_hermes",
+    status: "completed",
+    summary: definition.summary,
+    revision: state.event.revision.version,
+    activity: [
+      {
+        kind: "queued",
+        message: "Queued for this immutable event revision.",
+        created_at: createdAt,
+      },
+      { kind: "analyzing", message: definition.analyzing, created_at: createdAt },
+      { kind: "completed", message: definition.summary, created_at: createdAt },
+    ],
+  }));
 }
 
 function campaignPackage(state: DemoState): CampaignPackage {
@@ -195,6 +238,7 @@ export async function requestStaticDemo(
     const nextStatus =
       missing.length > 0 ? "needs_input" : "ready_for_review";
     state.workflow.package = campaignPackage(state);
+    state.agent_runs = agentRuns(state, state.workflow.package);
     state.workflow.package_hash = PACKAGE_HASH;
     addTimeline(state, actor, "launchloop_ran", "draft", nextStatus);
     state.workflow.status = nextStatus;
@@ -225,6 +269,7 @@ export async function requestStaticDemo(
     state.workflow.package = null;
     state.workflow.package_hash = null;
     state.approval = null;
+    state.agent_runs = [];
     const nextStatus = stillMissing.length > 0 ? "needs_input" : "draft";
     addTimeline(
       state,

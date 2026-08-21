@@ -8,8 +8,11 @@ from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 
+from .agent_runtime import DeterministicHermesAdapter
 from .engine import prepare_package
 from .models import (
+    AgentActivity,
+    AgentRun,
     ApprovalRequest,
     AuditEvent,
     ConnectorExecution,
@@ -113,6 +116,46 @@ def _transition(
     _audit(actor, action, "workflow", workflow.id, details)
 
 
+def _record_agent_runs(workflow: Workflow, package: dict[str, Any]) -> None:
+    adapter = DeterministicHermesAdapter()
+    for result in adapter.run_specialists(package):
+        agent_run = AgentRun.objects.create(
+            workflow=workflow,
+            revision=workflow.revision,
+            specialist=result.specialist,
+            provider=adapter.provider,
+            status=AgentRun.Status.RUNNING,
+            summary="Specialist is starting.",
+            started_at=timezone.now(),
+        )
+        AgentActivity.objects.bulk_create(
+            [
+                AgentActivity(
+                    agent_run=agent_run,
+                    sequence=1,
+                    kind=AgentActivity.Kind.QUEUED,
+                    message="Queued for this immutable event revision.",
+                ),
+                AgentActivity(
+                    agent_run=agent_run,
+                    sequence=2,
+                    kind=AgentActivity.Kind.ANALYZING,
+                    message=result.analyzing_message,
+                ),
+                AgentActivity(
+                    agent_run=agent_run,
+                    sequence=3,
+                    kind=AgentActivity.Kind.COMPLETED,
+                    message=result.summary,
+                ),
+            ]
+        )
+        agent_run.status = AgentRun.Status.COMPLETED
+        agent_run.summary = result.summary
+        agent_run.completed_at = timezone.now()
+        agent_run.save(update_fields=("status", "summary", "completed_at"))
+
+
 @transaction.atomic
 def reset_demo() -> Workflow:
     AuditEvent.objects.all().delete()
@@ -194,6 +237,7 @@ def run_workflow(workflow_id: UUID, actor: DemoActor) -> Workflow:
         raise DemoError("invalid_workflow_state", "LaunchLoop can only run from Draft.", 409)
 
     package = prepare_package(workflow.revision.snapshot)
+    _record_agent_runs(workflow, package)
     workflow.package = package
     workflow.package_hash = package_hash(package)
     workflow.save(update_fields=("package", "package_hash", "updated_at"))
@@ -405,6 +449,11 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
         ConnectorExecution.objects.filter(approval=approval).first() if approval else None
     )
     transitions = workflow.transitions.select_related("actor").order_by("created_at", "id")
+    agent_runs = (
+        workflow.agent_runs.filter(revision=revision)
+        .prefetch_related("activity")
+        .order_by("id")
+    )
     return {
         "deployment_mode": "server",
         "actors": actors,
@@ -445,6 +494,30 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
             if execution
             else None
         ),
+        "agent_capacity": {
+            "active": AgentRun.objects.filter(
+                status__in=(AgentRun.Status.QUEUED, AgentRun.Status.RUNNING)
+            ).count(),
+            "limit": settings.AGENT_MAX_CONCURRENCY,
+        },
+        "agent_runs": [
+            {
+                "specialist": agent_run.specialist,
+                "provider": agent_run.provider,
+                "status": agent_run.status,
+                "summary": agent_run.summary,
+                "revision": agent_run.revision.version,
+                "activity": [
+                    {
+                        "kind": activity.kind,
+                        "message": activity.message,
+                        "created_at": activity.created_at.isoformat(),
+                    }
+                    for activity in agent_run.activity.all()
+                ],
+            }
+            for agent_run in agent_runs
+        ],
         "timeline": [
             {
                 "id": transition.id,
