@@ -172,7 +172,7 @@ def disable_connection(
             connection = cast(
                 IntegrationConnection,
                 (
-                    IntegrationConnection.objects.select_for_update()
+                    IntegrationConnection.objects.select_for_update(of=("self",))
                     .select_related("secret")
                     .get(provider=provider)
                 ),
@@ -307,7 +307,7 @@ def _connection_for_test(provider: str, expected_version: int) -> IntegrationCon
 def _locked_or_new(provider: str) -> IntegrationConnection:
     connection = cast(
         IntegrationConnection | None,
-        IntegrationConnection.objects.select_for_update()
+        IntegrationConnection.objects.select_for_update(of=("self",))
         .select_related("secret")
         .filter(provider=provider)
         .first(),
@@ -327,7 +327,7 @@ def _locked_or_new(provider: str) -> IntegrationConnection:
     except IntegrityError:
         connection = cast(
             IntegrationConnection | None,
-            IntegrationConnection.objects.select_for_update()
+            IntegrationConnection.objects.select_for_update(of=("self",))
             .select_related("secret")
             .filter(provider=provider)
             .first(),

@@ -64,7 +64,8 @@ def test_administrator_entry_is_feature_gated_and_serves_separate_bundle(
     index = tmp_path / "admin.html"
     index.write_text("<!doctype html><title>CivicLoop administrator</title>", encoding="utf-8")
 
-    disabled = [Client().get(path) for path in ("/admin/security", "/admin/security/")]
+    with override_settings(CIVICLOOP_ADMIN_IDENTITY_ENABLED=False):
+        disabled = [Client().get(path) for path in ("/admin/security", "/admin/security/")]
     with override_settings(
         CIVICLOOP_ADMIN_IDENTITY_ENABLED=True,
         ADMIN_FRONTEND_INDEX=index,
