@@ -140,6 +140,55 @@ Record the exact pushed SHA in the private handoff. Wait for required GitHub
 checks before production promotion. A branch name is mutable; the SHA is the
 release candidate identity.
 
+### Optional: initiate a pinned production deploy from GitHub
+
+The repository includes .github/workflows/deploy-production.yml for a manual
+GitHub Actions deployment after CI succeeds. The job accepts only an exact
+40-character commit on main, uses the GitHub production environment,
+serializes releases, temporarily admits only the current GitHub-hosted runner
+IPv4 address to SSH, calls a forced-command deploy key, verifies public
+readiness, and removes the temporary firewall rule even when deployment fails.
+
+This deliberately does not implement the TurboCloud obscured webhook URL plus
+Caddy command-execution example. A random URL is not authentication. GitHub
+environments provide deployment history and protection rules, and GitHub
+recommends least-privilege credentials:
+
+- https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments
+- https://docs.github.com/en/actions/concepts/security/secrets
+- https://docs.vultr.com/products/network/firewall-groups/management/rules
+
+One-time setup:
+
+1. In GitHub, create the production environment, restrict deployment to main,
+   and add the administrator as its required reviewer.
+2. Create a dedicated Vultr user with only Manage Firewall permission and a
+   named, expiring API key. Do not use an account-owner key. GitHub-hosted
+   runner addresses change, so this dedicated user API source policy must admit
+   the runner; the reduced user permission and key expiry limit the exposure.
+3. Store the token as the production environment secret VULTR_API_KEY. Store
+   the firewall group UUID as VULTR_FIREWALL_GROUP_ID in environment variables.
+4. Generate a dedicated Ed25519 key named
+   civicloop_github_actions_ed25519. Add only its public key to
+   /home/linuxuser/.ssh/authorized_keys with this forced-command prefix:
+
+       restrict,command="/opt/civicloop/ops/scripts/github-deploy-command.sh" ssh-ed25519 <public-key> civicloop-github-actions
+
+5. Store the private key file as the production environment secret
+   CIVICLOOP_DEPLOY_SSH_PRIVATE_KEY. Verify the server Ed25519 host-key
+   fingerprint through the Vultr console, then store a matching OpenSSH
+   known_hosts line as CIVICLOOP_SSH_KNOWN_HOSTS. Never accept a freshly
+   scanned host key without checking that independent fingerprint.
+6. Install the current private operations directory at /opt/civicloop/ops,
+   preserving owner linuxuser:linuxuser and mode 0755 on its scripts.
+7. In GitHub Actions, open deploy-production, choose Run workflow, paste the
+   exact successful main CI commit SHA, and approve the protected environment.
+
+The Vultr key is used only to create and delete the runner temporary port 22
+rule. It cannot authenticate SSH and it is not passed to CivicLoop containers.
+If the key already saved in GitHub belongs to the account owner, replace and
+revoke it before enabling this workflow.
+
 ## 5. Restore SSH access safely
 
 The Vultr firewall restricts port 22 to the operator's current public IPv4

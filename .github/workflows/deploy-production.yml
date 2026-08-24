@@ -1,0 +1,53 @@
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Exact 40-character commit from main to deploy"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: civicloop-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://civicloop.karthikkannan.ca
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Verify revision is on main
+        env:
+          TARGET_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          if [[ ! "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "commit_sha must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          git cat-file -e "${TARGET_COMMIT}^{commit}"
+          git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
+
+      - name: Deploy pinned revision to Vultr
+        env:
+          TARGET_COMMIT: ${{ inputs.commit_sha }}
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+          VULTR_FIREWALL_GROUP_ID: ${{ vars.VULTR_FIREWALL_GROUP_ID }}
+          CIVICLOOP_DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.CIVICLOOP_DEPLOY_SSH_PRIVATE_KEY }}
+          CIVICLOOP_SSH_KNOWN_HOSTS: ${{ secrets.CIVICLOOP_SSH_KNOWN_HOSTS }}
+          CIVICLOOP_DEPLOY_HOST: civicloop.karthikkannan.ca
+          CIVICLOOP_DEPLOY_USER: linuxuser
+        run: bash .github/scripts/deploy-production.sh "$TARGET_COMMIT"

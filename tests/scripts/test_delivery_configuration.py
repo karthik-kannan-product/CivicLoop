@@ -48,7 +48,7 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "--require-admin-integrations" in workflow
     assert "CIVICLOOP_IDENTITY_KEY_FILE: /tmp/civicloop-ci-identity-keyring.json" in workflow
     assert "CIVICLOOP_INTEGRATION_KEY_FILE: /tmp/civicloop-ci-integration-keyring.json" in workflow
-    assert "CIVICLOOP_INTEGRATIONS_ENABLED: \"true\"" in workflow
+    assert 'CIVICLOOP_INTEGRATIONS_ENABLED: "true"' in workflow
     assert "COMPOSE_FILE: compose.yaml:compose.integrations.yaml" in workflow
     assert "Create synthetic administrator integration key" in workflow
     assert "civicloop-compose-integration-keyring.json" in workflow
@@ -68,10 +68,7 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "grep -Fxq web" in workflow
     assert "grep -Fxq worker" in workflow
     assert "grep -Fxq scheduler" in workflow
-    assert (
-        "s/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/"
-        in workflow
-    )
+    assert "s/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/" in workflow
 
 
 def test_integration_runbook_uses_opt_in_compose_override() -> None:
@@ -79,3 +76,29 @@ def test_integration_runbook_uses_opt_in_compose_override() -> None:
 
     assert "-f compose.yaml -f compose.integrations.yaml up -d --build" in runbook
     assert "base `compose.yaml` neither\nrequires the host path nor mounts the key" in runbook
+
+
+def test_production_deployment_is_manual_pinned_and_environment_gated() -> None:
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "deploy-production.yml").read_text()
+
+    assert "workflow_dispatch:" in workflow
+    assert "commit_sha:" in workflow
+    assert "environment:" in workflow
+    assert "name: production" in workflow
+    assert "concurrency:" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert "deploy-production.sh" in workflow
+
+
+def test_production_deployer_limits_credentials_and_cleans_firewall_rule() -> None:
+    deployer = (REPOSITORY_ROOT / ".github" / "scripts" / "deploy-production.sh").read_text()
+
+    assert "^[0-9a-f]{40}$" in deployer
+    assert "StrictHostKeyChecking=yes" in deployer
+    assert "IdentitiesOnly=yes" in deployer
+    assert "trap cleanup EXIT" in deployer
+    assert '"port":"22"' in deployer
+    assert '"subnet_size":32' in deployer
+    assert "SSH_ORIGINAL_COMMAND" not in deployer
+    assert 'deploy "$target_commit"' in deployer
