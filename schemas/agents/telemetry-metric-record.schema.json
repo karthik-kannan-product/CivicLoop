@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:telemetry-metric-record:v1",
+  "title": "Bounded telemetry metric record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "metric", "value", "labels"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "metric": {"enum": ["agent_duration_ms", "agent_tokens", "agent_cost_microusd", "evaluation_outcome"]},
+    "value": {"type": "number", "minimum": 0, "maximum": 1000000000000},
+    "labels": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "capability_profile": {"enum": ["workflow", "evaluation_judge", "fallback"]},
+        "provider": {"enum": ["hermes", "groq", "openai"]},
+        "model": {"enum": ["hermes-3", "openai/gpt-oss-20b"]},
+        "fallback_category": {"enum": ["none", "provider_unavailable", "budget", "timeout"]},
+        "approval_state": {"enum": ["not_required", "pending", "approved", "rejected"]},
+        "connector_category": {"enum": ["sandbox", "read_only", "none"]},
+        "evaluation_label": {"enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"]}
+      }
+    }
+  }
+}

@@ -274,6 +274,22 @@
             "llm_judge",
             "human_review"
           ]
+        },
+        "profile_id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "config_id": {
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -309,5 +325,65 @@
       ],
       "additionalProperties": false
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evaluator": {
+            "const": "deterministic"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "judge": {
+            "properties": {
+              "profile_id": {
+                "const": null
+              },
+              "kind": {
+                "const": "deterministic"
+              },
+              "config_id": {
+                "const": null
+              }
+            }
+          },
+          "evaluator_profile_id": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evaluator": {
+            "const": "llm_judge"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "judge": {
+            "properties": {
+              "profile_id": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "llm_judge"
+              },
+              "config_id": {
+                "type": "string"
+              }
+            }
+          },
+          "evaluator_profile_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -23,3 +23,8 @@ minor schema revision after clients have been updated to accept them. Change a
 required field, remove a value, tighten an existing constraint, or change a
 field's meaning only through a new major `$id` (for example, `:v2`) and a
 parallel schema file. Never reuse a released `$id` for an incompatible shape.
+
+
+## Task 1 release status
+
+These :v1 contracts are newly frozen in the unmerged Task 1 branch; they do not revise a previously released external v1 schema. A (manifest_id, revision) maps to exactly one canonical SHA-256 manifest_digest; later persistence work enforces that mapping, while this contract fixes the representation and immutability rule now.

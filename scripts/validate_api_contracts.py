@@ -9,6 +9,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 OPENAPI_PATH = REPOSITORY_ROOT / "openapi" / "civicloop-v1.yaml"
 SCHEMA_ROOT = REPOSITORY_ROOT / "schemas"
 
+def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
 
 def validate_contracts(openapi_path: Path, schema_root: Path) -> None:
     with openapi_path.open(encoding="utf-8") as source:
@@ -22,7 +30,7 @@ def validate_contracts(openapi_path: Path, schema_root: Path) -> None:
 
     for schema_path in schema_paths:
         with schema_path.open(encoding="utf-8") as source:
-            schema = json.load(source)
+            schema = json.load(source, object_pairs_hook=reject_duplicate_keys)
         Draft202012Validator.check_schema(schema)
 
 
