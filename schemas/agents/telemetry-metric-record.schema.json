@@ -18,7 +18,7 @@
         "fallback_category": {"enum": ["none", "provider_unavailable", "budget", "timeout"]},
         "approval_state": {"enum": ["not_required", "pending", "approved", "rejected"]},
         "connector_category": {"enum": ["sandbox", "read_only", "none"]},
-        "evaluation_label": {"enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"]}
+        "evaluation_labels": {"type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": {"enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"]}}
       }
     }
   }

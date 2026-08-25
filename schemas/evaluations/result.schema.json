@@ -290,6 +290,22 @@
             "string",
             "null"
           ]
+        },
+        "reviewer_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+          "maxLength": 64
+        },
+        "review_policy_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+          "maxLength": 64
         }
       },
       "required": [
@@ -381,6 +397,46 @@
           },
           "evaluator_profile_id": {
             "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evaluator": {
+            "const": "human_review"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "evaluator_profile_id": {
+            "const": null
+          },
+          "judge": {
+            "properties": {
+              "config_id": {
+                "const": null
+              },
+              "review_policy_id": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "human_review"
+              },
+              "profile_id": {
+                "const": null
+              },
+              "reviewer_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "reviewer_id",
+              "review_policy_id"
+            ]
           }
         }
       }

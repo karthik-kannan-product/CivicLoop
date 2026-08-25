@@ -12,6 +12,7 @@ major version; this initial set is `1.0`.
 | Agents | `agents/agent-step.schema.json` | Bounded, redacted lifecycle record for one agent step |
 | Agents | `agents/model-profile.schema.json` | Versioned routing and inference limits |
 | Agents | `agents/budget-record.schema.json` | Token and cost ledger record |
+| Agents | `agents/telemetry-metric-record.schema.json` | Bounded metric name and label record |
 | Evaluations | `evaluations/example.schema.json` | A labeled, synthetic evaluation input reference |
 | Evaluations | `evaluations/result.schema.json` | A bounded evaluation outcome |
 
