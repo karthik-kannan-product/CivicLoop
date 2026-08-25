@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:evaluations:result:v1",
+  "$id": "urn:civicloop:schema:evaluations:result:v1.0",
   "title": "Evaluation result v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "result_id",
-    "example_id",
     "run_id",
     "evaluator",
     "evaluator_profile_id",
+    "evaluator_profile_revision",
     "outcome",
     "score",
     "reason_codes",
@@ -39,11 +39,6 @@
       "format": "uuid",
       "maxLength": 36
     },
-    "example_id": {
-      "type": "string",
-      "format": "uuid",
-      "maxLength": 36
-    },
     "run_id": {
       "type": [
         "string",
@@ -67,6 +62,15 @@
       "pattern": "^[a-z][a-z0-9_-]{2,63}$",
       "maxLength": 64
     },
+    "evaluator_profile_revision": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 1000000
+    },
+
     "outcome": {
       "enum": [
         "passed",
@@ -111,7 +115,8 @@
       "properties": {
         "reference": {
           "type": "string",
-          "maxLength": 160
+          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+          "maxLength": 64
         },
         "version": {
           "type": "integer",
@@ -265,54 +270,7 @@
       ],
       "additionalProperties": false
     },
-    "judge": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "enum": [
-            "deterministic",
-            "llm_judge",
-            "human_review"
-          ]
-        },
-        "profile_id": {
-          "maxLength": 64,
-          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "config_id": {
-          "maxLength": 64,
-          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reviewer_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
-          "maxLength": 64
-        },
-        "review_policy_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[a-z][a-z0-9_-]{2,63}$",
-          "maxLength": 64
-        }
-      },
-      "required": [
-        "kind"
-      ],
-      "additionalProperties": false
-    },
+    "judge": {},
     "latency_ms": {
       "type": "integer",
       "maximum": 3600000,
@@ -342,101 +300,43 @@
       "additionalProperties": false
     }
   },
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "properties": {
-          "evaluator": {
-            "const": "deterministic"
-          }
+      "properties": {
+        "evaluator": {"const": "deterministic"},
+        "evaluator_profile_id": {"const": null},
+        "evaluator_profile_revision": {"const": null},
+        "judge": {
+          "type": "object", "additionalProperties": false,
+          "properties": {}
         }
-      },
-      "then": {
-        "properties": {
-          "judge": {
-            "properties": {
-              "profile_id": {
-                "const": null
-              },
-              "kind": {
-                "const": "deterministic"
-              },
-              "config_id": {
-                "const": null
-              }
-            }
-          },
-          "evaluator_profile_id": {
-            "const": null
+      }
+    },
+    {
+      "properties": {
+        "evaluator": {"const": "llm_judge"},
+        "evaluator_profile_id": {"type": "string"},
+        "evaluator_profile_revision": {"type": "integer"},
+        "judge": {
+          "type": "object", "additionalProperties": false,
+          "required": ["config_id"],
+          "properties": {
+            "config_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$", "maxLength": 64}
           }
         }
       }
     },
     {
-      "if": {
-        "properties": {
-          "evaluator": {
-            "const": "llm_judge"
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "judge": {
-            "properties": {
-              "profile_id": {
-                "type": "string"
-              },
-              "kind": {
-                "const": "llm_judge"
-              },
-              "config_id": {
-                "type": "string"
-              }
-            }
-          },
-          "evaluator_profile_id": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "evaluator": {
-            "const": "human_review"
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "evaluator_profile_id": {
-            "const": null
-          },
-          "judge": {
-            "properties": {
-              "config_id": {
-                "const": null
-              },
-              "review_policy_id": {
-                "type": "string"
-              },
-              "kind": {
-                "const": "human_review"
-              },
-              "profile_id": {
-                "const": null
-              },
-              "reviewer_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "kind",
-              "reviewer_id",
-              "review_policy_id"
-            ]
+      "properties": {
+        "evaluator": {"const": "human_review"},
+        "evaluator_profile_id": {"const": null},
+        "evaluator_profile_revision": {"const": null},
+        "judge": {
+          "type": "object", "additionalProperties": false,
+          "required": ["reviewer_id", "review_policy_id"],
+          "properties": {
+            "reviewer_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$", "maxLength": 64},
+            "review_policy_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$", "maxLength": 64}
           }
         }
       }

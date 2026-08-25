@@ -1,13 +1,57 @@
 {
   "schema_version": "1.0",
   "result_id": "c3f1aae7-87c7-4119-81b4-17a65550ec9f",
-  "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c",
   "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
   "evaluator": "deterministic",
   "evaluator_profile_id": null,
+  "evaluator_profile_revision": null,
   "outcome": "passed",
   "score": 1,
-  "reason_codes": ["expected_output"],
+  "reason_codes": [
+    "expected_output"
+  ],
   "summary": "Synthetic fixture met the deterministic expectation.",
-  "created_at": "not-a-timestamp"
+  "created_at": "2026-08-24",
+  "example": {
+    "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c"
+  },
+  "trace_id": "0123456789abcdef0123456789abcdef",
+  "judge": {},
+  "advisory_only": true,
+  "dataset": {
+    "dataset_id": "launchloop_synthetic",
+    "version": 1
+  },
+  "rubric": {
+    "version": 1,
+    "rubric_id": "launchloop"
+  },
+  "latency_ms": 10,
+  "prompt": {
+    "version": 1,
+    "reference": "campaign_package_prompt"
+  },
+  "evaluated_schema": {
+    "schema_id": "urn:civicloop:schema:launchloop:package:v1",
+    "version": "1.0"
+  },
+  "candidate": {
+    "version": 1,
+    "candidate_id": "deterministic_package"
+  },
+  "policy": {
+    "version": 1,
+    "policy_id": "launchloop_policy"
+  },
+  "usage": {
+    "output_tokens": 0,
+    "cost_microusd": 0,
+    "input_tokens": 0
+  },
+  "deterministic_checks": [
+    {
+      "passed": true,
+      "check": "expected_output"
+    }
+  ]
 }

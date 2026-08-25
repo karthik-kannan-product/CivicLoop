@@ -1,15 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:agents:budget-record:v1",
+  "$id": "urn:civicloop:schema:agents:budget-record:v1.0",
   "title": "Agent budget ledger record v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "record_id", "run_id", "model_profile_id", "entry_type", "currency", "input_tokens", "output_tokens", "cost_microusd", "recorded_at"],
+  "required": ["schema_version", "record_id", "run_id", "model_profile_id", "model_profile_revision", "entry_type", "currency", "input_tokens", "output_tokens", "cost_microusd", "recorded_at"],
   "properties": {
     "schema_version": { "const": "1.0" },
     "record_id": { "type": "string", "format": "uuid", "maxLength": 36 },
     "run_id": { "type": "string", "format": "uuid", "maxLength": 36 },
     "model_profile_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "model_profile_revision": { "type": "integer", "minimum": 1, "maximum": 1000000 },
     "entry_type": { "enum": ["reserved", "settled", "released", "adjustment"] },
     "currency": { "const": "USD" },
     "input_tokens": { "type": "integer", "minimum": 0, "maximum": 10000000 },

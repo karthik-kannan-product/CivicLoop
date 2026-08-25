@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:agents:model-profile:v1",
+  "$id": "urn:civicloop:schema:agents:model-profile:v1.0",
   "title": "Model profile v1",
   "type": "object",
   "additionalProperties": false,

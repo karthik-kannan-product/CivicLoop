@@ -1,12 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:agents:telemetry-export:v1",
+  "$id": "urn:civicloop:schema:agents:telemetry-export:v1.0",
   "title": "Telemetry export privacy mode v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "privacy_mode", "workflow_enabled", "export_enabled", "prompt_response_content", "tool_payload_content"],
+  "required": ["schema_version", "run_id", "fixture_manifest_id", "fixture_manifest_revision", "fixture_manifest_digest", "synthetic_manifest_verified", "privacy_mode", "workflow_enabled", "export_enabled", "prompt_response_content", "tool_payload_content"],
   "properties": {
     "schema_version": {"const": "1.0"},
+    "run_id": {"type": "string", "format": "uuid", "maxLength": 36},
+    "fixture_manifest_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$"},
+    "fixture_manifest_revision": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "fixture_manifest_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "synthetic_manifest_verified": {"type": "boolean"},
     "privacy_mode": {"enum": ["synthetic_full", "pilot_minimized", "disabled"]},
     "workflow_enabled": {"const": true},
     "export_enabled": {"type": "boolean"},
@@ -14,7 +19,7 @@
     "tool_payload_content": {"enum": ["sanitized", "redacted", "omitted"]}
   },
   "allOf": [
-    {"if": {"properties": {"privacy_mode": {"const": "synthetic_full"}}}, "then": {"properties": {"export_enabled": {"const": true}, "prompt_response_content": {"const": "synthetic_full"}, "tool_payload_content": {"const": "sanitized"}}}},
+    {"if": {"properties": {"privacy_mode": {"const": "synthetic_full"}}}, "then": {"properties": {"synthetic_manifest_verified": {"const": true}, "export_enabled": {"const": true}, "prompt_response_content": {"const": "synthetic_full"}, "tool_payload_content": {"const": "sanitized"}}}},
     {"if": {"properties": {"privacy_mode": {"const": "pilot_minimized"}}}, "then": {"properties": {"export_enabled": {"const": true}, "prompt_response_content": {"const": "redacted"}, "tool_payload_content": {"const": "redacted"}}}},
     {"if": {"properties": {"privacy_mode": {"const": "disabled"}}}, "then": {"properties": {"export_enabled": {"const": false}, "prompt_response_content": {"const": "omitted"}, "tool_payload_content": {"const": "omitted"}}}}
   ]

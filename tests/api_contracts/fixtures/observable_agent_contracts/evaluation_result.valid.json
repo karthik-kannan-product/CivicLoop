@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0",
   "result_id": "c3f1aae7-87c7-4119-81b4-17a65550ec9f",
-  "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c",
   "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
   "evaluator": "deterministic",
   "evaluator_profile_id": null,
+  "evaluator_profile_revision": null,
   "outcome": "passed",
   "score": 1,
   "reason_codes": [
@@ -16,9 +16,7 @@
     "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c"
   },
   "trace_id": "0123456789abcdef0123456789abcdef",
-  "judge": {
-    "kind": "deterministic"
-  },
+  "judge": {},
   "advisory_only": true,
   "dataset": {
     "dataset_id": "launchloop_synthetic",
@@ -31,7 +29,7 @@
   "latency_ms": 10,
   "prompt": {
     "version": 1,
-    "reference": "synthetic/campaign_package"
+    "reference": "campaign_package_prompt"
   },
   "evaluated_schema": {
     "schema_id": "urn:civicloop:schema:launchloop:package:v1",

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "metric": "agent_duration_ms",
+  "value": 500,
+  "labels": {
+    "capability_profile": "workflow",
+    "model_profile_id": "hermes_primary",
+    "model_profile_revision": 1,
+    "fallback_category": "none"
+  }
+}

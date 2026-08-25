@@ -1,25 +1,83 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:agents:telemetry-metric-record:v1",
-  "title": "Bounded telemetry metric record v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "metric", "value", "labels"],
-  "properties": {
-    "schema_version": {"const": "1.0"},
-    "metric": {"enum": ["agent_duration_ms", "agent_tokens", "agent_cost_microusd", "evaluation_outcome"]},
-    "value": {"type": "number", "minimum": 0, "maximum": 1000000000000},
-    "labels": {
+  "$id": "urn:civicloop:schema:agents:telemetry-metric-record:v1.0",
+  "title": "Discriminated bounded telemetry metric record v1",
+  "$defs": {
+    "model_profile_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$", "maxLength": 64},
+    "model_profile_revision": {"type": "integer", "minimum": 1, "maximum": 1000000}
+  },
+  "oneOf": [
+    {
       "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "metric", "value", "labels"],
       "properties": {
-        "capability_profile": {"enum": ["workflow", "evaluation_judge", "fallback"]},
-        "provider": {"enum": ["hermes", "groq", "openai"]},
-        "model": {"enum": ["hermes-3", "openai/gpt-oss-20b"]},
-        "fallback_category": {"enum": ["none", "provider_unavailable", "budget", "timeout"]},
-        "approval_state": {"enum": ["not_required", "pending", "approved", "rejected"]},
-        "connector_category": {"enum": ["sandbox", "read_only", "none"]},
-        "evaluation_labels": {"type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": {"enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"]}}
+        "schema_version": {"const": "1.0"},
+        "metric": {"const": "agent_duration_ms"},
+        "value": {"type": "number", "minimum": 0, "maximum": 3600000},
+        "labels": {
+          "type": "object", "additionalProperties": false,
+          "required": ["capability_profile", "model_profile_id", "model_profile_revision", "fallback_category"],
+          "properties": {
+            "capability_profile": {"enum": ["workflow", "evaluation_judge", "fallback"]},
+            "model_profile_id": {"$ref": "#/$defs/model_profile_id"},
+            "model_profile_revision": {"$ref": "#/$defs/model_profile_revision"},
+            "fallback_category": {"enum": ["none", "provider_unavailable", "budget", "timeout"]}
+          }
+        }
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "metric", "value", "labels"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "metric": {"const": "agent_tokens"},
+        "value": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "labels": {
+          "type": "object", "additionalProperties": false,
+          "required": ["capability_profile", "model_profile_id", "model_profile_revision", "token_direction"],
+          "properties": {
+            "capability_profile": {"enum": ["workflow", "evaluation_judge", "fallback"]},
+            "model_profile_id": {"$ref": "#/$defs/model_profile_id"},
+            "model_profile_revision": {"$ref": "#/$defs/model_profile_revision"},
+            "token_direction": {"enum": ["input", "output"]}
+          }
+        }
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "metric", "value", "labels"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "metric": {"const": "agent_cost_microusd"},
+        "value": {"type": "integer", "minimum": 0, "maximum": 1000000000000},
+        "labels": {
+          "type": "object", "additionalProperties": false,
+          "required": ["capability_profile", "model_profile_id", "model_profile_revision"],
+          "properties": {
+            "capability_profile": {"enum": ["workflow", "evaluation_judge", "fallback"]},
+            "model_profile_id": {"$ref": "#/$defs/model_profile_id"},
+            "model_profile_revision": {"$ref": "#/$defs/model_profile_revision"}
+          }
+        }
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "metric", "outcome", "labels"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "metric": {"const": "evaluation_outcome"},
+        "outcome": {"enum": ["passed", "failed", "inconclusive"]},
+        "labels": {
+          "type": "object", "additionalProperties": false,
+          "required": ["evaluation_label"],
+          "properties": {
+            "evaluation_label": {"enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"]}
+          }
+        }
       }
     }
-  }
+  ]
 }

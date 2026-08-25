@@ -3,6 +3,7 @@
   "record_id": "0f6fb0bb-1d5b-4f9f-b886-9a2f4f5a1c7d",
   "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
   "model_profile_id": "hermes_primary",
+  "model_profile_revision": 1,
   "entry_type": "settled",
   "currency": "USD",
   "input_tokens": 512,

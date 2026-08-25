@@ -1,31 +1,33 @@
-# JSON Schema contract index
+# Observable-agent JSON Schema contract index
 
-All schemas in this directory use JSON Schema 2020-12. A schema's `$id` is its
-stable, versioned identifier: `:v1` denotes the first frozen major contract.
-The `schema_version` field identifies the compatible minor revision within that
-major version; this initial set is `1.0`.
+This index covers the nine agent-observability and evaluation contracts frozen
+by Task 1. Other schemas below this directory retain their own existing version
+policy and identifiers. Every contract listed here uses JSON Schema 2020-12, a
+closed object shape, and an immutable major.minor `$id`; the payload's
+`schema_version` matches that published contract version.
 
-| Area | Schema | Purpose |
-| --- | --- | --- |
-| Agents | `agents/fixture-manifest.schema.json` | Synthetic fixture inventory and immutable content hashes |
-| Agents | `agents/agent-run.schema.json` | Bounded, redacted lifecycle record for one agent run |
-| Agents | `agents/agent-step.schema.json` | Bounded, redacted lifecycle record for one agent step |
-| Agents | `agents/model-profile.schema.json` | Versioned routing and inference limits |
-| Agents | `agents/budget-record.schema.json` | Token and cost ledger record |
-| Agents | `agents/telemetry-metric-record.schema.json` | Bounded metric name and label record |
-| Evaluations | `evaluations/example.schema.json` | A labeled, synthetic evaluation input reference |
-| Evaluations | `evaluations/result.schema.json` | A bounded evaluation outcome |
+| Area | Schema | Immutable `$id` | Purpose |
+| --- | --- | --- | --- |
+| Agents | `agents/fixture-manifest.schema.json` | `urn:civicloop:schema:agents:fixture-manifest:v1.0` | Synthetic fixture inventory and immutable content hashes |
+| Agents | `agents/agent-run.schema.json` | `urn:civicloop:schema:agents:agent-run:v1.0` | Bounded, redacted lifecycle record for one agent run |
+| Agents | `agents/agent-step.schema.json` | `urn:civicloop:schema:agents:agent-step:v1.0` | Bounded, redacted lifecycle record for one agent step |
+| Agents | `agents/model-profile.schema.json` | `urn:civicloop:schema:agents:model-profile:v1.0` | Versioned routing and inference limits |
+| Agents | `agents/budget-record.schema.json` | `urn:civicloop:schema:agents:budget-record:v1.0` | Token and cost ledger record |
+| Agents | `agents/telemetry-export.schema.json` | `urn:civicloop:schema:agents:telemetry-export:v1.0` | Privacy mode and synthetic-content eligibility |
+| Agents | `agents/telemetry-metric-record.schema.json` | `urn:civicloop:schema:agents:telemetry-metric-record:v1.0` | Discriminated metric values and bounded dimensions |
+| Evaluations | `evaluations/example.schema.json` | `urn:civicloop:schema:evaluations:example:v1.0` | A labeled, synthetic evaluation input reference |
+| Evaluations | `evaluations/result.schema.json` | `urn:civicloop:schema:evaluations:result:v1.0` | A bounded, advisory evaluation outcome |
 
 ## Compatibility
 
-Schemas are closed (`additionalProperties: false`), so any added field is a
-breaking change for consumers. Add optional fields only in a new compatible
-minor schema revision after clients have been updated to accept them. Change a
-required field, remove a value, tighten an existing constraint, or change a
-field's meaning only through a new major `$id` (for example, `:v2`) and a
-parallel schema file. Never reuse a released `$id` for an incompatible shape.
+A published `$id` is immutable. Any compatible minor revision is published as a
+parallel schema with a new major.minor identifier (for example, `:v1.1`) and a
+matching `schema_version`; producers and consumers opt into it explicitly.
+Removing a field or enum value, making an optional field required, tightening a
+constraint, or changing meaning requires a new major contract (for example,
+`:v2.0`). Never edit the shape associated with an already published `$id`.
 
-
-## Task 1 release status
-
-These :v1 contracts are newly frozen in the unmerged Task 1 branch; they do not revise a previously released external v1 schema. A (manifest_id, revision) maps to exactly one canonical SHA-256 manifest_digest; later persistence work enforces that mapping, while this contract fixes the representation and immutability rule now.
+These `:v1.0` contracts are newly frozen in the unmerged Task 1 branch, so this
+initial publication does not revise an external v1 contract. A
+`(manifest_id, revision)` maps to exactly one canonical SHA-256
+`manifest_digest`; later persistence work enforces that mapping.

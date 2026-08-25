@@ -1,5 +1,10 @@
 {
   "schema_version": "1.0",
+  "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
+  "fixture_manifest_id": "launchloop_synthetic_v1",
+  "fixture_manifest_revision": 1,
+  "fixture_manifest_digest": "815d14762306d96bdc6449eb58a3e5739fb0ad95e08dc70b9025bd2cc8099d5f",
+  "synthetic_manifest_verified": true,
   "privacy_mode": "synthetic_full",
   "workflow_enabled": true,
   "export_enabled": true,
