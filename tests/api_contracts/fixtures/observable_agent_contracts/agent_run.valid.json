@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
+  "workflow_id": "843a756b-b9a4-4fb7-89ee-05be3f38fc6d",
+  "fixture_manifest_id": "launchloop_synthetic_v1",
+  "model_profile_id": "hermes_primary",
+  "status": "succeeded",
+  "attempt": 1,
+  "queued_at": "2026-08-24T12:00:00Z",
+  "started_at": "2026-08-24T12:00:01Z",
+  "finished_at": "2026-08-24T12:00:02Z",
+  "failure_category": null,
+  "telemetry": {"trace_id": "0123456789abcdef0123456789abcdef", "span_count": 5}
+}

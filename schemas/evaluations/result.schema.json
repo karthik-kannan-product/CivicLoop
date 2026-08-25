@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:evaluations:result:v1",
+  "title": "Evaluation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "result_id", "example_id", "run_id", "evaluator", "evaluator_profile_id", "outcome", "score", "reason_codes", "summary", "created_at"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "result_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "example_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "run_id": { "type": ["string", "null"], "format": "uuid", "maxLength": 36 },
+    "evaluator": { "enum": ["deterministic", "llm_judge", "human_review"] },
+    "evaluator_profile_id": { "type": ["string", "null"], "pattern": "^[a-z][a-z0-9_-]{2,63}$", "maxLength": 64 },
+    "outcome": { "enum": ["passed", "failed", "inconclusive"] },
+    "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "reason_codes": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "enum": ["expected_output", "policy_violation", "schema_invalid", "tool_error", "timeout"] } },
+    "summary": { "type": "string", "maxLength": 1000 },
+    "created_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+  }
+}

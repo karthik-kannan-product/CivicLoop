@@ -52,6 +52,15 @@ Breaking request or response changes require a new versioned path or a reviewed
 deprecation plan. Additive optional fields remain backward compatible only when
 schemas and clients permit them.
 
+## Schema compatibility
+
+The JSON Schema index at `schemas/README.md` lists every reusable contract and
+its versioned `$id`. Each frozen agent and evaluation contract is a JSON Schema
+2020-12 document with a major `$id` suffix (for example, `:v1`) and a
+`schema_version` field. Closed shapes intentionally reject unknown fields: add,
+remove, or reinterpret a field only through the compatibility process in that
+index. OpenAPI remains the versioned index for HTTP contracts; these persistence
+schemas do not imply an HTTP endpoint until one is explicitly added.
 The JSON field names remain `snake_case` for compatibility with the existing
 CivicLoop v1 implementation. New v1 fields must follow that convention; a
 different naming convention requires a new versioned contract rather than a

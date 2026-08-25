@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:evaluations:example:v1",
+  "title": "Synthetic evaluation example v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "example_id", "fixture_manifest_id", "fixture_revision", "task", "input_reference", "expected_outcome", "labels", "created_at"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "example_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "fixture_manifest_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
+    "fixture_revision": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+    "task": { "enum": ["campaign_package", "audience_recommendation", "policy_validation", "sponsor_validation"] },
+    "input_reference": { "type": "string", "pattern": "^[a-z][a-z0-9_./-]{2,159}$", "maxLength": 160 },
+    "expected_outcome": { "enum": ["pass", "fail", "needs_input", "blocked"] },
+    "labels": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$", "maxLength": 64 } },
+    "created_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+  }
+}

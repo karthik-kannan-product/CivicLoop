@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "step_id": "44093bf4-cb6c-4d83-9b73-7948e06fdd55",
+  "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
+  "sequence": 1,
+  "kind": "validation",
+  "status": "succeeded",
+  "started_at": "2026-08-24T12:00:01Z",
+  "finished_at": "2026-08-24T12:00:02Z",
+  "input_summary": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "output_summary": null,
+  "failure_category": null,
+  "telemetry": {"duration_ms": 500, "input_tokens": 0, "output_tokens": 0}
+}

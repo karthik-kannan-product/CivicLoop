@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c",
+  "fixture_manifest_id": "launchloop_synthetic_v1",
+  "fixture_revision": 1,
+  "task": "campaign_package",
+  "input_reference": "fixtures/events/ny_youth_day.json",
+  "expected_outcome": "pass",
+  "labels": ["complete", "synthetic"],
+  "created_at": "2026-08-24T12:00:00Z",
+  "prompt": "forbidden raw prompt"
+}

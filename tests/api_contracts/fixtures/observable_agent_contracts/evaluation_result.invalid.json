@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "result_id": "c3f1aae7-87c7-4119-81b4-17a65550ec9f",
+  "example_id": "bb97cf70-fc11-411f-858d-d936fa881c0c",
+  "run_id": "ec7af985-b84c-41fb-84c1-a9787115d604",
+  "evaluator": "deterministic",
+  "evaluator_profile_id": null,
+  "outcome": "passed",
+  "score": 1,
+  "reason_codes": ["expected_output"],
+  "summary": "Synthetic fixture met the deterministic expectation.",
+  "created_at": "not-a-timestamp"
+}

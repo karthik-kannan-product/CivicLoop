@@ -5,7 +5,7 @@ info:
   summary: Human-approved nonprofit operations workflows
   description: >-
     Same-origin, session-authenticated API for the current synthetic LaunchLoop
-    deployment. POST operations require Django CSRF protection.
+    deployment. POST operations require Django CSRF protection. Schema compatibility is documented in docs/api-contracts.md and schemas/README.md.
 servers:
   - url: /
 security:
