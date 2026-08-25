@@ -2,7 +2,7 @@
 
 **Status:** Approved target architecture; implementation in progress  
 **Decision date:** 2026-07-30  
-**Last reconciled with the repository:** 2026-08-04  
+**Last reconciled with the repository:** 2026-08-24
 **License:** MIT  
 **First workflow:** LaunchLoop  
 **Deployment model:** One nonprofit organization per deployment
@@ -46,21 +46,30 @@ Where those differ, the current-state sections are authoritative about the code 
 
 ## 4. Current Implementation Snapshot
 
-As of 2026-08-04, the repository contains a working deterministic LaunchLoop vertical slice and the runtime foundation around it.
+As of 2026-08-24, the repository contains a deployed deterministic LaunchLoop
+vertical slice, its production runtime, a single-owner administrator security
+surface, and write-only integration administration.
 
 | Area | Implemented now | V1 target not yet implemented |
 | --- | --- | --- |
-| User experience | React mission-control workspace, event brief, three visible lanes, review package, approval panel, receipt, and timeline | General event management, Focus mode, decision queue, operational metrics, and full accessibility verification |
-| Authentication | Django sessions and CSRF; two seeded synthetic accounts mapped to operator and approver roles | First-run admin, invitations, password reset, session administration, TOTP MFA, rate limiting, and production identity lifecycle |
+| User experience | React mission-control workspace, event brief, three visible lanes, review package, approval panel, receipt, timeline, owner security console, and integration console | General event management, Focus mode, trace/evaluation review, decision queue, operational metrics, and full accessibility verification |
+| Authentication | Django sessions and CSRF; two seeded synthetic operator/approver accounts; separately feature-gated single-owner administrator with password, TOTP, recovery codes, session controls, fresh verification, throttling, and append-only security events | Invitations and named production operator/approver identities, password reset, broader permission lifecycle, and removal of synthetic identities from real pilot use |
 | Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
 | Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
-| Integrations | A persisted `sandbox_iterable` simulation receipt with zero external actions | Formal connector interfaces, Eventbrite sandbox, failure simulation, reconciliation, and live connectors |
-| Agents | Deterministic Python package engine and six standalone LaunchLoop eval scenarios | Hermes adapter, bounded specialist tasks, JSON Schema validation/repair, provider metadata, and global concurrency semaphore |
-| Data | PostgreSQL models and migrations for the authenticated demo; browser-local state for GitHub Pages | Full identity, organization, agent, policy, outbox, metrics, and retention models |
-| Runtime | One multi-stage image; Django/Gunicorn web, Celery worker, Celery beat scheduler, PostgreSQL, Valkey, health endpoints, read-only app containers | Real background workflow tasks, Caddy/TLS distribution, Mailpit, Phoenix, backup/restore tooling, and production secrets files |
-| Delivery | GitHub Actions tests and GitHub Pages deployment; Docker Compose development and production-oriented local files | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and release/rollback automation |
+| Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only Eventbrite, Iterable, OpenAI, and Groq connection lifecycle; bounded read-only connection probes; persisted `sandbox_iterable` receipt with zero external actions | Callable draft adapters, webhook/polling refresh, external idempotency and reconciliation, and separately approval-gated publish/send operations |
+| Agents and evaluation | Deterministic Python package engine and six standalone LaunchLoop evaluation cases | Minimum 15-event synthetic corpus, 100 labeled examples, persistent agent/evaluation records, fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, budget ledger, routing profiles, and concurrency semaphore |
+| Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, and audit records; browser-local state for GitHub Pages | Organization, agent run/step, policy, evaluation, outbox, operational metrics, and retention records |
+| Runtime | Production Vultr deployment with Caddy/TLS, one multi-stage app image, Django/Gunicorn, Celery worker and scheduler, PostgreSQL, Valkey, health/readiness, host-only key rings, backup/restore, status, and rollback automation | Real background workflow tasks, OpenTelemetry/OpenInference, authenticated Phoenix, Hermes/LiteLLM, and retention automation |
+| Delivery | GitHub Actions verification, protected approval-gated GitHub-to-Vultr deployment, dynamic temporary SSH firewall access, GitHub Pages, pinned release state, and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
 
-The Celery worker and scheduler are foundation process modes today. The only Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes synchronously in Django. Likewise, `AGENT_MAX_CONCURRENCY` is parsed and capped at three, but no agent runtime or cross-process semaphore is connected yet.
+The Celery worker and scheduler are foundation process modes today. The only
+Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes
+synchronously in Django. Integration capability labels declare the approved
+future boundary, but current provider adapters only test credentials with
+harmless reads. Likewise, `AGENT_MAX_CONCURRENCY` is parsed and capped at three,
+but no agent runtime or cross-process semaphore is connected. OpenTelemetry,
+OpenInference, Phoenix, Hermes, LiteLLM, and the evaluation LLM are not yet
+runtime services.
 
 ## 5. System Context
 
@@ -136,9 +145,15 @@ The public CivicLoop repository contains distributable application source, migra
 The implemented backend modules are:
 
 - `civicloop`: Django configuration, URL routing, WSGI/ASGI entry points, and Celery setup;
+- `api_contracts`: OpenAPI 3.1 and JSON Schema contract serving and validation;
 - `health`: liveness and PostgreSQL/Valkey readiness checks;
 - `foundation`: process-foundation tasks, currently the Celery `ping` task; and
-- `launchloop`: demo domain models, deterministic package engine, application services, and API views.
+- `identity`: single-owner bootstrap, password and TOTP authentication, recovery
+  codes, sessions, fresh verification, throttling, and security events;
+- `integrations`: encrypted credential lifecycle, purpose-bound leases,
+  owner-only administration, audit history, and harmless provider probes; and
+- `launchloop`: demo domain models, deterministic package engine, application
+  services, and API views.
 
 The target modular-monolith boundaries are:
 
@@ -170,6 +185,10 @@ The authenticated demo persists these entities:
 | `ApprovalRequest` | One request per workflow, submitter, approver, decision, and locked package hash |
 | `ConnectorExecution` | One idempotent simulated delivery receipt per approval |
 | `AuditEvent` | Actor, action, target, and structured details for consequential service actions |
+| `AdministratorProfile` and related security records | Owner identity, TOTP/recovery state, bounded sessions, and append-only security activity |
+| `IntegrationConnection` | One lifecycle-controlled connection per approved provider, with non-secret configuration and capabilities |
+| `EncryptedSecret` | AES-256-GCM credential envelope referenced by a connection; plaintext is available only through a bounded lease |
+| `IntegrationHealthCheck` | Sanitized provider probe result, duration, category, and correlation ID |
 
 The model is intentionally single-organization and has no tenant identifier. Adding multi-tenancy would affect nearly every authorization query and must be a deliberate future architecture decision.
 
@@ -230,17 +249,22 @@ Before any package becomes review-ready, deterministic code will validate agent 
 - Approvers can decide a pending package and cannot approve their own submission.
 - The package hash prevents approval of a package different from the reviewed version.
 - Demo credentials are synthetic fixtures and must not be used in a real deployment.
+- A separate owner account uses password plus TOTP, single-use recovery codes,
+  bounded sessions, fresh verification, fail-closed throttling, and append-only
+  security events.
+- Only that MFA-authenticated owner may manage integration connections.
+- Integration credentials are write-only, encrypted with a host-mounted key
+  ring, never returned by the API, and leased only for an approved provider and
+  purpose.
 
 The public static demo has a UI persona switch for demonstration purposes only. It is not an authorization system.
 
-### Target production controls
+### Remaining production controls
 
-- One-time first-admin setup and expiring, single-use hashed invitations.
+- Expiring, single-use hashed invitations for named operators and approvers.
 - Named backend permissions; UI visibility is never the authorization boundary.
-- Argon2id passwords, secure HTTP-only SameSite cookies, and CSRF on all mutations.
-- Password reset and user disablement revoke existing sessions.
-- TOTP MFA is required for approvers in production mode.
-- Authentication and invitation endpoints are rate-limited.
+- Password reset and user disablement that revoke existing sessions.
+- Mandatory TOTP for production approvers.
 - Emergency self-approval requires reauthentication, MFA, a reason, a high-severity audit event, and a persistent receipt warning.
 - Production startup fails for unsafe secrets, cookies, or bootstrap configuration.
 
@@ -367,9 +391,19 @@ The repository currently tests:
 - LaunchLoop engine and authenticated demo API behavior;
 - runtime filesystem and delivery configuration;
 - React components and the static browser-local journey; and
-- six deterministic LaunchLoop evaluation cases covering a happy path, missing venue, remediation, sponsor mismatch, refusal of unapproved action, and unsupported audience judgment.
+- owner password/TOTP/recovery/session/security-event controls;
+- encrypted integration storage, lifecycle, authorization, harmless provider
+  probes, readiness, and API contracts; and
+- six deterministic LaunchLoop evaluation cases covering a happy path, missing
+  venue, remediation, sponsor mismatch, refusal of unapproved action, and
+  unsupported audience judgment.
 
-The target release gate expands this with property and concurrency tests, identity/MFA tests, shared connector contract tests, migration safety, prompt-injection and schema-invalid evals, full browser accessibility tests, Compose and `kind` smoke tests, outage recovery, image scanning, SBOM generation, provenance signing, and immutable semantic-version publication.
+The next gate expands the synthetic corpus to at least 15 events and 100 labeled
+examples, then adds agent/evaluation persistence, OpenTelemetry/OpenInference,
+authenticated Phoenix, a fixed LLM judge, prompt-injection and schema-invalid
+evals, and observability outage tests. Later gates add connector contract,
+property/concurrency, full browser accessibility, `kind`, image scanning, SBOM,
+provenance, and immutable semantic-version tests.
 
 ## 20. Scope and Delivery Sequence
 
@@ -383,12 +417,28 @@ Deferred work includes membership lifecycle, sponsor-domain eligibility, Stripe 
 
 1. **Completed foundation:** repository, React shell, single image, Compose services, health/readiness, CI, and GitHub Pages.
 2. **Completed demo vertical slice:** durable event revisions and workflow state, deterministic three-lane package, missing-input remediation, package hash, separate synthetic operator/approver sessions, sandbox receipt, and timeline.
-3. **Next production boundary:** replace demo identity with setup, invitations, named permissions, password lifecycle, MFA, session controls, and hardened audit.
-4. **Durable execution:** outbox, work items, leases, retries, cancellation, persisted activity events, and deployment-wide concurrency control.
-5. **Agent integration:** provider adapter, Hermes worker integration, structured schemas, capability-scoped tools, policy/prompt versioning, and expanded evals.
-6. **Connector contracts:** formal sandbox Eventbrite and Iterable adapters, idempotent execution, failure simulation, and reconciliation.
-7. **Operational maturity:** metrics, OpenTelemetry, optional Phoenix, retention, backup/restore, and production Compose edge/security documentation.
-8. **Distribution maturity:** Helm chart, Kubernetes security, `kind` tests, multi-architecture images, SBOM, signing, and release automation.
+3. **Completed owner and integration administration:** owner bootstrap, MFA,
+   recovery and session controls, encrypted provider credentials, connection
+   tests, OpenAPI contracts, audit, production enablement, and protected
+   GitHub-to-Vultr delivery.
+4. **Next—observable synthetic agent foundation:** expand fixtures, persist
+   agent/evaluation records, instrument the deterministic path with
+   OpenTelemetry/OpenInference, deploy authenticated Phoenix, and add a fixed,
+   budgeted LLM judge.
+5. **Hermes synthetic execution:** internal Hermes/LiteLLM service, deterministic
+   profiles, capability-scoped tools, structured schemas, policy/prompt
+   versioning, cost ledger, fallback rules, and global concurrency control.
+6. **Draft-only connector contracts:** Eventbrite draft listing/unpublished
+   creation and Iterable non-sending draft creation with typed receipts,
+   idempotency, failure simulation, and reconciliation.
+7. **Refresh and consequential approval:** Eventbrite webhook with polling
+   fallback, immutable refresh, edit/reject/escalate/regenerate, and separately
+   authorized publish/send actions.
+8. **Durable execution and pilot maturity:** outbox, leases, retries,
+   cancellation, activity streaming, operational metrics, named
+   operator/approver identity, feedback review, and rollback gates.
+9. **Distribution maturity:** Helm chart, Kubernetes security, `kind` tests,
+   multi-architecture images, SBOM, signing, and release automation.
 
 Each increment must remain runnable, tested, and documented before the next broadens the trust boundary.
 

@@ -175,6 +175,24 @@ uv run python scripts/validate_api_contracts.py
 
 See `docs/api-contracts.md` for contributor rules and authentication details.
 
+## Next PRD Milestone
+
+The next approved increment is the observable synthetic agent foundation:
+
+1. expand the current six synthetic events and evaluations to at least 15
+   events and 100 labeled examples;
+2. add persistent agent-run, model-profile, routing-policy, budget, and
+   evaluation records;
+3. instrument the deterministic workflow with OpenTelemetry and OpenInference;
+4. deploy administrator-only Phoenix with 14-day retention and safe degradation;
+5. add a fixed, budgeted LLM evaluation judge; and
+6. show trace, evaluation, provider, usage, cost, and fallback status in review.
+
+Hermes remains synthetic and internal-only in the following increment. Live
+Eventbrite and Iterable draft operations remain disabled until the synthetic
+and observability gates pass. See the
+[architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence).
+
 ## Run LaunchLoop Locally
 
 Open the browser demo:
