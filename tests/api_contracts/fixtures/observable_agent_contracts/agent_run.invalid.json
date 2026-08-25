@@ -10,5 +10,9 @@
   "started_at": null,
   "finished_at": null,
   "failure_category": null,
-  "telemetry": {"trace_id": "0123456789abcdef0123456789abcdef", "span_count": 0}
+  "telemetry": {
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_count": 0
+  },
+  "privacy_mode": "synthetic_full"
 }

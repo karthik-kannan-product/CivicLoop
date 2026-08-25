@@ -4,5 +4,12 @@
   "revision": 1,
   "created_at": "2026-08-24T12:00:00Z",
   "synthetic": true,
-  "fixtures": [{"fixture_id": "ny_youth_day", "kind": "event", "path": "fixtures/events/ny_youth_day.json", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]
+  "fixtures": {
+    "ny_youth_day": {
+      "kind": "event",
+      "path": "fixtures/events/ny_youth_day.json",
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  },
+  "manifest_digest": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 }

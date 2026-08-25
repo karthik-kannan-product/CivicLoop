@@ -10,5 +10,9 @@
   "started_at": "2026-08-24T12:00:01Z",
   "finished_at": "2026-08-24T12:00:02Z",
   "failure_category": null,
-  "telemetry": {"trace_id": "0123456789abcdef0123456789abcdef", "span_count": 5}
+  "telemetry": {
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_count": 5
+  },
+  "privacy_mode": "synthetic_full"
 }

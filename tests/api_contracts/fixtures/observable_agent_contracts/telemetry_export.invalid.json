@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "privacy_mode": "disabled",
+  "workflow_enabled": true,
+  "export_enabled": true,
+  "prompt_response_content": "synthetic_full",
+  "tool_payload_content": "sanitized"
+}

@@ -1,29 +1,10 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:civicloop:schema:agents:fixture-manifest:v1",
-  "title": "Synthetic fixture manifest v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "manifest_id", "revision", "created_at", "synthetic", "fixtures"],
-  "properties": {
-    "schema_version": { "const": "1.0" },
-    "manifest_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
-    "revision": { "type": "integer", "minimum": 1, "maximum": 1000000 },
-    "created_at": { "type": "string", "format": "date-time", "maxLength": 40 },
-    "synthetic": { "const": true },
-    "fixtures": { "type": "array", "minItems": 1, "maxItems": 1000, "uniqueItems": true, "items": { "$ref": "#/$defs/fixture" } }
-  },
-  "$defs": {
-    "fixture": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["fixture_id", "kind", "path", "sha256"],
-      "properties": {
-        "fixture_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}$" },
-        "kind": { "enum": ["event", "audience", "policy", "workflow"] },
-        "path": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_./-]{0,159}$", "maxLength": 160 },
-        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
-      }
-    }
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"urn:civicloop:schema:agents:fixture-manifest:v1",
+  "title":"Immutable synthetic fixture manifest v1","type":"object","additionalProperties":false,
+  "required":["schema_version","manifest_id","revision","manifest_digest","created_at","synthetic","fixtures"],
+  "properties":{
+    "schema_version":{"const":"1.0"},"manifest_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{2,63}$"},"revision":{"type":"integer","minimum":1,"maximum":1000000},"manifest_digest":{"type":"string","pattern":"^[a-f0-9]{64}$"},"created_at":{"type":"string","format":"date-time","maxLength":40},"synthetic":{"const":true},
+    "fixtures":{"type":"object","additionalProperties":false,"propertyNames":{"pattern":"^[a-z][a-z0-9_-]{2,63}$"},"patternProperties":{"^[a-z][a-z0-9_-]{2,63}$":{"type":"object","additionalProperties":false,"required":["kind","path","sha256"],"properties":{"kind":{"enum":["event","audience","policy","workflow"]},"path":{"type":"string","pattern":"^(?!.*(?:^|/)\\.\\.(?:/|$))[a-z0-9][a-z0-9_./-]{0,159}$","maxLength":160},"sha256":{"type":"string","pattern":"^[a-f0-9]{64}$"}}}},"minProperties":1,"maxProperties":1000}
   }
 }

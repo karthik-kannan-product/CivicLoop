@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:telemetry-export:v1",
+  "title": "Telemetry export privacy mode v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "privacy_mode", "workflow_enabled", "export_enabled", "prompt_response_content", "tool_payload_content"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "privacy_mode": {"enum": ["synthetic_full", "pilot_minimized", "disabled"]},
+    "workflow_enabled": {"const": true},
+    "export_enabled": {"type": "boolean"},
+    "prompt_response_content": {"enum": ["synthetic_full", "redacted", "omitted"]},
+    "tool_payload_content": {"enum": ["sanitized", "redacted", "omitted"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"privacy_mode": {"const": "synthetic_full"}}}, "then": {"properties": {"export_enabled": {"const": true}, "prompt_response_content": {"const": "synthetic_full"}, "tool_payload_content": {"const": "sanitized"}}}},
+    {"if": {"properties": {"privacy_mode": {"const": "pilot_minimized"}}}, "then": {"properties": {"export_enabled": {"const": true}, "prompt_response_content": {"const": "redacted"}, "tool_payload_content": {"const": "redacted"}}}},
+    {"if": {"properties": {"privacy_mode": {"const": "disabled"}}}, "then": {"properties": {"export_enabled": {"const": false}, "prompt_response_content": {"const": "omitted"}, "tool_payload_content": {"const": "omitted"}}}}
+  ]
+}

@@ -36,3 +36,32 @@ Redact before telemetry crosses a process, persistence, or export boundary.
 Use opaque IDs and hashes in place of content. Do not rely on downstream trace
 processors to remove prohibited values. Delete or quarantine a record that is
 found to violate this policy and investigate its originating instrumentation.
+
+## Privacy modes
+
+`synthetic_full` exports full synthetic prompts and responses plus sanitized tool
+payloads. `pilot_minimized` exports only redacted summaries and hides prompt,
+message, and tool content. `disabled` disables telemetry export while keeping
+the workflow enabled. These modes are frozen by
+`schemas/agents/telemetry-export.schema.json`.
+
+## Frozen log and metric dimensions
+
+The log-attribute allowlist is: `workflow_id`, `revision_id`, `package_id`,
+`schema_version`, `policy_version`, `capability_profile`, `provider`, `model`,
+`input_tokens`, `output_tokens`, `cost_microusd`, `fallback_category`,
+`approval_state`, `connector_category`, `evaluation_labels`, `trace_id`, and
+bounded durations. No other log attributes may be persisted.
+
+Metric label keys are limited to the bounded categorical dimensions
+`capability_profile`, `provider`, `model`, `fallback_category`, `approval_state`,
+`connector_category`, and `evaluation_labels`; values must be schema-enumerated
+or bounded identifiers. Never use user IDs, event IDs, request IDs, raw URLs, or
+error text as metric labels.
+
+## Evaluation advisory boundary
+
+Evaluation is advisory-only. It cannot authorize, approve, publish, send,
+schedule, price, discount, select audiences, or modify event facts. Only the
+deterministic workflow and its existing human-approval controls may perform
+those state transitions or consequential actions.
