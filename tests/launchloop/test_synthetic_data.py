@@ -160,3 +160,58 @@ def test_nested_credential_fields_are_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Prohibited credential field 'provider_api_key'"):
         validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+def test_duplicate_member_ids_are_rejected(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    members_path = repository_root / "loops" / "launchloop" / "data" / "members.json"
+    members = json.loads(members_path.read_text(encoding="utf-8"))
+    members[1]["member_id"] = members[0]["member_id"]
+    members_path.write_text(json.dumps(members, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Duplicate member_id"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+def test_unknown_member_sponsor_is_rejected(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    members_path = repository_root / "loops" / "launchloop" / "data" / "members.json"
+    members = json.loads(members_path.read_text(encoding="utf-8"))
+    members[0]["sponsor_id"] = "unknown_sponsor"
+    members_path.write_text(json.dumps(members, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Member references unknown sponsor ID"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+def test_invalid_review_decision_is_rejected(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    decisions_path = repository_root / "loops" / "launchloop" / "data" / "review_decisions.json"
+    decisions = json.loads(decisions_path.read_text(encoding="utf-8"))
+    decisions[0]["decision"] = "auto_approved"
+    decisions_path.write_text(json.dumps(decisions, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid review decision: auto_approved"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+def test_invalid_provider_result_is_rejected(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    outcomes_path = repository_root / "loops" / "launchloop" / "data" / "provider_outcomes.json"
+    outcomes = json.loads(outcomes_path.read_text(encoding="utf-8"))
+    outcomes[0]["result"] = "silently_retried"
+    outcomes_path.write_text(json.dumps(outcomes, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid provider outcome result: silently_retried"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+def test_real_member_contact_domain_is_rejected(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    members_path = repository_root / "loops" / "launchloop" / "data" / "members.json"
+    members = json.loads(members_path.read_text(encoding="utf-8"))
+    members[0]["email"] = "person@gmail.com"
+    members_path.write_text(json.dumps(members, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Prohibited non-synthetic email domain"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
