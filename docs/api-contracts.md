@@ -139,6 +139,17 @@ anchored agent run. `run_id`, `privacy_mode`, and fixture-manifest ID, revision,
 and digest must match exactly. Later persistence and export implementations
 must enforce the same invariant when resolving stored records.
 
+## Safe agent read APIs
+
+The durable control plane exposes four GET-only, session-authenticated routes:
+`/api/v1/agent-runs/{runId}`, `/steps`, `/evaluations`, and `/usage`. Access is
+limited to the owner administrator or an authenticated LaunchLoop approver.
+Every response is `Cache-Control: no-store`; denials and missing records use the
+RFC 9457 problem contract. The response schemas allowlist opaque identifiers,
+bounded sanitized summaries, lifecycle state, trace ID, and numeric usage/cost.
+They provide no arbitrary prompt, provider response, raw trace, or Phoenix proxy
+surface.
+
 Duration, token, and cost metric variants identify provider/model configuration
 only through `model_profile_id` plus `model_profile_revision`; crossed or stale
 provider/model label pairs cannot be represented. Evaluation-outcome metrics

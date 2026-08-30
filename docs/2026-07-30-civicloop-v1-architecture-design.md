@@ -46,7 +46,7 @@ Where those differ, the current-state sections are authoritative about the code 
 
 ## 4. Current Implementation Snapshot
 
-As of 2026-08-24, the repository contains a deployed deterministic LaunchLoop
+As of 2026-08-30, the repository contains a deployed deterministic LaunchLoop
 vertical slice, its production runtime, a single-owner administrator security
 surface, and write-only integration administration.
 
@@ -57,8 +57,8 @@ surface, and write-only integration administration.
 | Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
 | Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
 | Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only Eventbrite, Iterable, OpenAI, and Groq connection lifecycle; bounded read-only connection probes; persisted `sandbox_iterable` receipt with zero external actions | Callable draft adapters, webhook/polling refresh, external idempotency and reconciliation, and separately approval-gated publish/send operations |
-| Agents and evaluation | Deterministic Python package engine, 15-event scenario corpus, 16 executable LaunchLoop cases, and 100 versioned labeled examples | Persistent agent/evaluation records, fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, budget ledger, routing profiles, and concurrency semaphore |
-| Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, and audit records; browser-local state for GitHub Pages | Organization, agent run/step, policy, evaluation, outbox, operational metrics, and retention records |
+| Agents and evaluation | Deterministic Python package engine; 15-event scenario corpus; 16 executable cases; 100 labeled examples; immutable model/routing profiles; transactional run/month budgets; durable run, step, and advisory evaluation records; safe owner/reviewer read APIs | Fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, and concurrency semaphore |
+| Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, model/routing policy, budget ledger, agent run/step, evaluation, and audit records; browser-local state for GitHub Pages | Organization, outbox, operational metrics, and retention enforcement |
 | Runtime | Production Vultr deployment with Caddy/TLS, one multi-stage app image, Django/Gunicorn, Celery worker and scheduler, PostgreSQL, Valkey, health/readiness, host-only key rings, backup/restore, status, and rollback automation | Real background workflow tasks, OpenTelemetry/OpenInference, authenticated Phoenix, Hermes/LiteLLM, and retention automation |
 | Delivery | GitHub Actions verification, protected approval-gated GitHub-to-Vultr deployment, dynamic temporary SSH firewall access, GitHub Pages, pinned release state, and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
 
@@ -397,8 +397,9 @@ The repository currently tests:
 - 16 deterministic LaunchLoop evaluation cases covering every approved event
   scenario and failure boundary, plus 100 versioned labeled examples.
 
-The completed synthetic gate contains 15 events, 16 passing executable cases,
-and 100 labeled examples. The next gate adds agent/evaluation persistence,
+The completed synthetic and durable control-plane gates contain 15 events, 16
+passing executable cases, 100 labeled examples, transactional budget controls,
+durable agent/evaluation records, and bounded read APIs. The next gate adds
 OpenTelemetry/OpenInference,
 authenticated Phoenix, a fixed LLM judge, prompt-injection and schema-invalid
 evals, and observability outage tests. Later gates add connector contract,
@@ -421,10 +422,10 @@ Deferred work includes membership lifecycle, sponsor-domain eligibility, Stripe 
    recovery and session controls, encrypted provider credentials, connection
    tests, OpenAPI contracts, audit, production enablement, and protected
    GitHub-to-Vultr delivery.
-4. **Next—observable synthetic agent foundation:** expand fixtures, persist
-   agent/evaluation records, instrument the deterministic path with
-   OpenTelemetry/OpenInference, deploy authenticated Phoenix, and add a fixed,
-   budgeted LLM judge.
+4. **In progress—observable synthetic agent foundation:** fixture expansion and
+   the durable control plane are complete. Next, instrument the deterministic
+   path with OpenTelemetry/OpenInference, deploy authenticated Phoenix, and add
+   a fixed, budgeted LLM judge.
 5. **Hermes synthetic execution:** internal Hermes/LiteLLM service, deterministic
    profiles, capability-scoped tools, structured schemas, policy/prompt
    versioning, cost ledger, fallback rules, and global concurrency control.

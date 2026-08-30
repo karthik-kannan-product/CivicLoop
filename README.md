@@ -179,16 +179,16 @@ See `docs/api-contracts.md` for contributor rules and authentication details.
 
 ## Next PRD Milestone
 
-The synthetic gate of the observable agent foundation is complete: 15 event
-scenarios, 16 deterministic executable cases, and 100 labeled examples are
-versioned and validated. The remaining approved increment is:
+The synthetic gate and durable control-plane gate of the observable agent
+foundation are complete: 15 event scenarios, 16 deterministic executable
+cases, 100 labeled examples, versioned model/routing policy, transactional
+budget records, immutable run/step/evaluation records, and safe owner/reviewer
+read APIs are implemented. The remaining approved increment is:
 
-1. add persistent agent-run, model-profile, routing-policy, budget, and
-   evaluation records;
-2. instrument the deterministic workflow with OpenTelemetry and OpenInference;
-3. deploy administrator-only Phoenix with 14-day retention and safe degradation;
-4. add a fixed, budgeted LLM evaluation judge; and
-5. show trace, evaluation, provider, usage, cost, and fallback status in review.
+1. instrument the deterministic workflow with OpenTelemetry and OpenInference;
+2. deploy administrator-only Phoenix with 14-day retention and safe degradation;
+3. add a fixed, budgeted LLM evaluation judge; and
+4. show trace, evaluation, provider, usage, cost, and fallback status in review.
 
 After the observable deterministic workflow is proven, the approved live-read
 pilot lets an authorized human initiate manually or select safely imported

@@ -18,6 +18,16 @@ closed object shape, and an immutable major.minor `$id`; the payload's
 | Evaluations | `evaluations/example.schema.json` | `urn:civicloop:schema:evaluations:example:v1.0` | A labeled, synthetic evaluation input reference |
 | Evaluations | `evaluations/result.schema.json` | `urn:civicloop:schema:evaluations:result:v1.0` | A bounded, advisory evaluation outcome |
 
+The following closed response schemas are the OpenAPI-indexed safe-read layer;
+they do not change the nine frozen persistence/interchange contracts above:
+
+| Area | Schema | Immutable `$id` | Purpose |
+| --- | --- | --- | --- |
+| Agents | `agents/run-read.schema.json` | `urn:civicloop:schema:agents:run-read:v1.0` | Owner/reviewer run, trace, and aggregate usage status |
+| Agents | `agents/step-page.schema.json` | `urn:civicloop:schema:agents:step-page:v1.0` | Bounded sanitized step summaries |
+| Agents | `agents/usage-read.schema.json` | `urn:civicloop:schema:agents:usage-read:v1.0` | Reservation and append-only ledger status |
+| Evaluations | `evaluations/result-page.schema.json` | `urn:civicloop:schema:evaluations:result-page:v1.0` | Bounded advisory evaluation summaries |
+
 ## Compatibility
 
 A published `$id` is immutable. Any compatible minor revision is published as a
