@@ -133,7 +133,8 @@ def test_tampering_and_unknown_key_fail_without_sensitive_error_details(tmp_path
         envelope = encrypt_secret(
             PLAINTEXT, secret_id=SECRET_ID, provider="iterable", scope="api_key"
         )
-        tampered = replace(envelope, ciphertext=envelope.ciphertext[:-1] + b"x")
+        changed_byte = bytes([envelope.ciphertext[-1] ^ 1])
+        tampered = replace(envelope, ciphertext=envelope.ciphertext[:-1] + changed_byte)
         with pytest.raises(IntegrationCryptoError) as raised:
             decrypt_secret(tampered, secret_id=SECRET_ID, provider="iterable", scope="api_key")
 
