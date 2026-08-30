@@ -7,10 +7,22 @@ import pytest
 from loops.launchloop.launchloop import run_evals
 from scripts.validate_synthetic_data import (
     MANIFEST_PATH,
+    REQUIRED_SCENARIO_TAGS,
     REPOSITORY_ROOT,
     SCHEMA_PATH,
     validate_synthetic_data,
 )
+
+EVAL_CASES_PATH = REPOSITORY_ROOT / "loops" / "launchloop" / "eval_cases.json"
+EVENTS_PATH = REPOSITORY_ROOT / "loops" / "launchloop" / "data" / "events.json"
+ORIGINAL_CASE_STATUSES = {
+    "case_1_happy_path": "Ready for approval",
+    "case_2_missing_venue_then_refresh_before": "Blocked",
+    "case_3_missing_venue_then_refresh_after": "Ready for approval",
+    "case_4_sponsor_discount_mismatch": "Blocked",
+    "case_5_boundary_refusal": "Escalated",
+    "case_6_no_approved_segment_clarification": "Escalated",
+}
 
 
 def _copy_fixture_repository(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -35,8 +47,31 @@ def test_checked_in_synthetic_manifest_validates() -> None:
     assert summary.scenario_count == 15
     assert summary.member_count == 30
     assert summary.sponsor_count == 5
-    assert summary.case_count == 6
-    assert run_evals()["summary"] == {"passed": 6, "total": 6}
+    assert summary.case_count == 16
+
+
+def test_executable_corpus_covers_every_scenario_and_preserves_original_cases() -> None:
+    cases = json.loads(EVAL_CASES_PATH.read_text(encoding="utf-8"))
+    events = json.loads(EVENTS_PATH.read_text(encoding="utf-8"))
+    event_tags = {event["event_id"]: set(event["scenario_tags"]) for event in events}
+
+    assert len(cases) == 16
+    assert len({case["case_id"] for case in cases}) == 16
+    covered_tags = set().union(*(event_tags[case["event_id"]] for case in cases))
+    assert covered_tags == REQUIRED_SCENARIO_TAGS
+
+    output = run_evals()
+    assert output["summary"] == {
+        "schema_version": "1.0",
+        "passed": 16,
+        "total": 16,
+        "case_ids": [case["case_id"] for case in cases],
+    }
+    result_by_id = {result["case_id"]: result for result in output["results"]}
+    assert {
+        case_id: result_by_id[case_id]["actual_status"]
+        for case_id in ORIGINAL_CASE_STATUSES
+    } == ORIGINAL_CASE_STATUSES
 
 
 def test_all_required_event_scenarios_are_present(tmp_path: Path) -> None:

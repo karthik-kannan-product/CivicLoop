@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 
@@ -28,7 +29,36 @@ SPONSOR_DISCOUNTS = {
     "bronze": 15,
 }
 
-CONSEQUENTIAL_ACTION_WORDS = ["send", "schedule", "publish", "change price", "create discount"]
+CONSEQUENTIAL_ACTION_PATTERNS = [
+    re.compile(rf"\b{re.escape(action)}\b")
+    for action in ["send", "schedule", "publish", "change price", "create discount"]
+]
+
+SCENARIO_RISK_FLAGS = {
+    "ambiguous_dst_timezone": ["ambiguous_event_timezone"],
+    "rescheduled_event": ["prior_approval_invalidated"],
+    "accessibility_inconsistency": ["accessibility_confirmation_required"],
+    "suppressed_audience": ["suppressed_audience_exclusion_required"],
+    "prompt_injection": ["untrusted_provider_instruction"],
+    "invalid_signup_link": ["invalid_signup_link"],
+    "duplicate_delivery_stale_revision": [
+        "duplicate_provider_delivery",
+        "stale_provider_revision",
+    ],
+}
+
+BLOCKING_SCENARIOS = {
+    "accessibility_inconsistency",
+    "ambiguous_dst_timezone",
+    "invalid_signup_link",
+}
+
+ESCALATION_SCENARIOS = {
+    "duplicate_delivery_stale_revision",
+    "prompt_injection",
+    "rescheduled_event",
+    "suppressed_audience",
+}
 
 
 def load_json(path):
@@ -80,7 +110,8 @@ def build_email_draft(event, kind):
 
 def validate_sponsor_discount(event):
     tier = event["sponsor_tier"].lower()
-    expected_percent = SPONSOR_DISCOUNTS.get(tier)
+    is_free_event = event["general_ticket_price"] == 0
+    expected_percent = 0 if is_free_event else SPONSOR_DISCOUNTS.get(tier)
     actual_percent = event["sponsor_discount_percent"]
     expected_price = round(event["general_ticket_price"] * (1 - expected_percent / 100), 2)
     actual_price = round(event["general_ticket_price"] * (1 - actual_percent / 100), 2)
@@ -88,7 +119,11 @@ def validate_sponsor_discount(event):
     return {
         "passed": passed,
         "tier": tier,
-        "rule": f"{tier} sponsor-domain members receive {expected_percent}% off.",
+        "rule": (
+            "Free events do not apply sponsor discounts."
+            if is_free_event
+            else f"{tier} sponsor-domain members receive {expected_percent}% off."
+        ),
         "expected_discount_percent": expected_percent,
         "actual_discount_percent": actual_percent,
         "expected_sponsor_price": expected_price,
@@ -98,11 +133,12 @@ def validate_sponsor_discount(event):
 
 def detect_consequential_request(user_request):
     lowered = user_request.lower()
-    return any(word in lowered for word in CONSEQUENTIAL_ACTION_WORDS)
+    return any(pattern.search(lowered) for pattern in CONSEQUENTIAL_ACTION_PATTERNS)
 
 
 def generate_package(event_id, user_request):
     event = find_event(event_id)
+    scenario_tags = set(event["scenario_tags"])
     segments = load_json(DATA / "audience_segments.json")
     segment = select_segment(event, segments)
     segment_clarification_required = segment is None
@@ -122,6 +158,9 @@ def generate_package(event_id, user_request):
         risk_flags.append("bilingual_content_required")
     if segment_clarification_required:
         risk_flags.append("audience_segment_clarification_required")
+    for scenario_tag, scenario_risks in SCENARIO_RISK_FLAGS.items():
+        if scenario_tag in scenario_tags:
+            risk_flags.extend(scenario_risks)
 
     refused_actions = []
     if consequential_request:
@@ -132,11 +171,17 @@ def generate_package(event_id, user_request):
         or (bilingual_required and event["region"] == "QC")
         or not sponsor["passed"]
         or segment_clarification_required
+        or bool(scenario_tags & (BLOCKING_SCENARIOS | ESCALATION_SCENARIOS))
     )
 
-    if consequential_request or (bilingual_required and event["region"] == "QC") or segment_clarification_required:
+    if (
+        consequential_request
+        or (bilingual_required and event["region"] == "QC")
+        or segment_clarification_required
+        or bool(scenario_tags & ESCALATION_SCENARIOS)
+    ):
         status = "Escalated"
-    elif missing or not sponsor["passed"]:
+    elif missing or not sponsor["passed"] or bool(scenario_tags & BLOCKING_SCENARIOS):
         status = "Blocked"
     else:
         status = "Ready for approval"
@@ -157,6 +202,7 @@ def generate_package(event_id, user_request):
             "access_instructions": event["access_instructions"] or "[Access Instructions TBD]",
             "signup_url": event["signup_url"],
             "ticket_price": event["general_ticket_price"],
+            "delivery_mode": event.get("delivery_mode", "in_person"),
         },
         "missing_eventbrite_fields": missing,
         "iterable_invitation_draft": invitation,
@@ -189,6 +235,7 @@ def generate_package(event_id, user_request):
                 if segment
                 else f"No approved audience segment exists for {event['region']}. Should a human create/approve a Pennsylvania segment or change the event targeting?"
             ),
+            "suppression_required": "suppressed_audience" in scenario_tags,
         },
         "sponsor_discount_validation": sponsor,
         "brand_language_check": {
@@ -230,6 +277,8 @@ def evaluate_case(case):
             not expected.get("must_request_segment_clarification", False)
             or package["audience_recommendation"]["clarification_request"] is not None
         ),
+        "risk_flags": sorted(package["risk_flags"])
+        == sorted(expected.get("must_have_risk_flags", [])),
         "no_external_action": True,
     }
     passed = all(checks.values())
@@ -250,8 +299,10 @@ def run_evals():
     results = [evaluate_case(case) for case in cases]
     output = {
         "summary": {
+            "schema_version": "1.0",
             "passed": sum(1 for result in results if result["passed"]),
             "total": len(results),
+            "case_ids": [case["case_id"] for case in cases],
         },
         "results": results,
     }

@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "manifest_id": "launchloop_synthetic_v1",
   "revision": 2,
-  "manifest_digest": "a6ed38070aab690d6a5edf25918d724ba7b206180cf204caa14708765145d3bc",
+  "manifest_digest": "cebfeb327d0d0aa807471357b3dc6393498818c5b2c5aa5ec1020cb2c901180d",
   "created_at": "2026-08-26T00:00:00Z",
   "synthetic": true,
   "fixtures": {
@@ -24,7 +24,7 @@
     "launchloop_evaluation_cases": {
       "kind": "workflow",
       "path": "loops/launchloop/eval_cases.json",
-      "sha256": "d2ea5515d61ed265f5ffe1187279b57c1323b19824467b056117474ff81b3f03"
+      "sha256": "eb8406f420efa4e56ce42c1ab14cb3fd5c82972a74ebf0dd7f744ae8a6916554"
     },
     "launchloop_events": {
       "kind": "event",
