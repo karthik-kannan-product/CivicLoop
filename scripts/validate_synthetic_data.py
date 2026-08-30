@@ -67,6 +67,17 @@ PROVIDER_RESULTS = {
     "timeout",
     "transient_failure",
 }
+LABELED_EXAMPLE_FIELDS = {
+    "case_id",
+    "case_type",
+    "event_id",
+    "example_id",
+    "expected_human_handoff",
+    "expected_risk_flags",
+    "expected_status",
+    "input_variant",
+    "synthetic",
+}
 
 
 @dataclass(frozen=True)
@@ -347,10 +358,22 @@ def validate_synthetic_data(
     )
     represented_case_ids: set[str] = set()
     for example in labeled_examples:
+        if not isinstance(example, dict) or set(example) != LABELED_EXAMPLE_FIELDS:
+            raise ValueError("Labeled example has unexpected or missing fields")
         case_id = example.get("case_id")
         if case_id not in case_ids:
             raise ValueError(f"Labeled example references unknown case ID: {case_id}")
         case = case_by_id[case_id]
+        if example.get("case_type") != case["type"]:
+            raise ValueError(
+                f"Labeled example type does not match case: {example['example_id']}"
+            )
+        if not isinstance(example.get("input_variant"), str) or not re.fullmatch(
+            r"synthetic_variant_\d{2}", example["input_variant"]
+        ):
+            raise ValueError(
+                f"Invalid labeled example input variant: {example['example_id']}"
+            )
         if example.get("event_id") != case["event_id"]:
             raise ValueError(f"Labeled example event does not match case: {example['example_id']}")
         expected = case["expected"]

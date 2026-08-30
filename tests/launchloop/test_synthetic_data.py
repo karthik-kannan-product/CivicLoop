@@ -121,6 +121,23 @@ def test_labeled_examples_must_reference_their_case_event(tmp_path: Path) -> Non
         validate_synthetic_data(repository_root, manifest_path, schema_path)
 
 
+def test_labeled_examples_must_match_their_case_type(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    examples_path = (
+        repository_root
+        / "loops"
+        / "launchloop"
+        / "evaluations"
+        / "labeled_examples.json"
+    )
+    document = json.loads(examples_path.read_text(encoding="utf-8"))
+    document["examples"][0]["case_type"] = "invented type"
+    examples_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Labeled example type does not match case"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
 def test_all_required_event_scenarios_are_present(tmp_path: Path) -> None:
     repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
     events_path = repository_root / "loops" / "launchloop" / "data" / "events.json"
