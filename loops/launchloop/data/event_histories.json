@@ -1,0 +1,8 @@
+[
+  {"history_id":"history_ny_import","event_id":"evt_ny_youth_day_v1","revision":1,"transition":"initial_import","occurred_at":"2026-07-01T14:00:00Z"},
+  {"history_id":"history_ny_confirmation","event_id":"evt_ny_youth_day_v2","revision":2,"transition":"details_confirmed","occurred_at":"2026-07-03T16:30:00Z"},
+  {"history_id":"history_atlanta_reschedule","event_id":"evt_atlanta_rescheduled","revision":2,"transition":"rescheduled","occurred_at":"2026-09-10T15:00:00Z"},
+  {"history_id":"history_atlanta_invalidation","event_id":"evt_atlanta_rescheduled","revision":2,"transition":"approval_invalidated","occurred_at":"2026-09-10T15:01:00Z"},
+  {"history_id":"history_portland_duplicate","event_id":"evt_portland_duplicate_stale","revision":3,"transition":"duplicate_ignored","occurred_at":"2026-09-15T18:00:00Z"},
+  {"history_id":"history_portland_stale","event_id":"evt_portland_duplicate_stale","revision":2,"transition":"stale_rejected","occurred_at":"2026-09-15T18:01:00Z"}
+]

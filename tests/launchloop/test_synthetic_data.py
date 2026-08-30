@@ -30,9 +30,11 @@ def test_checked_in_synthetic_manifest_validates() -> None:
 
     assert summary.manifest_id == "launchloop_synthetic_v1"
     assert summary.revision == 2
-    assert summary.fixture_count == 7
+    assert summary.fixture_count == 13
     assert summary.event_count == 15
     assert summary.scenario_count == 15
+    assert summary.member_count == 30
+    assert summary.sponsor_count == 5
     assert summary.case_count == 6
     assert run_evals()["summary"] == {"passed": 6, "total": 6}
 
@@ -45,6 +47,30 @@ def test_all_required_event_scenarios_are_present(tmp_path: Path) -> None:
     events_path.write_text(json.dumps(events, indent=2) + "\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Missing required event scenario: missing_venue"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "reference_field", "expected_error"),
+    [
+        ("members.json", "segment_id", "Member references unknown segment ID"),
+        ("event_histories.json", "event_id", "History references unknown event ID"),
+        ("provider_outcomes.json", "event_id", "Provider outcome references unknown event ID"),
+    ],
+)
+def test_associated_fixture_references_must_resolve(
+    tmp_path: Path,
+    fixture_name: str,
+    reference_field: str,
+    expected_error: str,
+) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    fixture_path = repository_root / "loops" / "launchloop" / "data" / fixture_name
+    records = json.loads(fixture_path.read_text(encoding="utf-8"))
+    records[0][reference_field] = "unknown_reference"
+    fixture_path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_error):
         validate_synthetic_data(repository_root, manifest_path, schema_path)
 
 

@@ -1,0 +1,8 @@
+[
+  {"template_id":"template_invitation_en","channel":"invitation","locale":"en","version":1,"required_placeholders":["title","date","signup_url"],"body":"Join us for {{title}} on {{date}}. Register at {{signup_url}}."},
+  {"template_id":"template_reminder_en","channel":"reminder","locale":"en","version":1,"required_placeholders":["title","date","signup_url"],"body":"Reminder: {{title}} is on {{date}}. Details: {{signup_url}}."},
+  {"template_id":"template_social_en","channel":"social","locale":"en","version":1,"required_placeholders":["title","date","signup_url"],"body":"{{title}} | {{date}} | {{signup_url}}"},
+  {"template_id":"template_invitation_fr","channel":"invitation","locale":"fr","version":1,"required_placeholders":["title","date","signup_url"],"body":"Joignez-vous à nous pour {{title}} le {{date}}. Inscription : {{signup_url}}."},
+  {"template_id":"template_reminder_fr","channel":"reminder","locale":"fr","version":1,"required_placeholders":["title","date","signup_url"],"body":"Rappel : {{title}} aura lieu le {{date}}. Détails : {{signup_url}}."},
+  {"template_id":"template_social_fr","channel":"social","locale":"fr","version":1,"required_placeholders":["title","date","signup_url"],"body":"{{title}} | {{date}} | {{signup_url}}"}
+]

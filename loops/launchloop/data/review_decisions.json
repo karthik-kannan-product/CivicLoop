@@ -1,0 +1,6 @@
+[
+  {"decision_id":"decision_toronto_approved","event_id":"evt_toronto_complete","decision":"approved","revision":1,"template_id":"template_invitation_en","decided_at":"2026-08-20T14:00:00Z","reason":"Synthetic complete-event package approved for evaluation."},
+  {"decision_id":"decision_ny_edited","event_id":"evt_ny_youth_day_v2","decision":"edited","revision":2,"template_id":"template_reminder_en","decided_at":"2026-07-03T17:00:00Z","reason":"Synthetic venue confirmation incorporated into the draft."},
+  {"decision_id":"decision_seattle_rejected","event_id":"evt_seattle_accessibility_conflict","decision":"rejected","revision":1,"template_id":"template_invitation_en","decided_at":"2026-09-01T18:00:00Z","reason":"Accessibility details conflict and require human resolution."},
+  {"decision_id":"decision_atlanta_invalidated","event_id":"evt_atlanta_rescheduled","decision":"invalidated","revision":1,"template_id":"template_social_en","decided_at":"2026-09-10T15:01:00Z","reason":"The prior approval was invalidated by the synthetic reschedule."}
+]

@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPOSITORY_ROOT / "loops" / "launchloop" / "data" / "manifest.json"
 SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "agents" / "fixture-manifest.schema.json"
 METADATA_FIXTURE_ID = "launchloop_fixture_metadata"
+MEMBERS_FIXTURE_ID = "launchloop_members"
+SPONSORS_FIXTURE_ID = "launchloop_sponsors"
+HISTORIES_FIXTURE_ID = "launchloop_event_histories"
+TEMPLATES_FIXTURE_ID = "launchloop_content_templates"
+DECISIONS_FIXTURE_ID = "launchloop_review_decisions"
+OUTCOMES_FIXTURE_ID = "launchloop_provider_outcomes"
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
 TOKEN_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}"),
@@ -48,6 +55,17 @@ REQUIRED_SCENARIO_TAGS = frozenset(
         "suppressed_audience",
     }
 )
+MEMBER_STATUSES = {"active", "suppressed", "unsubscribed"}
+SPONSOR_RULES = {"platinum": 25, "gold": 25, "silver": 15, "bronze": 15}
+REVIEW_DECISIONS = {"approved", "edited", "rejected", "invalidated"}
+PROVIDER_RESULTS = {
+    "duplicate",
+    "permanent_failure",
+    "stale_revision",
+    "success",
+    "timeout",
+    "transient_failure",
+}
 
 
 @dataclass(frozen=True)
@@ -57,6 +75,8 @@ class SyntheticDataSummary:
     fixture_count: int
     event_count: int
     scenario_count: int
+    member_count: int
+    sponsor_count: int
     case_count: int
 
 
@@ -159,6 +179,24 @@ def _require_unique_ids(records: list[Any], field: str, source: Path) -> set[str
     return identifiers
 
 
+def _require_fixture_list(loaded_json: dict[str, Any], fixture_id: str) -> list[Any]:
+    fixture = loaded_json.get(fixture_id)
+    if not isinstance(fixture, list):
+        raise ValueError(f"Fixture {fixture_id} must be a JSON array")
+    return fixture
+
+
+def _require_rfc3339(value: Any, field: str) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be an RFC 3339 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{field} must be an RFC 3339 timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field} must be an RFC 3339 timestamp")
+
+
 def _validate_metadata(metadata: Any, manifest_ids: set[str], source: Path) -> None:
     if not isinstance(metadata, dict):
         raise ValueError(f"{source}: metadata must be an object")
@@ -246,6 +284,12 @@ def validate_synthetic_data(
     if not isinstance(events, list) or not isinstance(cases, list):
         raise ValueError("Event and evaluation fixtures must be JSON arrays")
     event_ids = _require_unique_ids(events, "event_id", resolved_paths["launchloop_events"])
+    segments = _require_fixture_list(loaded_json, "launchloop_audience_segments")
+    segment_ids = _require_unique_ids(
+        segments,
+        "segment_id",
+        resolved_paths["launchloop_audience_segments"],
+    )
     represented_scenarios: set[str] = set()
     empty_scenario_event: str | None = None
     for event in events:
@@ -272,6 +316,102 @@ def validate_synthetic_data(
         if case["event_id"] not in event_ids:
             raise ValueError(f"Evaluation case references unknown event ID: {case['event_id']}")
 
+    members = _require_fixture_list(loaded_json, MEMBERS_FIXTURE_ID)
+    sponsors = _require_fixture_list(loaded_json, SPONSORS_FIXTURE_ID)
+    histories = _require_fixture_list(loaded_json, HISTORIES_FIXTURE_ID)
+    templates = _require_fixture_list(loaded_json, TEMPLATES_FIXTURE_ID)
+    decisions = _require_fixture_list(loaded_json, DECISIONS_FIXTURE_ID)
+    outcomes = _require_fixture_list(loaded_json, OUTCOMES_FIXTURE_ID)
+    _require_unique_ids(members, "member_id", resolved_paths[MEMBERS_FIXTURE_ID])
+    sponsor_ids = _require_unique_ids(sponsors, "sponsor_id", resolved_paths[SPONSORS_FIXTURE_ID])
+    _require_unique_ids(histories, "history_id", resolved_paths[HISTORIES_FIXTURE_ID])
+    template_ids = _require_unique_ids(
+        templates,
+        "template_id",
+        resolved_paths[TEMPLATES_FIXTURE_ID],
+    )
+    _require_unique_ids(decisions, "decision_id", resolved_paths[DECISIONS_FIXTURE_ID])
+    _require_unique_ids(outcomes, "outcome_id", resolved_paths[OUTCOMES_FIXTURE_ID])
+
+    if len(members) < 30:
+        raise ValueError("Synthetic member fixture must contain at least 30 records")
+    if len(sponsors) < 5:
+        raise ValueError("Synthetic sponsor fixture must contain at least 5 records")
+    member_statuses: set[str] = set()
+    for member in members:
+        status = member.get("status")
+        if status not in MEMBER_STATUSES:
+            raise ValueError(f"Invalid member status for {member['member_id']}")
+        member_statuses.add(status)
+        segment_id = member.get("segment_id")
+        if segment_id is None:
+            if member.get("clarification_required") is not True:
+                raise ValueError(
+                    f"Member without segment requires clarification: {member['member_id']}"
+                )
+        elif segment_id not in segment_ids:
+            raise ValueError(f"Member references unknown segment ID: {segment_id}")
+        sponsor_id = member.get("sponsor_id")
+        if sponsor_id is not None and sponsor_id not in sponsor_ids:
+            raise ValueError(f"Member references unknown sponsor ID: {sponsor_id}")
+    if not {"suppressed", "unsubscribed"}.issubset(member_statuses):
+        raise ValueError("Member fixture must cover suppressed and unsubscribed states")
+
+    for sponsor in sponsors:
+        tier = sponsor.get("tier")
+        if tier not in SPONSOR_RULES or sponsor.get("discount_percent") != SPONSOR_RULES[tier]:
+            raise ValueError(f"Invalid sponsor rule for {sponsor['sponsor_id']}")
+
+    for history in histories:
+        if history.get("event_id") not in event_ids:
+            raise ValueError(f"History references unknown event ID: {history.get('event_id')}")
+        if not isinstance(history.get("revision"), int) or history["revision"] < 1:
+            raise ValueError(f"Invalid history revision for {history['history_id']}")
+        _require_rfc3339(history.get("occurred_at"), "occurred_at")
+
+    for template in templates:
+        if template.get("channel") not in {"invitation", "reminder", "social"}:
+            raise ValueError(f"Invalid template channel for {template['template_id']}")
+        if template.get("locale") not in {"en", "fr"}:
+            raise ValueError(f"Invalid template locale for {template['template_id']}")
+        if not isinstance(template.get("version"), int) or template["version"] < 1:
+            raise ValueError(f"Invalid template version for {template['template_id']}")
+
+    represented_decisions: set[str] = set()
+    for decision in decisions:
+        if decision.get("event_id") not in event_ids:
+            raise ValueError(
+                f"Review decision references unknown event ID: {decision.get('event_id')}"
+            )
+        if decision.get("template_id") not in template_ids:
+            raise ValueError(
+                "Review decision references unknown template ID: "
+                f"{decision.get('template_id')}"
+            )
+        decision_value = decision.get("decision")
+        if decision_value not in REVIEW_DECISIONS:
+            raise ValueError(f"Invalid review decision: {decision_value}")
+        represented_decisions.add(decision_value)
+        _require_rfc3339(decision.get("decided_at"), "decided_at")
+    if represented_decisions != REVIEW_DECISIONS:
+        raise ValueError("Review fixture must cover all required decision states")
+
+    represented_results: set[str] = set()
+    for outcome in outcomes:
+        if outcome.get("event_id") not in event_ids:
+            raise ValueError(
+                f"Provider outcome references unknown event ID: {outcome.get('event_id')}"
+            )
+        result = outcome.get("result")
+        if result not in PROVIDER_RESULTS:
+            raise ValueError(f"Invalid provider outcome result: {result}")
+        represented_results.add(result)
+        if not isinstance(outcome.get("attempt"), int) or outcome["attempt"] < 1:
+            raise ValueError(f"Invalid provider attempt for {outcome['outcome_id']}")
+        _require_rfc3339(outcome.get("occurred_at"), "occurred_at")
+    if represented_results != PROVIDER_RESULTS:
+        raise ValueError("Provider fixture must cover all required outcome states")
+
     for fixture_id, entry in fixtures.items():
         actual_hash = _fixture_digest(resolved_paths[fixture_id])
         if actual_hash != entry["sha256"]:
@@ -283,6 +423,8 @@ def validate_synthetic_data(
         fixture_count=len(fixtures),
         event_count=len(events),
         scenario_count=len(represented_scenarios),
+        member_count=len(members),
+        sponsor_count=len(sponsors),
         case_count=len(cases),
     )
 
@@ -291,7 +433,8 @@ def main() -> int:
     summary = validate_synthetic_data()
     print(
         f"Validated {summary.fixture_count} synthetic fixtures, "
-        f"{summary.event_count} events, and {summary.case_count} evaluation cases "
+        f"{summary.event_count} events, {summary.member_count} members, "
+        f"{summary.sponsor_count} sponsors, and {summary.case_count} evaluation cases "
         f"for {summary.manifest_id} revision {summary.revision}."
     )
     return 0

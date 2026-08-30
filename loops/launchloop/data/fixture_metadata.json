@@ -15,6 +15,10 @@
       "scenario_tags": ["approved_audience", "missing_geography", "suppressed_audience"],
       "prd_risks": ["wrong_audience", "privacy_exposure"]
     },
+    "launchloop_content_templates": {
+      "scenario_tags": ["invitation_template", "reminder_template", "social_template", "bilingual_content"],
+      "prd_risks": ["missing_fact", "language_policy_failure"]
+    },
     "launchloop_evaluation_cases": {
       "scenario_tags": ["deterministic_regression", "human_handoff"],
       "prd_risks": ["approval_bypass", "incorrect_workflow_outcome"]
@@ -23,9 +27,29 @@
       "scenario_tags": ["eventbrite_draft", "immutable_refresh", "missing_event_data", "dst_boundary", "bilingual_content", "reschedule", "accessibility", "prompt_injection", "invalid_link", "duplicate_delivery"],
       "prd_risks": ["invented_event_fact", "stale_revision", "pricing_mismatch", "unsafe_provider_data", "outdated_approval"]
     },
+    "launchloop_event_histories": {
+      "scenario_tags": ["immutable_refresh", "reschedule", "stale_revision", "duplicate_delivery"],
+      "prd_risks": ["stale_revision", "outdated_approval"]
+    },
     "launchloop_fixture_metadata": {
       "scenario_tags": ["fixture_governance", "synthetic_provenance"],
       "prd_risks": ["untracked_fixture", "production_data_leak"]
+    },
+    "launchloop_members": {
+      "scenario_tags": ["approved_audience", "suppressed_audience", "missing_geography"],
+      "prd_risks": ["wrong_audience", "privacy_exposure"]
+    },
+    "launchloop_provider_outcomes": {
+      "scenario_tags": ["provider_success", "provider_failure", "timeout", "duplicate_delivery", "stale_revision"],
+      "prd_risks": ["unsafe_retry", "duplicate_delivery", "stale_revision"]
+    },
+    "launchloop_review_decisions": {
+      "scenario_tags": ["approval", "edit", "rejection", "approval_invalidation"],
+      "prd_risks": ["approval_bypass", "outdated_approval"]
+    },
+    "launchloop_sponsors": {
+      "scenario_tags": ["sponsor_domain", "discount_tier"],
+      "prd_risks": ["sponsor_entitlement_error", "pricing_mismatch"]
     },
     "sponsor_discount_policy": {
       "scenario_tags": ["sponsor_discount", "deterministic_math"],

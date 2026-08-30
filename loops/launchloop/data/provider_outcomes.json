@@ -1,0 +1,8 @@
+[
+  {"outcome_id":"outcome_eventbrite_success","event_id":"evt_toronto_complete","provider":"eventbrite","operation":"read_event","result":"success","attempt":1,"occurred_at":"2026-08-20T13:00:00Z"},
+  {"outcome_id":"outcome_eventbrite_transient","event_id":"evt_denver_dst_ambiguous","provider":"eventbrite","operation":"read_event","result":"transient_failure","attempt":1,"occurred_at":"2026-08-21T13:00:00Z"},
+  {"outcome_id":"outcome_iterable_permanent","event_id":"evt_miami_invalid_link","provider":"iterable","operation":"validate_link","result":"permanent_failure","attempt":1,"occurred_at":"2026-08-22T13:00:00Z"},
+  {"outcome_id":"outcome_iterable_timeout","event_id":"evt_vancouver_hybrid","provider":"iterable","operation":"preview_template","result":"timeout","attempt":2,"occurred_at":"2026-08-23T13:00:00Z"},
+  {"outcome_id":"outcome_eventbrite_duplicate","event_id":"evt_portland_duplicate_stale","provider":"eventbrite","operation":"receive_webhook","result":"duplicate","attempt":2,"occurred_at":"2026-09-15T18:00:00Z"},
+  {"outcome_id":"outcome_eventbrite_stale","event_id":"evt_portland_duplicate_stale","provider":"eventbrite","operation":"receive_webhook","result":"stale_revision","attempt":3,"occurred_at":"2026-09-15T18:01:00Z"}
+]

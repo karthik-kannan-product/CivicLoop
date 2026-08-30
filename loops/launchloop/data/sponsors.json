@@ -1,0 +1,7 @@
+[
+  {"sponsor_id":"sponsor_northstar","domain":"northstar.example.test","tier":"platinum","discount_percent":25,"active":true},
+  {"sponsor_id":"sponsor_civicbridge","domain":"civicbridge.example.test","tier":"gold","discount_percent":25,"active":true},
+  {"sponsor_id":"sponsor_harborlight","domain":"harborlight.example.test","tier":"silver","discount_percent":15,"active":true},
+  {"sponsor_id":"sponsor_lakeside","domain":"lakeside.example.test","tier":"bronze","discount_percent":15,"active":true},
+  {"sponsor_id":"sponsor_mapleleaf","domain":"mapleleaf.example.test","tier":"gold","discount_percent":25,"active":true}
+]
