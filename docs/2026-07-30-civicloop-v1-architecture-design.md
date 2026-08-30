@@ -57,7 +57,7 @@ surface, and write-only integration administration.
 | Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
 | Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
 | Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only Eventbrite, Iterable, OpenAI, and Groq connection lifecycle; bounded read-only connection probes; persisted `sandbox_iterable` receipt with zero external actions | Callable draft adapters, webhook/polling refresh, external idempotency and reconciliation, and separately approval-gated publish/send operations |
-| Agents and evaluation | Deterministic Python package engine and six standalone LaunchLoop evaluation cases | Minimum 15-event synthetic corpus, 100 labeled examples, persistent agent/evaluation records, fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, budget ledger, routing profiles, and concurrency semaphore |
+| Agents and evaluation | Deterministic Python package engine, 15-event scenario corpus, 16 executable LaunchLoop cases, and 100 versioned labeled examples | Persistent agent/evaluation records, fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, budget ledger, routing profiles, and concurrency semaphore |
 | Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, and audit records; browser-local state for GitHub Pages | Organization, agent run/step, policy, evaluation, outbox, operational metrics, and retention records |
 | Runtime | Production Vultr deployment with Caddy/TLS, one multi-stage app image, Django/Gunicorn, Celery worker and scheduler, PostgreSQL, Valkey, health/readiness, host-only key rings, backup/restore, status, and rollback automation | Real background workflow tasks, OpenTelemetry/OpenInference, authenticated Phoenix, Hermes/LiteLLM, and retention automation |
 | Delivery | GitHub Actions verification, protected approval-gated GitHub-to-Vultr deployment, dynamic temporary SSH firewall access, GitHub Pages, pinned release state, and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
@@ -394,12 +394,12 @@ The repository currently tests:
 - owner password/TOTP/recovery/session/security-event controls;
 - encrypted integration storage, lifecycle, authorization, harmless provider
   probes, readiness, and API contracts; and
-- six deterministic LaunchLoop evaluation cases covering a happy path, missing
-  venue, remediation, sponsor mismatch, refusal of unapproved action, and
-  unsupported audience judgment.
+- 16 deterministic LaunchLoop evaluation cases covering every approved event
+  scenario and failure boundary, plus 100 versioned labeled examples.
 
-The next gate expands the synthetic corpus to at least 15 events and 100 labeled
-examples, then adds agent/evaluation persistence, OpenTelemetry/OpenInference,
+The completed synthetic gate contains 15 events, 16 passing executable cases,
+and 100 labeled examples. The next gate adds agent/evaluation persistence,
+OpenTelemetry/OpenInference,
 authenticated Phoenix, a fixed LLM judge, prompt-injection and schema-invalid
 evals, and observability outage tests. Later gates add connector contract,
 property/concurrency, full browser accessibility, `kind`, image scanning, SBOM,

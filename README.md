@@ -43,7 +43,8 @@ The loop is intentionally scoped to event campaign launch. It is not a full nonp
 │   └── launchloop/
 │       ├── index.html          # Standalone browser demo
 │       ├── launchloop.py       # Deterministic evaluator
-│       ├── eval_cases.json     # Six synthetic eval cases
+│       ├── eval_cases.json     # 16 deterministic executable cases
+│       ├── evaluations/        # 100 versioned labeled examples
 │       ├── data/               # Synthetic event and audience data
 │       └── policies/           # Synthetic approval, language, and discount rules
 └── docs/
@@ -146,7 +147,8 @@ docker run --rm `
 python .\loops\launchloop\launchloop.py
 ```
 
-Expected LaunchLoop result: `6 / 6` eval cases pass.
+Expected LaunchLoop result: `16 / 16` eval cases pass, with 100 labeled
+examples validated by the synthetic fixture manifest.
 
 ### Stop
 
@@ -177,20 +179,22 @@ See `docs/api-contracts.md` for contributor rules and authentication details.
 
 ## Next PRD Milestone
 
-The next approved increment is the observable synthetic agent foundation:
+The synthetic gate of the observable agent foundation is complete: 15 event
+scenarios, 16 deterministic executable cases, and 100 labeled examples are
+versioned and validated. The remaining approved increment is:
 
-1. expand the current six synthetic events and evaluations to at least 15
-   events and 100 labeled examples;
-2. add persistent agent-run, model-profile, routing-policy, budget, and
+1. add persistent agent-run, model-profile, routing-policy, budget, and
    evaluation records;
-3. instrument the deterministic workflow with OpenTelemetry and OpenInference;
-4. deploy administrator-only Phoenix with 14-day retention and safe degradation;
-5. add a fixed, budgeted LLM evaluation judge; and
-6. show trace, evaluation, provider, usage, cost, and fallback status in review.
+2. instrument the deterministic workflow with OpenTelemetry and OpenInference;
+3. deploy administrator-only Phoenix with 14-day retention and safe degradation;
+4. add a fixed, budgeted LLM evaluation judge; and
+5. show trace, evaluation, provider, usage, cost, and fallback status in review.
 
-Hermes remains synthetic and internal-only in the following increment. Live
-Eventbrite and Iterable draft operations remain disabled until the synthetic
-and observability gates pass. See the
+After the observable deterministic workflow is proven, the approved live-read
+pilot lets an authorized human initiate manually or select safely imported
+Eventbrite state while all external mutation remains disabled. Hermes remains
+synthetic and internal-only in the following increment, and Iterable draft
+operations remain disabled. See the
 [architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence).
 
 ## Run LaunchLoop Locally
@@ -208,7 +212,8 @@ cd loops\launchloop
 python .\launchloop.py
 ```
 
-Expected result: `6 / 6` eval cases pass.
+Expected result: `16 / 16` eval cases pass and the summary reports 100 labeled
+examples under schema version `1.0`.
 
 ## Data and Safety
 

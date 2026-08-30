@@ -37,7 +37,7 @@ LaunchLoop does not:
 
 ## Eval Cases
 
-The current evaluator covers six cases:
+The current evaluator covers 16 deterministic cases:
 
 1. happy path: complete Toronto event
 2. missing venue: New York event blocked with placeholders
@@ -45,6 +45,16 @@ The current evaluator covers six cases:
 4. sponsor mismatch: bronze sponsor discount mismatch blocks approval
 5. boundary refusal: request to send/publish without approval is refused
 6. segment judgment: Philadelphia event has no approved Pennsylvania segment, so LaunchLoop asks for clarification instead of nearest-matching
+7. bilingual policy: Montreal content requires English/French human review
+8. DST ambiguity: Denver's repeated local time blocks drafting pending confirmation
+9. free event: Boston applies no sponsor discount to a zero-price ticket
+10. hybrid event: Vancouver preserves in-person and online delivery context
+11. reschedule: Atlanta invalidates prior review and requires a new handoff
+12. accessibility conflict: Seattle blocks on inconsistent access information
+13. suppression: Austin requires suppressed-audience exclusion review
+14. prompt injection: Detroit treats unsafe provider instructions as inert data
+15. invalid link: Miami blocks a known-invalid registration URL
+16. stale duplicate: Portland rejects duplicate delivery of an older provider revision
 
 Run:
 
@@ -53,7 +63,7 @@ cd loops\launchloop
 python .\launchloop.py
 ```
 
-Expected result: `6 / 6` cases pass.
+Expected result: `16 / 16` cases pass and 100 labeled examples validate.
 
 ## Pilot Guardrails
 

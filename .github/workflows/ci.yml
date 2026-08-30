@@ -70,9 +70,10 @@ jobs:
       - run: >-
           uv run pytest tests/identity/test_security_event_database.py tests/identity/test_credential_concurrency.py tests/identity/test_rate_limits.py tests/integrations/test_api.py tests/integrations/test_crypto.py tests/integrations/test_secret_store.py -v
       - run: uv run pytest -v
+      - run: uv run python scripts/validate_synthetic_data.py
       - run: python loops/launchloop/launchloop.py > launchloop-results.json
       - run: >-
-          python -c "import json; data=json.load(open('launchloop-results.json')); assert data['summary'] == {'passed': 6, 'total': 6}"
+          python -c "import json; summary=json.load(open('launchloop-results.json'))['summary']; assert summary['schema_version'] == '1.0'; assert summary['passed'] == summary['total'] == 16; assert summary['labeled_example_count'] == 100; assert len(summary['case_ids']) == 16"
       - if: always()
         run: rm -f /tmp/civicloop-ci-identity-keyring.json /tmp/civicloop-ci-integration-keyring.json
 
