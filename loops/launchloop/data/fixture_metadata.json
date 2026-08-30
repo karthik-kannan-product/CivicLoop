@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "synthetic": true,
+  "provenance": "hand_authored_synthetic",
+  "fixtures": {
+    "approval_policy": {
+      "scenario_tags": ["approval_boundary", "consequential_action"],
+      "prd_risks": ["unapproved_external_action"]
+    },
+    "language_policy": {
+      "scenario_tags": ["bilingual_content", "language_review"],
+      "prd_risks": ["language_policy_failure"]
+    },
+    "launchloop_audience_segments": {
+      "scenario_tags": ["approved_audience", "missing_geography"],
+      "prd_risks": ["wrong_audience", "privacy_exposure"]
+    },
+    "launchloop_evaluation_cases": {
+      "scenario_tags": ["deterministic_regression", "human_handoff"],
+      "prd_risks": ["approval_bypass", "incorrect_workflow_outcome"]
+    },
+    "launchloop_events": {
+      "scenario_tags": ["eventbrite_draft", "immutable_refresh", "missing_event_data"],
+      "prd_risks": ["invented_event_fact", "stale_revision", "pricing_mismatch"]
+    },
+    "launchloop_fixture_metadata": {
+      "scenario_tags": ["fixture_governance", "synthetic_provenance"],
+      "prd_risks": ["untracked_fixture", "production_data_leak"]
+    },
+    "sponsor_discount_policy": {
+      "scenario_tags": ["sponsor_discount", "deterministic_math"],
+      "prd_risks": ["sponsor_entitlement_error", "pricing_mismatch"]
+    }
+  }
+}

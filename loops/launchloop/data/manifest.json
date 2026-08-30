@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "manifest_id": "launchloop_synthetic_v1",
+  "revision": 1,
+  "manifest_digest": "1ae74230c1ab9707f240951a3925d4eeb10486016cb5a86cc316139eb5140f67",
+  "created_at": "2026-08-26T00:00:00Z",
+  "synthetic": true,
+  "fixtures": {
+    "approval_policy": {
+      "kind": "policy",
+      "path": "loops/launchloop/policies/approval_policy.md",
+      "sha256": "d247f395a2eaeea938b21ca5306645f7b98ce75d3e584066e899bced4091c95d"
+    },
+    "language_policy": {
+      "kind": "policy",
+      "path": "loops/launchloop/policies/language_policy.md",
+      "sha256": "35fb1c27ed22de67403b80f658465c5fd4c49170df62dfbfbec7c9dd2b8a86d2"
+    },
+    "launchloop_audience_segments": {
+      "kind": "audience",
+      "path": "loops/launchloop/data/audience_segments.json",
+      "sha256": "1db5af8db4dc6b51a5ecd8734e8345f3f73035e194e18accddf4e99b4e8ae2d7"
+    },
+    "launchloop_evaluation_cases": {
+      "kind": "workflow",
+      "path": "loops/launchloop/eval_cases.json",
+      "sha256": "38ef5dfa37f838c6be777ed912255e70d1bd049a61a42849070200af7f24aacd"
+    },
+    "launchloop_events": {
+      "kind": "event",
+      "path": "loops/launchloop/data/events.json",
+      "sha256": "66711f2662972b7c676e513d2771db25b3b3a5da52c1fc7e6c03d1a0dbe0ba15"
+    },
+    "launchloop_fixture_metadata": {
+      "kind": "workflow",
+      "path": "loops/launchloop/data/fixture_metadata.json",
+      "sha256": "e3a90f6fa1ad594e35c93f3f4764ae692f26a2d2f443f70ee712107ff2929b00"
+    },
+    "sponsor_discount_policy": {
+      "kind": "policy",
+      "path": "loops/launchloop/policies/sponsor_discount_rules.md",
+      "sha256": "2a029d6643eb1f3cf10fe58d6fcf7c0a878efb6cc37505997b674a3c0a6c5725"
+    }
+  }
+}
