@@ -126,6 +126,8 @@ INSTALLED_APPS = [
     "identity",
     "integrations",
     "launchloop",
+    "agents",
+    "evaluations",
 ]
 
 MIDDLEWARE = [

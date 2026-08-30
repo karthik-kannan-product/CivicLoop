@@ -68,7 +68,7 @@ jobs:
       - run: >-
           uv run python backend/manage.py shell -c "from django.core.cache import caches; cache=caches['default']; cache.set('civicloop-ci-healthcheck', 'ok', 30); assert cache.get('civicloop-ci-healthcheck') == 'ok'"
       - run: >-
-          uv run pytest tests/identity/test_security_event_database.py tests/identity/test_credential_concurrency.py tests/identity/test_rate_limits.py tests/integrations/test_api.py tests/integrations/test_crypto.py tests/integrations/test_secret_store.py -v
+          uv run pytest tests/identity/test_security_event_database.py tests/identity/test_credential_concurrency.py tests/identity/test_rate_limits.py tests/integrations/test_api.py tests/integrations/test_crypto.py tests/integrations/test_secret_store.py tests/agents/test_database_invariants.py tests/agents/test_budgets.py -v
       - run: uv run pytest -v
       - run: uv run python scripts/validate_synthetic_data.py
       - run: python loops/launchloop/launchloop.py > launchloop-results.json

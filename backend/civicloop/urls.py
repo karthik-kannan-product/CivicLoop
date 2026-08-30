@@ -56,6 +56,7 @@ urlpatterns = [
     path("internal/django-admin/", admin.site.urls),
     path("api/", include("api_contracts.urls")),
     path("api/v1/", include("launchloop.urls")),
+    path("api/v1/", include("agents.urls")),
     path("api/v1/admin/", include("identity.urls")),
     path("api/v1/admin/", include("integrations.urls")),
     path(

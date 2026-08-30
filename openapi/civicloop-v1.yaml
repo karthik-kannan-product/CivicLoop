@@ -15,10 +15,75 @@ tags:
   - name: Administrator authentication
   - name: Administrator security
   - name: Administrator integrations
+  - name: Agent observability
   - name: LaunchLoop
   - name: Approvals
   - name: Health
 paths:
+  /api/v1/agent-runs/{runId}:
+    get:
+      tags: [Agent observability]
+      operationId: getAgentRun
+      summary: Read bounded agent run, trace, and usage status
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Safe run status
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/run-read.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/agent-runs/{runId}/steps:
+    get:
+      tags: [Agent observability]
+      operationId: listAgentRunSteps
+      summary: List bounded sanitized steps for an agent run
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Safe step page
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/step-page.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/agent-runs/{runId}/evaluations:
+    get:
+      tags: [Agent observability]
+      operationId: listAgentRunEvaluations
+      summary: List advisory evaluation status for an agent run
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Safe evaluation result page
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/evaluations/result-page.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/agent-runs/{runId}/usage:
+    get:
+      tags: [Agent observability]
+      operationId: getAgentRunUsage
+      summary: Read bounded budget reservation and ledger status
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Safe usage and ledger status
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/usage-read.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/admin/integrations:
     get:
       tags: [Administrator integrations]
@@ -635,6 +700,11 @@ components:
       schema: { type: string, format: uuid }
     SessionId:
       name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      name: runId
       in: path
       required: true
       schema: { type: string, format: uuid }

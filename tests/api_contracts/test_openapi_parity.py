@@ -33,6 +33,10 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         specification = yaml.safe_load(source)
 
     assert set(specification["paths"]) == {
+        "/api/v1/agent-runs/{runId}",
+        "/api/v1/agent-runs/{runId}/steps",
+        "/api/v1/agent-runs/{runId}/evaluations",
+        "/api/v1/agent-runs/{runId}/usage",
         "/api/v1/auth/session",
         "/api/v1/auth/login",
         "/api/v1/auth/logout",

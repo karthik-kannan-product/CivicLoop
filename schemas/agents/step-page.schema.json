@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:step-page:v1.0",
+  "title": "Safe agent step page v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "steps"],
+  "properties": {
+    "run_id": {"type": "string", "format": "uuid"},
+    "steps": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/step"}}
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_id", "sequence", "kind", "status", "started_at", "finished_at", "input_summary", "output_summary", "failure_category", "telemetry"],
+      "properties": {
+        "step_id": {"type": "string", "format": "uuid"},
+        "sequence": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "kind": {"enum": ["planning", "model_inference", "tool_call", "validation", "repair"]},
+        "status": {"enum": ["pending", "running", "succeeded", "failed", "skipped"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "finished_at": {"type": ["string", "null"], "format": "date-time"},
+        "input_summary": {"type": ["string", "null"], "maxLength": 500},
+        "output_summary": {"type": ["string", "null"], "maxLength": 500},
+        "failure_category": {"type": ["string", "null"], "enum": [null, "invalid_output", "provider_unavailable", "timeout", "tool_denied", "tool_error"]},
+        "telemetry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["duration_ms", "input_tokens", "output_tokens"],
+          "properties": {
+            "duration_ms": {"type": "integer", "minimum": 0, "maximum": 3600000},
+            "input_tokens": {"type": "integer", "minimum": 0, "maximum": 10000000},
+            "output_tokens": {"type": "integer", "minimum": 0, "maximum": 10000000}
+          }
+        }
+      }
+    }
+  }
+}
