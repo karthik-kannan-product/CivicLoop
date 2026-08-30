@@ -18,6 +18,7 @@ HISTORIES_FIXTURE_ID = "launchloop_event_histories"
 TEMPLATES_FIXTURE_ID = "launchloop_content_templates"
 DECISIONS_FIXTURE_ID = "launchloop_review_decisions"
 OUTCOMES_FIXTURE_ID = "launchloop_provider_outcomes"
+LABELED_EXAMPLES_FIXTURE_ID = "launchloop_labeled_examples"
 EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
 TOKEN_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{12,}"),
@@ -78,6 +79,7 @@ class SyntheticDataSummary:
     member_count: int
     sponsor_count: int
     case_count: int
+    labeled_example_count: int
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -138,6 +140,12 @@ def _discover_fixture_paths(repository_root: Path) -> set[str]:
     evaluation_cases = launchloop_root / "eval_cases.json"
     if evaluation_cases.exists():
         discovered.add(evaluation_cases.relative_to(repository_root).as_posix())
+    evaluations_root = launchloop_root / "evaluations"
+    if evaluations_root.exists():
+        discovered.update(
+            path.relative_to(repository_root).as_posix()
+            for path in evaluations_root.glob("*.json")
+        )
     return discovered
 
 
@@ -311,10 +319,57 @@ def validate_synthetic_data(
         raise ValueError(f"Missing required event scenario: {missing_scenarios[0]}")
     if empty_scenario_event is not None:
         raise ValueError(f"Invalid scenario_tags for event {empty_scenario_event}")
-    _require_unique_ids(cases, "case_id", resolved_paths["launchloop_evaluation_cases"])
+    case_ids = _require_unique_ids(
+        cases,
+        "case_id",
+        resolved_paths["launchloop_evaluation_cases"],
+    )
+    case_by_id = {case["case_id"]: case for case in cases}
     for case in cases:
         if case["event_id"] not in event_ids:
             raise ValueError(f"Evaluation case references unknown event ID: {case['event_id']}")
+
+    labeled_document = loaded_json.get(LABELED_EXAMPLES_FIXTURE_ID)
+    if not isinstance(labeled_document, dict) or set(labeled_document) != {
+        "schema_version",
+        "examples",
+    }:
+        raise ValueError("Labeled example fixture must contain schema_version and examples")
+    if labeled_document["schema_version"] != "1.0":
+        raise ValueError("Unsupported labeled example schema version")
+    labeled_examples = labeled_document["examples"]
+    if not isinstance(labeled_examples, list) or len(labeled_examples) < 100:
+        raise ValueError("Labeled example fixture must contain at least 100 records")
+    _require_unique_ids(
+        labeled_examples,
+        "example_id",
+        resolved_paths[LABELED_EXAMPLES_FIXTURE_ID],
+    )
+    represented_case_ids: set[str] = set()
+    for example in labeled_examples:
+        case_id = example.get("case_id")
+        if case_id not in case_ids:
+            raise ValueError(f"Labeled example references unknown case ID: {case_id}")
+        case = case_by_id[case_id]
+        if example.get("event_id") != case["event_id"]:
+            raise ValueError(f"Labeled example event does not match case: {example['example_id']}")
+        expected = case["expected"]
+        if example.get("expected_status") != expected["status"]:
+            raise ValueError(f"Labeled example status does not match case: {example['example_id']}")
+        if example.get("expected_risk_flags") != expected["must_have_risk_flags"]:
+            raise ValueError(f"Labeled example risks do not match case: {example['example_id']}")
+        if (
+            example.get("expected_human_handoff")
+            is not expected["must_require_human_handoff"]
+        ):
+            raise ValueError(
+                f"Labeled example handoff does not match case: {example['example_id']}"
+            )
+        if example.get("synthetic") is not True:
+            raise ValueError(f"Labeled example must be synthetic: {example['example_id']}")
+        represented_case_ids.add(case_id)
+    if represented_case_ids != case_ids:
+        raise ValueError("Labeled examples must cover every executable case")
 
     members = _require_fixture_list(loaded_json, MEMBERS_FIXTURE_ID)
     sponsors = _require_fixture_list(loaded_json, SPONSORS_FIXTURE_ID)
@@ -426,6 +481,7 @@ def validate_synthetic_data(
         member_count=len(members),
         sponsor_count=len(sponsors),
         case_count=len(cases),
+        labeled_example_count=len(labeled_examples),
     )
 
 
@@ -434,7 +490,8 @@ def main() -> int:
     print(
         f"Validated {summary.fixture_count} synthetic fixtures, "
         f"{summary.event_count} events, {summary.member_count} members, "
-        f"{summary.sponsor_count} sponsors, and {summary.case_count} evaluation cases "
+        f"{summary.sponsor_count} sponsors, {summary.case_count} evaluation cases, "
+        f"and {summary.labeled_example_count} labeled examples "
         f"for {summary.manifest_id} revision {summary.revision}."
     )
     return 0

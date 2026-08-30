@@ -7,14 +7,21 @@ import pytest
 from loops.launchloop.launchloop import run_evals
 from scripts.validate_synthetic_data import (
     MANIFEST_PATH,
-    REQUIRED_SCENARIO_TAGS,
     REPOSITORY_ROOT,
+    REQUIRED_SCENARIO_TAGS,
     SCHEMA_PATH,
     validate_synthetic_data,
 )
 
 EVAL_CASES_PATH = REPOSITORY_ROOT / "loops" / "launchloop" / "eval_cases.json"
 EVENTS_PATH = REPOSITORY_ROOT / "loops" / "launchloop" / "data" / "events.json"
+LABELED_EXAMPLES_PATH = (
+    REPOSITORY_ROOT
+    / "loops"
+    / "launchloop"
+    / "evaluations"
+    / "labeled_examples.json"
+)
 ORIGINAL_CASE_STATUSES = {
     "case_1_happy_path": "Ready for approval",
     "case_2_missing_venue_then_refresh_before": "Blocked",
@@ -41,13 +48,14 @@ def test_checked_in_synthetic_manifest_validates() -> None:
     summary = validate_synthetic_data(REPOSITORY_ROOT, MANIFEST_PATH, SCHEMA_PATH)
 
     assert summary.manifest_id == "launchloop_synthetic_v1"
-    assert summary.revision == 2
-    assert summary.fixture_count == 13
+    assert summary.revision == 3
+    assert summary.fixture_count == 14
     assert summary.event_count == 15
     assert summary.scenario_count == 15
     assert summary.member_count == 30
     assert summary.sponsor_count == 5
     assert summary.case_count == 16
+    assert summary.labeled_example_count == 100
 
 
 def test_executable_corpus_covers_every_scenario_and_preserves_original_cases() -> None:
@@ -65,6 +73,7 @@ def test_executable_corpus_covers_every_scenario_and_preserves_original_cases() 
         "schema_version": "1.0",
         "passed": 16,
         "total": 16,
+        "labeled_example_count": 100,
         "case_ids": [case["case_id"] for case in cases],
     }
     result_by_id = {result["case_id"]: result for result in output["results"]}
@@ -72,6 +81,44 @@ def test_executable_corpus_covers_every_scenario_and_preserves_original_cases() 
         case_id: result_by_id[case_id]["actual_status"]
         for case_id in ORIGINAL_CASE_STATUSES
     } == ORIGINAL_CASE_STATUSES
+
+
+def test_labeled_corpus_has_100_valid_case_and_event_mappings() -> None:
+    document = json.loads(LABELED_EXAMPLES_PATH.read_text(encoding="utf-8"))
+    examples = document["examples"]
+    cases = json.loads(EVAL_CASES_PATH.read_text(encoding="utf-8"))
+    case_by_id = {case["case_id"]: case for case in cases}
+
+    assert document["schema_version"] == "1.0"
+    assert len(examples) == 100
+    assert len({example["example_id"] for example in examples}) == 100
+    assert {example["case_id"] for example in examples} == set(case_by_id)
+    for example in examples:
+        case = case_by_id[example["case_id"]]
+        assert example["event_id"] == case["event_id"]
+        assert example["expected_status"] == case["expected"]["status"]
+        assert example["expected_risk_flags"] == case["expected"]["must_have_risk_flags"]
+        assert example["expected_human_handoff"] is case["expected"][
+            "must_require_human_handoff"
+        ]
+        assert example["synthetic"] is True
+
+
+def test_labeled_examples_must_reference_their_case_event(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    examples_path = (
+        repository_root
+        / "loops"
+        / "launchloop"
+        / "evaluations"
+        / "labeled_examples.json"
+    )
+    document = json.loads(examples_path.read_text(encoding="utf-8"))
+    document["examples"][0]["event_id"] = "evt_mismatched"
+    examples_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Labeled example event does not match case"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
 
 
 def test_all_required_event_scenarios_are_present(tmp_path: Path) -> None:

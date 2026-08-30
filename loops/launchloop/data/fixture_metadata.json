@@ -23,6 +23,10 @@
       "scenario_tags": ["deterministic_regression", "human_handoff"],
       "prd_risks": ["approval_bypass", "incorrect_workflow_outcome"]
     },
+    "launchloop_labeled_examples": {
+      "scenario_tags": ["labeled_evaluation", "prd_coverage", "deterministic_regression"],
+      "prd_risks": ["coverage_gap", "incorrect_workflow_outcome"]
+    },
     "launchloop_events": {
       "scenario_tags": ["eventbrite_draft", "immutable_refresh", "missing_event_data", "dst_boundary", "bilingual_content", "reschedule", "accessibility", "prompt_injection", "invalid_link", "duplicate_delivery"],
       "prd_risks": ["invented_event_fact", "stale_revision", "pricing_mismatch", "unsafe_provider_data", "outdated_approval"]

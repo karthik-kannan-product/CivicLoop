@@ -296,12 +296,14 @@ def evaluate_case(case):
 
 def run_evals():
     cases = load_json(ROOT / "eval_cases.json")
+    labeled_document = load_json(ROOT / "evaluations" / "labeled_examples.json")
     results = [evaluate_case(case) for case in cases]
     output = {
         "summary": {
             "schema_version": "1.0",
             "passed": sum(1 for result in results if result["passed"]),
             "total": len(results),
+            "labeled_example_count": len(labeled_document["examples"]),
             "case_ids": [case["case_id"] for case in cases],
         },
         "results": results,

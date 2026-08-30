@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "manifest_id": "launchloop_synthetic_v1",
-  "revision": 2,
-  "manifest_digest": "cebfeb327d0d0aa807471357b3dc6393498818c5b2c5aa5ec1020cb2c901180d",
+  "revision": 3,
+  "manifest_digest": "d37c078e8dd1fb27a9bddacf626190e7f308532ea60629e1c0c0b58c4e0a15f3",
   "created_at": "2026-08-26T00:00:00Z",
   "synthetic": true,
   "fixtures": {
@@ -26,6 +26,11 @@
       "path": "loops/launchloop/eval_cases.json",
       "sha256": "eb8406f420efa4e56ce42c1ab14cb3fd5c82972a74ebf0dd7f744ae8a6916554"
     },
+    "launchloop_labeled_examples": {
+      "kind": "workflow",
+      "path": "loops/launchloop/evaluations/labeled_examples.json",
+      "sha256": "e391324f77831d742340b77ca177be4db59626d800c418a3a91e6fe6c991320f"
+    },
     "launchloop_events": {
       "kind": "event",
       "path": "loops/launchloop/data/events.json",
@@ -34,7 +39,7 @@
     "launchloop_fixture_metadata": {
       "kind": "workflow",
       "path": "loops/launchloop/data/fixture_metadata.json",
-      "sha256": "4ec8c421e99d7184fb4bf15df60afcfc3055fe0dd20d56e0cd9d8692ab4913a8"
+      "sha256": "011ba138e428a0a2f04babb75f648a074ce6edcea585a29046bc8e6e7647f1e6"
     },
     "sponsor_discount_policy": {
       "kind": "policy",
