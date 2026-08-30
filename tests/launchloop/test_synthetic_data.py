@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from loops.launchloop.launchloop import run_evals
 from scripts.validate_synthetic_data import (
     MANIFEST_PATH,
     REPOSITORY_ROOT,
@@ -28,10 +29,23 @@ def test_checked_in_synthetic_manifest_validates() -> None:
     summary = validate_synthetic_data(REPOSITORY_ROOT, MANIFEST_PATH, SCHEMA_PATH)
 
     assert summary.manifest_id == "launchloop_synthetic_v1"
-    assert summary.revision == 1
+    assert summary.revision == 2
     assert summary.fixture_count == 7
-    assert summary.event_count == 6
+    assert summary.event_count == 15
+    assert summary.scenario_count == 15
     assert summary.case_count == 6
+    assert run_evals()["summary"] == {"passed": 6, "total": 6}
+
+
+def test_all_required_event_scenarios_are_present(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    events_path = repository_root / "loops" / "launchloop" / "data" / "events.json"
+    events = json.loads(events_path.read_text(encoding="utf-8"))
+    events[0]["scenario_tags"] = []
+    events_path.write_text(json.dumps(events, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Missing required event scenario: missing_venue"):
+        validate_synthetic_data(repository_root, manifest_path, schema_path)
 
 
 def test_changed_fixture_bytes_are_rejected(tmp_path: Path) -> None:

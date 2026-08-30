@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "manifest_id": "launchloop_synthetic_v1",
-  "revision": 1,
-  "manifest_digest": "ded2a5411e07ecf2a3f7963e148fb85a9ca73268343549c07f9f72cbf710ac35",
+  "revision": 2,
+  "manifest_digest": "759103e721efdc1d38809952b0f1aa10096c221f8d395fec60a430bb5543033c",
   "created_at": "2026-08-26T00:00:00Z",
   "synthetic": true,
   "fixtures": {
@@ -19,7 +19,7 @@
     "launchloop_audience_segments": {
       "kind": "audience",
       "path": "loops/launchloop/data/audience_segments.json",
-      "sha256": "1ab494ad8f3d8f25a108ea8c07e242c75a325cf12d34104d0541651bc89c2e80"
+      "sha256": "c5311d6477dcb5687c2b3ce793d60b52ec72e20c8e7a8c6897daca9bbb96ae25"
     },
     "launchloop_evaluation_cases": {
       "kind": "workflow",
@@ -29,12 +29,12 @@
     "launchloop_events": {
       "kind": "event",
       "path": "loops/launchloop/data/events.json",
-      "sha256": "bcee0b6f68d7db364c8e3ff44a23a535919edb517278fd676c514e1a8c646921"
+      "sha256": "f77e613674ba02af2ecf73b8acbfbbbc5979d9862164b47933c3a8f83510157c"
     },
     "launchloop_fixture_metadata": {
       "kind": "workflow",
       "path": "loops/launchloop/data/fixture_metadata.json",
-      "sha256": "e3a90f6fa1ad594e35c93f3f4764ae692f26a2d2f443f70ee712107ff2929b00"
+      "sha256": "c135c5304bb85d2194e254de94008c0028aa7ea216a3314c6c7646d70d1c041d"
     },
     "sponsor_discount_policy": {
       "kind": "policy",

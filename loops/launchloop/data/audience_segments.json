@@ -34,5 +34,14 @@
     "member_status": "active",
     "language": "English",
     "synthetic_member_count": 144
-  }
+  },
+  {"segment_id":"colorado_active_members","name":"Colorado Active Members","region":"CO","country":"US","member_status":"active","language":"English","synthetic_member_count":126},
+  {"segment_id":"massachusetts_active_members","name":"Massachusetts Active Members","region":"MA","country":"US","member_status":"active","language":"English","synthetic_member_count":172},
+  {"segment_id":"british_columbia_active_members","name":"British Columbia Active Members","region":"BC","country":"CA","member_status":"active","language":"English","synthetic_member_count":164},
+  {"segment_id":"georgia_active_members","name":"Georgia Active Members","region":"GA","country":"US","member_status":"active","language":"English","synthetic_member_count":138},
+  {"segment_id":"washington_active_members","name":"Washington Active Members","region":"WA","country":"US","member_status":"active","language":"English","synthetic_member_count":151},
+  {"segment_id":"texas_active_members","name":"Texas Active Members","region":"TX","country":"US","member_status":"active","language":"English","synthetic_member_count":244},
+  {"segment_id":"michigan_active_members","name":"Michigan Active Members","region":"MI","country":"US","member_status":"active","language":"English","synthetic_member_count":132},
+  {"segment_id":"florida_active_members","name":"Florida Active Members","region":"FL","country":"US","member_status":"active","language":"English","synthetic_member_count":193},
+  {"segment_id":"oregon_active_members","name":"Oregon Active Members","region":"OR","country":"US","member_status":"active","language":"English","synthetic_member_count":119}
 ]

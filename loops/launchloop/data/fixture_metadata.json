@@ -12,7 +12,7 @@
       "prd_risks": ["language_policy_failure"]
     },
     "launchloop_audience_segments": {
-      "scenario_tags": ["approved_audience", "missing_geography"],
+      "scenario_tags": ["approved_audience", "missing_geography", "suppressed_audience"],
       "prd_risks": ["wrong_audience", "privacy_exposure"]
     },
     "launchloop_evaluation_cases": {
@@ -20,8 +20,8 @@
       "prd_risks": ["approval_bypass", "incorrect_workflow_outcome"]
     },
     "launchloop_events": {
-      "scenario_tags": ["eventbrite_draft", "immutable_refresh", "missing_event_data"],
-      "prd_risks": ["invented_event_fact", "stale_revision", "pricing_mismatch"]
+      "scenario_tags": ["eventbrite_draft", "immutable_refresh", "missing_event_data", "dst_boundary", "bilingual_content", "reschedule", "accessibility", "prompt_injection", "invalid_link", "duplicate_delivery"],
+      "prd_risks": ["invented_event_fact", "stale_revision", "pricing_mismatch", "unsafe_provider_data", "outdated_approval"]
     },
     "launchloop_fixture_metadata": {
       "scenario_tags": ["fixture_governance", "synthetic_provenance"],

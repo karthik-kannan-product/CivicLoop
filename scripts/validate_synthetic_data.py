@@ -29,6 +29,25 @@ PROHIBITED_KEYS = {
     "totp",
 }
 TAG_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+REQUIRED_SCENARIO_TAGS = frozenset(
+    {
+        "accessibility_inconsistency",
+        "ambiguous_dst_timezone",
+        "bilingual_policy",
+        "complete_event",
+        "confirmed_revision",
+        "duplicate_delivery_stale_revision",
+        "free_event",
+        "invalid_signup_link",
+        "missing_segment",
+        "missing_venue",
+        "online_hybrid_event",
+        "prompt_injection",
+        "rescheduled_event",
+        "sponsor_tier_mismatch",
+        "suppressed_audience",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +56,7 @@ class SyntheticDataSummary:
     revision: int
     fixture_count: int
     event_count: int
+    scenario_count: int
     case_count: int
 
 
@@ -226,6 +246,27 @@ def validate_synthetic_data(
     if not isinstance(events, list) or not isinstance(cases, list):
         raise ValueError("Event and evaluation fixtures must be JSON arrays")
     event_ids = _require_unique_ids(events, "event_id", resolved_paths["launchloop_events"])
+    represented_scenarios: set[str] = set()
+    empty_scenario_event: str | None = None
+    for event in events:
+        scenario_tags = event.get("scenario_tags")
+        if (
+            not isinstance(scenario_tags, list)
+            or len(scenario_tags) != len(set(scenario_tags))
+            or any(
+                not isinstance(tag, str) or tag not in REQUIRED_SCENARIO_TAGS
+                for tag in scenario_tags
+            )
+        ):
+            raise ValueError(f"Invalid scenario_tags for event {event['event_id']}")
+        if not scenario_tags:
+            empty_scenario_event = event["event_id"]
+        represented_scenarios.update(scenario_tags)
+    missing_scenarios = sorted(REQUIRED_SCENARIO_TAGS - represented_scenarios)
+    if missing_scenarios:
+        raise ValueError(f"Missing required event scenario: {missing_scenarios[0]}")
+    if empty_scenario_event is not None:
+        raise ValueError(f"Invalid scenario_tags for event {empty_scenario_event}")
     _require_unique_ids(cases, "case_id", resolved_paths["launchloop_evaluation_cases"])
     for case in cases:
         if case["event_id"] not in event_ids:
@@ -241,6 +282,7 @@ def validate_synthetic_data(
         revision=manifest["revision"],
         fixture_count=len(fixtures),
         event_count=len(events),
+        scenario_count=len(represented_scenarios),
         case_count=len(cases),
     )
 
