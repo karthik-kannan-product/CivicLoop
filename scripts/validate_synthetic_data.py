@@ -76,6 +76,14 @@ def _canonical_manifest_digest(manifest: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _fixture_digest(path: Path) -> str:
+    if path.suffix in {".json", ".md"}:
+        content = path.read_text(encoding="utf-8").encode("utf-8")
+    else:
+        content = path.read_bytes()
+    return hashlib.sha256(content).hexdigest()
+
+
 def _discover_fixture_paths(repository_root: Path) -> set[str]:
     launchloop_root = repository_root / "loops" / "launchloop"
     discovered = {
@@ -224,7 +232,7 @@ def validate_synthetic_data(
             raise ValueError(f"Evaluation case references unknown event ID: {case['event_id']}")
 
     for fixture_id, entry in fixtures.items():
-        actual_hash = hashlib.sha256(resolved_paths[fixture_id].read_bytes()).hexdigest()
+        actual_hash = _fixture_digest(resolved_paths[fixture_id])
         if actual_hash != entry["sha256"]:
             raise ValueError(f"Checksum mismatch for {entry['path']}")
 

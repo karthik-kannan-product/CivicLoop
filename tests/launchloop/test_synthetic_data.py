@@ -43,6 +43,21 @@ def test_changed_fixture_bytes_are_rejected(tmp_path: Path) -> None:
         validate_synthetic_data(repository_root, manifest_path, schema_path)
 
 
+def test_text_fixture_checksums_ignore_line_ending_style(tmp_path: Path) -> None:
+    repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
+    policy_path = repository_root / "loops" / "launchloop" / "policies" / "approval_policy.md"
+    original = policy_path.read_bytes()
+    alternate = (
+        original.replace(b"\r\n", b"\n")
+        if b"\r\n" in original
+        else original.replace(b"\n", b"\r\n")
+    )
+    assert alternate != original
+    policy_path.write_bytes(alternate)
+
+    validate_synthetic_data(repository_root, manifest_path, schema_path)
+
+
 def test_missing_and_unlisted_fixture_files_are_rejected(tmp_path: Path) -> None:
     repository_root, manifest_path, schema_path = _copy_fixture_repository(tmp_path)
     policy_path = repository_root / "loops" / "launchloop" / "policies" / "language_policy.md"

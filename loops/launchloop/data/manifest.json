@@ -2,34 +2,34 @@
   "schema_version": "1.0",
   "manifest_id": "launchloop_synthetic_v1",
   "revision": 1,
-  "manifest_digest": "1ae74230c1ab9707f240951a3925d4eeb10486016cb5a86cc316139eb5140f67",
+  "manifest_digest": "ded2a5411e07ecf2a3f7963e148fb85a9ca73268343549c07f9f72cbf710ac35",
   "created_at": "2026-08-26T00:00:00Z",
   "synthetic": true,
   "fixtures": {
     "approval_policy": {
       "kind": "policy",
       "path": "loops/launchloop/policies/approval_policy.md",
-      "sha256": "d247f395a2eaeea938b21ca5306645f7b98ce75d3e584066e899bced4091c95d"
+      "sha256": "ed5f08d1169517d0b32d09997b8563bbf90bb68d2635822de27b2ee57960438c"
     },
     "language_policy": {
       "kind": "policy",
       "path": "loops/launchloop/policies/language_policy.md",
-      "sha256": "35fb1c27ed22de67403b80f658465c5fd4c49170df62dfbfbec7c9dd2b8a86d2"
+      "sha256": "1dbc0fa1ff5ad419d153ee6e8e42275d960a79acb7082de8daa5a3865a72fd89"
     },
     "launchloop_audience_segments": {
       "kind": "audience",
       "path": "loops/launchloop/data/audience_segments.json",
-      "sha256": "1db5af8db4dc6b51a5ecd8734e8345f3f73035e194e18accddf4e99b4e8ae2d7"
+      "sha256": "1ab494ad8f3d8f25a108ea8c07e242c75a325cf12d34104d0541651bc89c2e80"
     },
     "launchloop_evaluation_cases": {
       "kind": "workflow",
       "path": "loops/launchloop/eval_cases.json",
-      "sha256": "38ef5dfa37f838c6be777ed912255e70d1bd049a61a42849070200af7f24aacd"
+      "sha256": "d2ea5515d61ed265f5ffe1187279b57c1323b19824467b056117474ff81b3f03"
     },
     "launchloop_events": {
       "kind": "event",
       "path": "loops/launchloop/data/events.json",
-      "sha256": "66711f2662972b7c676e513d2771db25b3b3a5da52c1fc7e6c03d1a0dbe0ba15"
+      "sha256": "bcee0b6f68d7db364c8e3ff44a23a535919edb517278fd676c514e1a8c646921"
     },
     "launchloop_fixture_metadata": {
       "kind": "workflow",
@@ -39,7 +39,7 @@
     "sponsor_discount_policy": {
       "kind": "policy",
       "path": "loops/launchloop/policies/sponsor_discount_rules.md",
-      "sha256": "2a029d6643eb1f3cf10fe58d6fcf7c0a878efb6cc37505997b674a3c0a6c5725"
+      "sha256": "760381c695b79279fd7d02baba4b919bdeb0e1aa63a0d17ded250d6ac6def96b"
     }
   }
 }
