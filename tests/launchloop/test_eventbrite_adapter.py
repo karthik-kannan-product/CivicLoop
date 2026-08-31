@@ -30,6 +30,17 @@ class StubReader(BoundedEventbriteReader):
         }
 
 
+class TwoRecordReader(StubReader):
+    def _get_json(self, url: str, token: str) -> dict[str, object]:
+        payload = super()._get_json(url, token)
+        if "/events/" not in url:
+            return payload
+        event = payload["events"][0]
+        assert isinstance(event, dict)
+        second = {**event, "id": "124", "name": {"text": "Second Community Forum"}}
+        return {"events": [event, second], "pagination": {"has_more_items": True}}
+
+
 def test_adapter_retains_only_allowlisted_metadata_and_uses_list_endpoints() -> None:
     reader = StubReader()
 
@@ -44,3 +55,14 @@ def test_adapter_retains_only_allowlisted_metadata_and_uses_list_endpoints() -> 
     assert "ended" not in event_list_url
     assert "completed" not in event_list_url
     assert "canceled" not in event_list_url
+
+
+def test_adapter_returns_only_two_records_without_treating_truncation_as_invalid() -> None:
+    reader = TwoRecordReader()
+
+    events = reader._list_with_credential(memoryview(b"synthetic-token"))
+
+    assert [event.provider_event_id for event in events] == ["123", "124"]
+    event_list_urls = [url for url in reader.urls if "/events/" in url]
+    assert len(event_list_urls) == 1
+    assert "page_size=2" in event_list_urls[0]

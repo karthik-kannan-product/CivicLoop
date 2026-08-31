@@ -58,7 +58,7 @@ class BoundedEventbriteReader:
     _ID = re.compile(r"^[0-9]{1,32}$")
     _STATUSES = frozenset({"draft", "live", "started", "ended", "completed", "canceled"})
     _MAX_BODY = 256 * 1024
-    _MAX_EVENTS = 100
+    _MAX_EVENTS = 2
 
     def list_events(self, credential: SecretLease | None) -> tuple[EventbriteEventMetadata, ...]:
         if not isinstance(credential, SecretLease):
@@ -75,6 +75,8 @@ class BoundedEventbriteReader:
             )
             rows: list[EventbriteEventMetadata] = []
             for organization in organizations:
+                if len(rows) >= self._MAX_EVENTS:
+                    break
                 organization_id = organization.get("id") if isinstance(organization, dict) else None
                 if not isinstance(organization_id, str) or not self._ID.fullmatch(organization_id):
                     raise EventbriteReadError("invalid_response")
@@ -120,10 +122,10 @@ class BoundedEventbriteReader:
             has_more = pagination.get("has_more_items")
             if not isinstance(has_more, bool):
                 raise EventbriteReadError("invalid_response")
+            if len(rows) >= limit:
+                return rows[:limit]
             if not has_more:
                 return rows
-            if len(rows) >= limit:
-                raise EventbriteReadError("invalid_response")
         raise EventbriteReadError("invalid_response")
 
     def _get_json(self, url: str, token: str) -> dict[str, object]:
