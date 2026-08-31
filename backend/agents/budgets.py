@@ -207,6 +207,33 @@ def settle_budget(*, run_id: uuid.UUID, input_tokens: int, output_tokens: int) -
         return reservation
 
 
+def release_budget(*, run_id: uuid.UUID) -> BudgetReservation | None:
+    """Release an unspent reservation immediately after a bounded run fails."""
+    with transaction.atomic():
+        reservation = (
+            BudgetReservation.objects.select_for_update()
+            .select_related("model_profile", "period")
+            .filter(run_id=run_id)
+            .first()
+        )
+        if reservation is None or reservation.status != BudgetReservation.Status.RESERVED:
+            return reservation
+        period = BudgetPeriod.objects.select_for_update().get(pk=reservation.period_id)
+        period.reserved_microusd -= reservation.reserved_cost_microusd
+        period.save(update_fields=["reserved_microusd", "updated_at"])
+        reservation.status = BudgetReservation.Status.RELEASED
+        reservation.save(update_fields=["status", "updated_at"])
+        BudgetLedgerRecord.objects.create(
+            run_id=run_id,
+            reservation=reservation,
+            model_profile_id_snapshot=reservation.model_profile.profile_id,
+            model_profile_revision=reservation.model_profile.revision,
+            entry_type=BudgetLedgerRecord.EntryType.RELEASED,
+            cost_microusd=reservation.reserved_cost_microusd,
+        )
+        return reservation
+
+
 def _expire_period_reservations(*, period: BudgetPeriod, now: datetime) -> int:
     expired = list(
         BudgetReservation.objects.select_for_update().filter(

@@ -183,16 +183,20 @@ The synthetic, durable-control-plane, and observable-deterministic gates are
 implemented: 15 event scenarios, 16 deterministic executable cases, 100
 labeled examples, durable run/budget/evaluation records, redacted
 OpenTelemetry/OpenInference tracing, and an optional authenticated Phoenix
-profile with 14-day retention. Phoenix is not required for CivicLoop readiness
-and its production activation remains a protected operations step.
+profile with 14-day retention. A fixed, schema-bound OpenAI judge now evaluates
+only explicitly synthetic packages through one budget-reserved attempt and
+shows safe advisory trace, rubric, label, usage, cost, and failure status in
+review. Phoenix and the judge are not required for deterministic readiness.
+Phoenix activation remains protected, and every judge call requires an explicit
+administrator action.
 
 The live-read pilot is implemented: an authorized human can initiate manually
 or select safely imported Eventbrite state while all external mutation remains
 disabled. Imports retain sanitized, revision-aware provenance and explicitly
 handle zero, one, many, stale, unavailable, draft, and live event states. The
-following evaluation increment adds a
-fixed budgeted judge and safe trace/evaluation/usage status in review. Hermes
-remains synthetic and internal-only until its later gate, and Iterable draft
+judge deliberately refuses Eventbrite and manual-event packages; no live event
+content is disclosed to the model in this increment. Hermes remains synthetic
+and internal-only until its later gate, and Iterable draft
 operations remain disabled. See the
 [architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence).
 

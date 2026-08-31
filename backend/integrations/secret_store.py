@@ -18,6 +18,7 @@ MAX_LEASE_SECONDS = 5 * 60
 PURPOSE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 CONNECTION_TEST_PURPOSE = "connection_test"
 EVENTBRITE_READ_PURPOSE = "eventbrite_metadata_read"
+EVALUATION_JUDGE_PURPOSE = "evaluation_judge"
 
 
 class SecretStore(ABC):
@@ -191,13 +192,22 @@ class PostgresSecretStore(SecretStore):
         purpose: str,
         ttl: timedelta,
     ) -> None:
-        valid_purpose = purpose == CONNECTION_TEST_PURPOSE or (
-            purpose == EVENTBRITE_READ_PURPOSE and reference.provider == "eventbrite"
+        valid_purpose = (
+            (purpose == CONNECTION_TEST_PURPOSE and workflow_id is None)
+            or (
+                purpose == EVENTBRITE_READ_PURPOSE
+                and reference.provider == "eventbrite"
+                and workflow_id is None
+            )
+            or (
+                purpose == EVALUATION_JUDGE_PURPOSE
+                and reference.provider == "openai"
+                and isinstance(workflow_id, UUID)
+            )
         )
         if (
             not isinstance(reference, SecretReference)
             or not isinstance(caller_id, UUID)
-            or workflow_id is not None
             or not valid_purpose
             or not isinstance(ttl, timedelta)
             or not timedelta(0) < ttl <= timedelta(seconds=MAX_LEASE_SECONDS)

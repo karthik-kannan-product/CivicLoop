@@ -26,6 +26,11 @@ urlpatterns = [
         name="workflow-run",
     ),
     path(
+        "workflows/<uuid:workflow_id>/evaluations",
+        views.workflow_evaluate,
+        name="workflow-evaluate",
+    ),
+    path(
         "workflows/<uuid:workflow_id>/answers",
         views.workflow_answers,
         name="workflow-answers",

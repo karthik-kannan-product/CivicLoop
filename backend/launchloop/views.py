@@ -9,6 +9,7 @@ from django.contrib.auth import logout as django_logout
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
+from evaluations.judge import run_fixed_judge
 from identity.services.authentication import logout_administrator
 
 from .models import DemoActor
@@ -236,6 +237,24 @@ def workflow_run(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
         request,
         lambda: serialize_demo(run_workflow(workflow_id, _actor(request))),
     )
+
+
+@require_POST
+def workflow_evaluate(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
+    def operation() -> dict[str, Any]:
+        administrator = _administrator(request)
+        workflow = workflow_for(workflow_id)
+        try:
+            run_fixed_judge(workflow, administrator)
+        except ValueError as error:
+            raise DemoError(
+                str(error),
+                "A review-ready package is required before evaluation.",
+                409,
+            ) from None
+        return serialize_demo(workflow)
+
+    return _respond(request, operation)
 
 
 @require_POST

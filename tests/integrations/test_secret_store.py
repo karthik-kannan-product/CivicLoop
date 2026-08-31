@@ -108,6 +108,32 @@ def test_put_metadata_and_purpose_bound_lease(secret_store: PostgresSecretStore)
 
 
 @pytest.mark.django_db
+def test_openai_judge_lease_requires_its_bound_workflow(
+    secret_store: PostgresSecretStore,
+) -> None:
+    reference = secret_store.put(provider="openai", scope="organization", value=PLAINTEXT)
+
+    with secret_store.lease(
+        reference,
+        caller_id=CALLER_ID,
+        workflow_id=WORKFLOW_ID,
+        purpose="evaluation_judge",
+        ttl=timedelta(seconds=30),
+    ) as lease:
+        assert lease.workflow_id == WORKFLOW_ID
+        assert lease.purpose == "evaluation_judge"
+
+    with pytest.raises(SecretUnavailable):
+        secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=None,
+            purpose="evaluation_judge",
+            ttl=timedelta(seconds=30),
+        )
+
+
+@pytest.mark.django_db
 def test_mismatched_unknown_or_expired_leases_fail_closed(
     secret_store: PostgresSecretStore,
 ) -> None:

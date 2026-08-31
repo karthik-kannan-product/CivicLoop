@@ -98,7 +98,15 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
           onResolve={(answers) => void mutate(`/api/v1/workflows/${workflowId}/answers`, answers)}
         />
         <LaneBoard campaignPackage={state.workflow.package} />
-        {state.workflow.package && <ReviewPackage campaignPackage={state.workflow.package} />}
+        {state.workflow.package && (
+          <ReviewPackage
+            campaignPackage={state.workflow.package}
+            evaluation={state.evaluation}
+            canEvaluate={Boolean(sessionUser?.administrator)}
+            busy={busy}
+            onEvaluate={() => void mutate(`/api/v1/workflows/${workflowId}/evaluations`)}
+          />
+        )}
         <DecisionPanel
           state={state}
           actor={actor}

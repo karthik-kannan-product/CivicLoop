@@ -24,6 +24,7 @@ from .models import (
 )
 
 NEW_YORK_EVENT = {
+    "synthetic": True,
     "title": "New York International Youth Day Networking Breakfast",
     "city": "New York",
     "region": "NY",
@@ -453,6 +454,47 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
         .first()
     )
     execution = ConnectorExecution.objects.filter(approval=approval).first() if approval else None
+    latest_run = (
+        workflow.agent_runs.select_related("model_profile")
+        .filter(package_hash=workflow.package_hash)
+        .order_by("-created_at")
+        .first()
+        if workflow.package_hash
+        else None
+    )
+    evaluation = None
+    if latest_run is not None:
+        result = latest_run.evaluation_results.order_by("-created_at").first()
+        if latest_run.status in {"queued", "running"}:
+            evaluation_state = "pending"
+        elif latest_run.status == "succeeded" and result is not None:
+            evaluation_state = "passed" if result.outcome == "passed" else "failed"
+        elif latest_run.failure_category == "budget_exhausted":
+            evaluation_state = "denied"
+        elif latest_run.failure_category in {
+            "dependency_unavailable",
+            "provider_unavailable",
+            "timeout",
+        }:
+            evaluation_state = "unavailable"
+        else:
+            evaluation_state = "failed"
+        evaluation = {
+            "state": evaluation_state,
+            "run_id": str(latest_run.id),
+            "trace_id": latest_run.trace_id,
+            "rubric_id": result.rubric_id if result else "launchloop_package_quality",
+            "rubric_version": result.rubric_version if result else 1,
+            "risk_labels": result.reason_codes if result else [],
+            "summary": result.summary if result else "",
+            "provider": latest_run.model_profile.provider,
+            "model": latest_run.model_profile.model,
+            "input_tokens": latest_run.input_tokens,
+            "output_tokens": latest_run.output_tokens,
+            "cost_microusd": latest_run.cost_microusd,
+            "failure_category": latest_run.failure_category or None,
+            "advisory_only": True,
+        }
     transitions = workflow.transitions.select_related("actor").order_by("created_at", "id")
     return {
         "deployment_mode": "server",
@@ -494,6 +536,7 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
             if execution
             else None
         ),
+        "evaluation": evaluation,
         "timeline": [
             {
                 "id": transition.id,

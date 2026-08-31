@@ -4,7 +4,7 @@
   "title": "LaunchLoop Demo State",
   "type": "object",
   "additionalProperties": false,
-  "required": ["deployment_mode", "actors", "event", "workflow", "approval", "execution", "timeline"],
+  "required": ["deployment_mode", "actors", "event", "workflow", "approval", "execution", "evaluation", "timeline"],
   "properties": {
     "deployment_mode": { "const": "server" },
     "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
@@ -12,6 +12,7 @@
     "workflow": { "$ref": "#/$defs/workflow" },
     "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/approval" }] },
     "execution": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/execution" }] },
+    "evaluation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evaluation" }] },
     "timeline": { "type": "array", "items": { "$ref": "#/$defs/transition" } }
   },
   "$defs": {
@@ -162,6 +163,27 @@
             "message": { "type": "string" }
           }
         }
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "run_id", "trace_id", "rubric_id", "rubric_version", "risk_labels", "summary", "provider", "model", "input_tokens", "output_tokens", "cost_microusd", "failure_category", "advisory_only"],
+      "properties": {
+        "state": { "enum": ["pending", "passed", "failed", "unavailable", "denied"] },
+        "run_id": { "type": "string", "format": "uuid" },
+        "trace_id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "rubric_id": { "type": "string", "maxLength": 64 },
+        "rubric_version": { "type": "integer", "minimum": 1 },
+        "risk_labels": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "maxLength": 64 } },
+        "summary": { "type": "string", "maxLength": 1000 },
+        "provider": { "enum": ["openai"] },
+        "model": { "type": "string", "maxLength": 120 },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "cost_microusd": { "type": "integer", "minimum": 0 },
+        "failure_category": { "type": ["string", "null"], "maxLength": 32 },
+        "advisory_only": { "const": true }
       }
     },
     "transition": {

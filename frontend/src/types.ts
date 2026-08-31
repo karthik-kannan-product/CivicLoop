@@ -75,6 +75,22 @@ export type DemoState = {
       message: string;
     };
   } | null;
+  evaluation: {
+    state: "pending" | "passed" | "failed" | "unavailable" | "denied";
+    run_id: string;
+    trace_id: string;
+    rubric_id: string;
+    rubric_version: number;
+    risk_labels: string[];
+    summary: string;
+    provider: "openai";
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    cost_microusd: number;
+    failure_category: string | null;
+    advisory_only: true;
+  } | null;
   timeline: Array<{
     id: number;
     actor: string;

@@ -314,6 +314,7 @@ paths:
       parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
       responses:
         "200": { $ref: "#/components/responses/DemoStateResponse" }
+
         "401": { $ref: "#/components/responses/ProblemResponse" }
         "403": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/events/manual:
@@ -371,6 +372,20 @@ paths:
       tags: [LaunchLoop]
       operationId: runWorkflow
       summary: Run the deterministic LaunchLoop package builder
+      parameters:
+        - { $ref: "#/components/parameters/WorkflowId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/workflows/{workflowId}/evaluations:
+    post:
+      tags: [LaunchLoop]
+      operationId: runWorkflowEvaluation
+      summary: Run the fixed advisory evaluation judge
       parameters:
         - { $ref: "#/components/parameters/WorkflowId" }
         - { $ref: "#/components/parameters/CsrfToken" }

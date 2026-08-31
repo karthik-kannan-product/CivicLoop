@@ -40,6 +40,7 @@ const baseState = {
   },
   approval: null,
   execution: null,
+  evaluation: null,
   timeline: [
     {
       id: 1,

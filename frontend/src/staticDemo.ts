@@ -67,6 +67,7 @@ function initialState(): DemoState {
     },
     approval: null,
     execution: null,
+    evaluation: null,
     timeline: [timelineItem(1, "Maya Chen", "demo_reset", "", "draft")],
   };
 }
