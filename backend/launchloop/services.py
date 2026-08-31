@@ -118,27 +118,34 @@ def _transition(
 
 @transaction.atomic
 def reset_demo() -> Workflow:
-    AuditEvent.objects.all().delete()
-    ConnectorExecution.objects.all().delete()
-    ApprovalRequest.objects.all().delete()
-    WorkflowTransition.objects.all().delete()
-    Workflow.objects.all().delete()
-    EventRevision.objects.all().delete()
-    Event.objects.all().delete()
-    DemoActor.objects.all().delete()
+    demo_event_ids = list(
+        EventRevision.objects.filter(
+            author__slug__in=("maya", "jordan"), source_snapshot__isnull=True
+        ).values_list("event_id", flat=True)
+    )
+    demo_workflows = Workflow.objects.filter(event_id__in=demo_event_ids)
+    ApprovalRequest.objects.filter(workflow__in=demo_workflows).delete()
+    WorkflowTransition.objects.filter(workflow__in=demo_workflows).delete()
+    demo_workflows.delete()
+    EventRevision.objects.filter(event_id__in=demo_event_ids).delete()
+    Event.objects.filter(id__in=demo_event_ids).delete()
     users = seed_demo_users()
 
-    operator = DemoActor.objects.create(
+    operator, _ = DemoActor.objects.update_or_create(
         slug="maya",
-        display_name="Maya Chen",
-        role=DemoActor.Role.OPERATOR,
-        user=users["maya.operator"],
+        defaults={
+            "display_name": "Maya Chen",
+            "role": DemoActor.Role.OPERATOR,
+            "user": users["maya.operator"],
+        },
     )
-    DemoActor.objects.create(
+    DemoActor.objects.update_or_create(
         slug="jordan",
-        display_name="Jordan Brooks",
-        role=DemoActor.Role.APPROVER,
-        user=users["jordan.approver"],
+        defaults={
+            "display_name": "Jordan Brooks",
+            "role": DemoActor.Role.APPROVER,
+            "user": users["jordan.approver"],
+        },
     )
     event = Event.objects.create(
         slug="ny-youth-day",
@@ -244,9 +251,7 @@ def answer_questions(
     answers: dict[str, Any],
 ) -> Workflow:
     workflow = (
-        Workflow.objects.select_for_update()
-        .select_related("revision", "event")
-        .get(id=workflow_id)
+        Workflow.objects.select_for_update().select_related("revision", "event").get(id=workflow_id)
     )
     if actor.role != DemoActor.Role.OPERATOR:
         raise DemoError("operator_required", "Only the operator can resolve event facts.", 403)
@@ -402,9 +407,7 @@ def decide_approval(
                 "package_approved",
                 {"package_hash": approval.package_hash},
             )
-        audience_count = int(
-            (workflow.package or {}).get("audience", {}).get("member_count", 0)
-        )
+        audience_count = int((workflow.package or {}).get("audience", {}).get("member_count", 0))
         receipt = {
             "connector": "sandbox_iterable",
             "campaign": "New York Youth Day invitation and reminder",
@@ -444,12 +447,12 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
         {"slug": actor.slug, "display_name": actor.display_name, "role": actor.role}
         for actor in DemoActor.objects.order_by("role", "slug")
     ]
-    approval = ApprovalRequest.objects.filter(workflow=workflow).select_related(
-        "submitter", "approver"
-    ).first()
-    execution = (
-        ConnectorExecution.objects.filter(approval=approval).first() if approval else None
+    approval = (
+        ApprovalRequest.objects.filter(workflow=workflow)
+        .select_related("submitter", "approver")
+        .first()
     )
+    execution = ConnectorExecution.objects.filter(approval=approval).first() if approval else None
     transitions = workflow.transitions.select_related("actor").order_by("created_at", "id")
     return {
         "deployment_mode": "server",

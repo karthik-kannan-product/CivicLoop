@@ -37,7 +37,7 @@ from integrations.types import SecretReference
 
 PROVIDERS = frozenset({"eventbrite", "groq", "iterable", "openai"})
 CAPABILITIES_BY_PROVIDER: dict[str, list[str]] = {
-    "eventbrite": ["connection_test", "draft_create", "metadata_read"],
+    "eventbrite": ["connection_test", "metadata_read"],
     "iterable": ["connection_test", "draft_create", "metadata_read"],
     "openai": ["connection_test", "evaluation_judge", "inference"],
     "groq": ["connection_test", "evaluation_judge", "inference"],

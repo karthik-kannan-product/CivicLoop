@@ -53,7 +53,7 @@ CAPABILITIES = frozenset(
     {"connection_test", "draft_create", "evaluation_judge", "inference", "metadata_read"}
 )
 CAPABILITIES_BY_PROVIDER = {
-    Provider.EVENTBRITE: ["connection_test", "draft_create", "metadata_read"],
+    Provider.EVENTBRITE: ["connection_test", "metadata_read"],
     Provider.ITERABLE: ["connection_test", "draft_create", "metadata_read"],
     Provider.OPENAI: ["connection_test", "evaluation_judge", "inference"],
     Provider.GROQ: ["connection_test", "evaluation_judge", "inference"],

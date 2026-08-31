@@ -250,6 +250,7 @@ def test_demo_requires_a_logged_in_user_and_exposes_seeded_session_identity() ->
         "username": "maya.operator",
         "display_name": "Maya Chen",
         "role": "operator",
+        "administrator": False,
     }
     assert User.objects.filter(username="jordan.approver").exists()
 

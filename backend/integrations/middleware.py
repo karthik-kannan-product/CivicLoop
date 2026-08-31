@@ -15,6 +15,8 @@ class IntegrationFeatureGateMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponseBase:
         integration_api = request.path == "/api/v1/admin/integrations" or request.path.startswith(
             "/api/v1/admin/integrations/"
+        ) or request.path == "/api/v1/eventbrite/events" or request.path.startswith(
+            "/api/v1/eventbrite/events/"
         )
         if integration_api and not (
             settings.CIVICLOOP_ADMIN_IDENTITY_ENABLED

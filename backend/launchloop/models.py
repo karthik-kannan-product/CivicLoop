@@ -33,11 +33,75 @@ class Event(models.Model):
         return self.title
 
 
+class ProviderEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    provider = models.CharField(max_length=32, default="eventbrite", editable=False)
+    provider_event_id = models.CharField(max_length=64)
+    current_snapshot = models.ForeignKey(
+        "ProviderEventSnapshot",
+        null=True,
+        blank=True,
+        related_name="current_for_sources",
+        on_delete=models.PROTECT,
+    )
+    local_event = models.ForeignKey(
+        "Event",
+        null=True,
+        blank=True,
+        related_name="provider_sources",
+        on_delete=models.PROTECT,
+    )
+    available = models.BooleanField(default=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("provider", "provider_event_id"),
+                name="launchloop_unique_provider_event",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider}:{self.provider_event_id}"
+
+
+class ProviderEventSnapshot(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source = models.ForeignKey(ProviderEvent, related_name="snapshots", on_delete=models.PROTECT)
+    fingerprint = models.CharField(max_length=64)
+    title = models.CharField(max_length=240)
+    status = models.CharField(max_length=24)
+    provider_changed_at = models.DateTimeField()
+    start_at = models.DateTimeField(null=True, blank=True)
+    end_at = models.DateTimeField(null=True, blank=True)
+    timezone = models.CharField(max_length=64, blank=True)
+    observed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("source", "fingerprint"),
+                name="launchloop_unique_provider_snapshot",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source} at {self.provider_changed_at.isoformat()}"
+
+
 class EventRevision(models.Model):
     event = models.ForeignKey(Event, related_name="revisions", on_delete=models.CASCADE)
     version = models.PositiveIntegerField()
     snapshot = models.JSONField()
     author = models.ForeignKey(DemoActor, on_delete=models.PROTECT)
+    source_snapshot = models.ForeignKey(
+        ProviderEventSnapshot,
+        null=True,
+        blank=True,
+        related_name="event_revisions",
+        on_delete=models.PROTECT,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

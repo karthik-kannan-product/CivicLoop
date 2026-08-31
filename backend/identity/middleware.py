@@ -38,6 +38,9 @@ class AdministratorSessionMiddleware(MiddlewareMixin):
                 "admin-integration-test",
                 "admin-integration-disable",
                 "admin-integration-audit",
+                "eventbrite-events",
+                "eventbrite-events-refresh",
+                "eventbrite-event-select",
             }:
                 from integrations.views import recovery_restricted_response
 

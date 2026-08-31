@@ -186,9 +186,11 @@ OpenTelemetry/OpenInference tracing, and an optional authenticated Phoenix
 profile with 14-day retention. Phoenix is not required for CivicLoop readiness
 and its production activation remains a protected operations step.
 
-The next approved product increment is the live-read pilot: an authorized human
-can initiate manually or select safely imported Eventbrite state while all
-external mutation remains disabled. The following evaluation increment adds a
+The live-read pilot is implemented: an authorized human can initiate manually
+or select safely imported Eventbrite state while all external mutation remains
+disabled. Imports retain sanitized, revision-aware provenance and explicitly
+handle zero, one, many, stale, unavailable, draft, and live event states. The
+following evaluation increment adds a
 fixed budgeted judge and safe trace/evaluation/usage status in review. Hermes
 remains synthetic and internal-only until its later gate, and Iterable draft
 operations remain disabled. See the

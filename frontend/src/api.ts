@@ -11,6 +11,7 @@ export type SessionUser = {
   username: string;
   display_name: string;
   role: "operator" | "approver";
+  administrator?: boolean;
 };
 
 function csrfToken(): string {
@@ -20,7 +21,7 @@ function csrfToken(): string {
     ?.split("=")[1] ?? "";
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   path: string,
   options: { body?: Record<string, string>; method?: "GET" | "POST" } = {},
 ): Promise<T> {
@@ -64,4 +65,33 @@ export async function loginDemo(username: string, password: string): Promise<Ses
 
 export async function logoutDemo(): Promise<void> {
   await requestJson<{ logged_out: boolean }>("/api/v1/auth/logout", { method: "POST" });
+}
+
+export type EventbriteEvent = {
+  id: string;
+  provider_event_id: string;
+  title: string;
+  status: string;
+  start_at: string | null;
+  timezone: string;
+  available: boolean;
+  selectable: boolean;
+};
+
+export async function listEventbriteEvents(): Promise<EventbriteEvent[]> {
+  return (await requestJson<{ events: EventbriteEvent[] }>("/api/v1/eventbrite/events")).events;
+}
+
+export async function refreshEventbriteEvents(): Promise<EventbriteEvent[]> {
+  return (await requestJson<{ events: EventbriteEvent[] }>("/api/v1/eventbrite/events/refresh", {
+    method: "POST",
+  })).events;
+}
+
+export async function selectEventbriteEvent(id: string): Promise<DemoState> {
+  return requestJson<DemoState>(`/api/v1/eventbrite/events/${id}/select`, { method: "POST" });
+}
+
+export async function startManualEvent(body: Record<string, string>): Promise<DemoState> {
+  return requestJson<DemoState>("/api/v1/events/manual", { method: "POST", body });
 }

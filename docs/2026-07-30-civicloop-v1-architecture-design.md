@@ -46,17 +46,17 @@ Where those differ, the current-state sections are authoritative about the code 
 
 ## 4. Current Implementation Snapshot
 
-As of 2026-08-30, the repository contains a deployed deterministic LaunchLoop
+As of 2026-08-31, the repository contains a deployed deterministic LaunchLoop
 vertical slice, its production runtime, a single-owner administrator security
 surface, and write-only integration administration.
 
 | Area | Implemented now | V1 target not yet implemented |
 | --- | --- | --- |
-| User experience | React mission-control workspace, event brief, three visible lanes, review package, approval panel, receipt, timeline, owner security console, and integration console | General event management, Focus mode, trace/evaluation review, decision queue, operational metrics, and full accessibility verification |
+| User experience | React mission-control workspace, manual event initiation, explicit zero/one/many Eventbrite selection states, event brief, three visible lanes, review package, approval panel, receipt, timeline, owner security console, and integration console | General event management, Focus mode, trace/evaluation review, decision queue, operational metrics, and full accessibility verification |
 | Authentication | Django sessions and CSRF; two seeded synthetic operator/approver accounts; separately feature-gated single-owner administrator with password, TOTP, recovery codes, session controls, fresh verification, throttling, and append-only security events | Invitations and named production operator/approver identities, password reset, broader permission lifecycle, and removal of synthetic identities from real pilot use |
 | Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
 | Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
-| Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only Eventbrite, Iterable, OpenAI, and Groq connection lifecycle; bounded read-only connection probes; persisted `sandbox_iterable` receipt with zero external actions | Callable draft adapters, webhook/polling refresh, external idempotency and reconciliation, and separately approval-gated publish/send operations |
+| Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only connection lifecycle; bounded, paginated, read-only Eventbrite organization/event metadata refresh; revision-aware local snapshots and provenance; persisted `sandbox_iterable` receipt with zero external actions | Webhook refresh, external reconciliation, and separately approval-gated publish/send operations |
 | Agents and evaluation | Deterministic Python package engine; 15-event scenario corpus; 16 executable cases; 100 labeled examples; immutable model/routing profiles; transactional run/month budgets; durable run, step, and advisory evaluation records; safe owner/reviewer read APIs | Fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, and concurrency semaphore |
 | Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, model/routing policy, budget ledger, agent run/step, evaluation, and audit records; browser-local state for GitHub Pages | Organization, outbox, operational metrics, and retention enforcement |
 | Runtime | Production Vultr deployment foundation plus feature-gated OpenTelemetry/OpenInference tracing, bounded redaction/export, and an optional version-pinned authenticated Phoenix Compose profile with separate storage and 14-day retention | Production Phoenix activation, real background workflow tasks, Hermes/LiteLLM, and broader operational metrics |

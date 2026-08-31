@@ -316,6 +316,56 @@ paths:
         "200": { $ref: "#/components/responses/DemoStateResponse" }
         "401": { $ref: "#/components/responses/ProblemResponse" }
         "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/events/manual:
+    post:
+      tags: [LaunchLoop]
+      operationId: startManualEvent
+      summary: Start a local event brief without external actions
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "../schemas/launchloop/manual-event-request.schema.json" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/eventbrite/events:
+    get:
+      tags: [LaunchLoop]
+      operationId: listEventbriteEvents
+      summary: List locally stored, sanitized Eventbrite event metadata
+      responses:
+        "200": { $ref: "#/components/responses/EventbriteEventsResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/eventbrite/events/refresh:
+    post:
+      tags: [LaunchLoop]
+      operationId: refreshEventbriteEvents
+      summary: Refresh bounded read-only Eventbrite event metadata
+      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      responses:
+        "200": { $ref: "#/components/responses/EventbriteEventsResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/eventbrite/events/{sourceId}/select:
+    post:
+      tags: [LaunchLoop]
+      operationId: selectEventbriteEvent
+      summary: Create or update a local draft from a sanitized provider snapshot
+      parameters:
+        - { $ref: "#/components/parameters/SourceId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { $ref: "#/components/responses/DemoStateResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/workflows/{workflowId}/runs:
     post:
       tags: [LaunchLoop]
@@ -708,6 +758,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     Provider:
       name: provider
       in: path
@@ -731,6 +786,11 @@ components:
       content:
         application/json:
           schema: { $ref: "../schemas/launchloop/demo-state.schema.json" }
+    EventbriteEventsResponse:
+      description: Bounded sanitized Eventbrite event metadata
+      content:
+        application/json:
+          schema: { $ref: "../schemas/launchloop/eventbrite-events.schema.json" }
     ProblemResponse:
       description: RFC 9457 problem with stable CivicLoop extensions
       content:

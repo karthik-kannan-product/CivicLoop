@@ -4,6 +4,7 @@ import { loginDemo, logoutDemo, requestDemo, requestSession, type SessionUser } 
 import { CompletionPanel } from "./components/CompletionPanel";
 import { DecisionPanel } from "./components/DecisionPanel";
 import { EventBrief } from "./components/EventBrief";
+import { EventStartPanel } from "./components/EventStartPanel";
 import { LaneBoard } from "./components/LaneBoard";
 import { ReviewPackage } from "./components/ReviewPackage";
 import { Timeline } from "./components/Timeline";
@@ -88,6 +89,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
             <p>Review the locked package, agent evidence, and durable audit trail before deciding.</p>
           </section>
         )}
+        {isOperator && sessionUser?.administrator && <EventStartPanel onStarted={setState} />}
         <EventBrief
           state={state}
           isOperator={Boolean(isOperator)}

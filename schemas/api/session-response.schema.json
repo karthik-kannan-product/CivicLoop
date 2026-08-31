@@ -9,11 +9,12 @@
     "user": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["username", "display_name", "role"],
+      "required": ["username", "display_name", "role", "administrator"],
       "properties": {
         "username": { "type": "string" },
         "display_name": { "type": "string" },
-        "role": { "enum": ["operator", "approver"] }
+        "role": { "enum": ["operator", "approver"] },
+        "administrator": { "type": "boolean" }
       }
     }
   }

@@ -8,6 +8,18 @@ urlpatterns = [
     path("auth/logout", views.auth_logout, name="auth-logout"),
     path("demo", views.demo_state, name="demo-state"),
     path("demo/reset", views.demo_reset, name="demo-reset"),
+    path("events/manual", views.manual_event_start, name="manual-event-start"),
+    path("eventbrite/events", views.eventbrite_events, name="eventbrite-events"),
+    path(
+        "eventbrite/events/refresh",
+        views.eventbrite_events_refresh,
+        name="eventbrite-events-refresh",
+    ),
+    path(
+        "eventbrite/events/<uuid:source_id>/select",
+        views.eventbrite_event_select,
+        name="eventbrite-event-select",
+    ),
     path(
         "workflows/<uuid:workflow_id>/runs",
         views.workflow_run,

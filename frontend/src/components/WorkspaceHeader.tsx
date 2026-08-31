@@ -3,6 +3,7 @@ import type { Actor } from "../types";
 type SessionUser = {
   display_name: string;
   role: "operator" | "approver";
+  administrator?: boolean;
 };
 
 type Props = {
@@ -49,7 +50,7 @@ export function WorkspaceHeader({
               <span>{sessionUser.display_name}</span>
               <strong>{sessionUser.role}</strong>
             </div>
-            {sessionUser.role === "operator" && (
+            {sessionUser.role === "operator" && !sessionUser.administrator && (
               <button className="button button--quiet" disabled={busy} onClick={onReset}>
                 Reset workspace
               </button>
