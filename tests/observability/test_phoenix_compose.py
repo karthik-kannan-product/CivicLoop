@@ -8,11 +8,16 @@ EXPECTED_IMAGE = (
     "arizephoenix/phoenix:version-20.4.0-nonroot"
     "@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07"
 )
+EXPECTED_INIT_IMAGE = (
+    "busybox:1.37.0-musl"
+    "@sha256:fc6dddc4c44b1bfe37f41cae8e67d1693828e8f42a91862816d7953e2c9d3f23"
+)
 
 
 def test_phoenix_is_optional_pinned_private_and_resource_bounded() -> None:
     compose = yaml.safe_load(COMPOSE_PATH.read_text())
     phoenix = compose["services"]["phoenix"]
+    volume_init = compose["services"]["phoenix-volume-init"]
 
     assert phoenix["image"] == EXPECTED_IMAGE
     assert phoenix["profiles"] == ["observability"]
@@ -27,6 +32,22 @@ def test_phoenix_is_optional_pinned_private_and_resource_bounded() -> None:
     assert phoenix["deploy"]["resources"]["limits"] == {
         "cpus": "0.75",
         "memory": "768M",
+    }
+    assert phoenix["depends_on"] == {
+        "phoenix-volume-init": {"condition": "service_completed_successfully"}
+    }
+    assert volume_init == {
+        "image": EXPECTED_INIT_IMAGE,
+        "profiles": ["observability"],
+        "user": "0:0",
+        "command": ["chown", "65532:65532", "/data"],
+        "network_mode": "none",
+        "read_only": True,
+        "cap_drop": ["ALL"],
+        "cap_add": ["CHOWN"],
+        "security_opt": ["no-new-privileges:true"],
+        "volumes": ["phoenix-data:/data"],
+        "restart": "no",
     }
 
 

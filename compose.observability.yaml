@@ -1,4 +1,19 @@
 services:
+  phoenix-volume-init:
+    image: busybox:1.37.0-musl@sha256:fc6dddc4c44b1bfe37f41cae8e67d1693828e8f42a91862816d7953e2c9d3f23
+    profiles: [observability]
+    user: "0:0"
+    command: ["chown", "65532:65532", "/data"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - phoenix-data:/data
+    restart: "no"
+
   phoenix:
     image: arizephoenix/phoenix:version-20.4.0-nonroot@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07
     profiles: [observability]
@@ -19,6 +34,9 @@ services:
       - no-new-privileges:true
     volumes:
       - phoenix-data:/data
+    depends_on:
+      phoenix-volume-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
