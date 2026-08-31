@@ -71,7 +71,11 @@ class BoundedEventbriteReader:
             raise EventbriteReadError("authentication")
         try:
             organizations = self._page_rows(
-                f"{self._BASE}/users/me/organizations/", "organizations", token, 10
+                f"{self._BASE}/users/me/organizations/",
+                "organizations",
+                token,
+                10,
+                include_page_size=False,
             )
             rows: list[EventbriteEventMetadata] = []
             for organization in organizations:
@@ -103,6 +107,8 @@ class BoundedEventbriteReader:
         key: str,
         token: str,
         limit: int,
+        *,
+        include_page_size: bool = True,
         **filters: str,
     ) -> list[object]:
         rows: list[object] = []
@@ -110,10 +116,10 @@ class BoundedEventbriteReader:
             page_size = min(50, limit - len(rows))
             if page_size <= 0:
                 break
-            payload = self._get_json(
-                f"{base_url}?{urlencode({**filters, 'page': page, 'page_size': page_size})}",
-                token,
-            )
+            query: dict[str, str | int] = {**filters, "page": page}
+            if include_page_size:
+                query["page_size"] = page_size
+            payload = self._get_json(f"{base_url}?{urlencode(query)}", token)
             values = payload.get(key)
             pagination = payload.get("pagination")
             if not isinstance(values, list) or not isinstance(pagination, dict):

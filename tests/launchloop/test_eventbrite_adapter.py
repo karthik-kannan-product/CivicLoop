@@ -49,8 +49,11 @@ def test_adapter_retains_only_allowlisted_metadata_and_uses_list_endpoints() -> 
     assert events[0].title == "Community Forum"
     assert not hasattr(events[0], "description")
     assert not hasattr(events[0], "attendees")
-    assert all("page_size=" in url for url in reader.urls)
+    organization_list_url = next(url for url in reader.urls if "/users/me/organizations/" in url)
+    assert "page=1" in organization_list_url
+    assert "page_size=" not in organization_list_url
     event_list_url = next(url for url in reader.urls if "/events/" in url)
+    assert "page_size=2" in event_list_url
     assert "status=draft%2Clive" in event_list_url
     assert "ended" not in event_list_url
     assert "completed" not in event_list_url

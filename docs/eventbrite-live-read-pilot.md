@@ -3,11 +3,14 @@
 Task 10A adds a deliberately narrow bridge from real Eventbrite state into
 CivicLoop's local review workflow.
 
-An authenticated administrator can refresh up to 100 events across up to 10
-Eventbrite organizations. The adapter uses only HTTPS `GET` requests to the
-official organization and event-list endpoints, rejects redirects, bounds
-response size and pagination, and extracts only event ID, title, status,
-changed time, start/end time, and timezone. Descriptions, attendees, raw
+An authenticated administrator can refresh up to two current events across up
+to 10 Eventbrite organizations during the production pilot. The adapter uses
+only HTTPS `GET` requests to the official organization and event-list
+endpoints, rejects redirects, bounds response size and pagination, and
+extracts only event ID, title, status, changed time, start/end time, and
+timezone. Eventbrite's organization-list endpoint is paged without a
+`page_size` parameter because that endpoint rejects it; event-list requests
+remain explicitly bounded to two records. Descriptions, attendees, raw
 provider payloads, and credentials never leave the adapter.
 
 The workspace presents three safe outcomes:
