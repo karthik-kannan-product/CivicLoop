@@ -83,7 +83,7 @@ class BoundedEventbriteReader:
                     "events",
                     token,
                     self._MAX_EVENTS - len(rows),
-                    status="draft,live,started,ended,completed,canceled",
+                    status="draft,live",
                 )
                 rows.extend(self._parse_event(item) for item in event_rows)
             return tuple(
