@@ -49,11 +49,11 @@ $$;
 
 def forwards(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
     connection = apps.get_model("integrations", "IntegrationConnection")
+    if schema_editor.connection.vendor == "postgresql":
+        schema_editor.execute(CREATE_FUNCTION_SQL)
     connection.objects.filter(provider="eventbrite").exclude(state="not_configured").update(
         capabilities=["connection_test", "metadata_read"]
     )
-    if schema_editor.connection.vendor == "postgresql":
-        schema_editor.execute(CREATE_FUNCTION_SQL)
 
 
 class Migration(migrations.Migration):
