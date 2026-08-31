@@ -139,7 +139,7 @@ def test_postgresql_trigger_rejects_raw_sql_connection_invariant_bypasses() -> N
             "SET secret_id = %s, capabilities = %s::jsonb, state = %s WHERE id = %s",
             [
                 str(eventbrite_secret.id),
-                '["connection_test","draft_create","metadata_read"]',
+                '["connection_test","metadata_read"]',
                 "configured",
                 str(integration.id),
             ],

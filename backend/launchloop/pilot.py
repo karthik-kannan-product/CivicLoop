@@ -186,7 +186,6 @@ def select_eventbrite_event(source_id: uuid.UUID, actor: DemoActor) -> Workflow:
     try:
         source = (
             ProviderEvent.objects.select_for_update()
-            .select_related("current_snapshot", "local_event")
             .get(id=source_id)
         )
     except ProviderEvent.DoesNotExist:
