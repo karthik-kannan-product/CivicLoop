@@ -128,6 +128,7 @@ INSTALLED_APPS = [
     "launchloop",
     "agents",
     "evaluations",
+    "observability",
 ]
 
 MIDDLEWARE = [
@@ -247,3 +248,8 @@ except (TypeError, ValueError):
 CELERY_WORKER_CONCURRENCY = min(
     max(configured_celery_worker_concurrency, 1), AGENT_MAX_CONCURRENCY
 )
+
+CIVICLOOP_TELEMETRY_ENABLED = os.getenv("CIVICLOOP_TELEMETRY_ENABLED", "false").lower() == "true"
+CIVICLOOP_TELEMETRY_ENDPOINT = os.getenv("CIVICLOOP_TELEMETRY_ENDPOINT", "")
+CIVICLOOP_TELEMETRY_HEADERS_FILE = os.getenv("CIVICLOOP_TELEMETRY_HEADERS_FILE", "")
+CIVICLOOP_TELEMETRY_SERVICE_NAME = os.getenv("CIVICLOOP_TELEMETRY_SERVICE_NAME", "civicloop")
