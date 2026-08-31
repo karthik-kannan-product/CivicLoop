@@ -67,6 +67,7 @@ class Workflow(models.Model):
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.DRAFT)
     package = models.JSONField(null=True, blank=True)
     package_hash = models.CharField(max_length=64, blank=True)
+    telemetry_traceparent = models.CharField(max_length=55, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:

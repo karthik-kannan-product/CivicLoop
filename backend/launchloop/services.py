@@ -7,6 +7,9 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
+from observability.launchloop import workflow_operation, workflow_stage
+from openinference.semconv.trace import OpenInferenceSpanKindValues
+from opentelemetry.trace import Status, StatusCode
 
 from .engine import prepare_package
 from .models import (
@@ -193,25 +196,44 @@ def run_workflow(workflow_id: UUID, actor: DemoActor) -> Workflow:
     if workflow.status != Workflow.Status.DRAFT:
         raise DemoError("invalid_workflow_state", "LaunchLoop can only run from Draft.", 409)
 
-    package = prepare_package(workflow.revision.snapshot)
-    workflow.package = package
-    workflow.package_hash = package_hash(package)
-    workflow.save(update_fields=("package", "package_hash", "updated_at"))
-    destination = (
-        Workflow.Status.READY_FOR_REVIEW
-        if package["status"] == "ready_for_review"
-        else Workflow.Status.NEEDS_INPUT
-    )
-    _transition(
-        workflow,
-        actor,
-        destination,
-        "launchloop_ran",
-        {
-            "revision": workflow.revision.version,
-            "missing_fields": package["missing_fields"],
-        },
-    )
+    with workflow_operation(workflow, "run"):
+        with workflow_stage(
+            workflow,
+            "launchloop.deterministic_lane",
+            OpenInferenceSpanKindValues.CHAIN,
+        ):
+            package = prepare_package(workflow.revision.snapshot)
+        workflow.package = package
+        workflow.package_hash = package_hash(package)
+        workflow.save(update_fields=("package", "package_hash", "updated_at"))
+        with workflow_stage(
+            workflow,
+            "launchloop.policy",
+            OpenInferenceSpanKindValues.GUARDRAIL,
+        ) as policy_span:
+            destination = (
+                Workflow.Status.READY_FOR_REVIEW
+                if package["status"] == "ready_for_review"
+                else Workflow.Status.NEEDS_INPUT
+            )
+            policy_span.set_attribute("civicloop.outcome", destination)
+        with workflow_stage(
+            workflow,
+            "launchloop.evaluation",
+            OpenInferenceSpanKindValues.EVALUATOR,
+        ) as evaluation_span:
+            evaluation_span.set_attribute("civicloop.outcome", "passed")
+            evaluation_span.set_status(Status(StatusCode.OK))
+        _transition(
+            workflow,
+            actor,
+            destination,
+            "launchloop_ran",
+            {
+                "revision": workflow.revision.version,
+                "missing_fields": package["missing_fields"],
+            },
+        )
     return workflow
 
 
@@ -243,34 +265,35 @@ def answer_questions(
             "Save at least one event fact before continuing.",
         )
 
-    snapshot = dict(workflow.revision.snapshot)
-    snapshot.update(answered_fields)
-    missing_answers = [
-        field for field in required_answers if not str(snapshot.get(field, "")).strip()
-    ]
-    revision = EventRevision.objects.create(
-        event=workflow.event,
-        version=workflow.revision.version + 1,
-        snapshot=snapshot,
-        author=actor,
-    )
-    workflow.revision = revision
-    workflow.package = None
-    workflow.package_hash = ""
-    workflow.save(update_fields=("revision", "package", "package_hash", "updated_at"))
-    ApprovalRequest.objects.filter(workflow=workflow).delete()
-    destination = Workflow.Status.NEEDS_INPUT if missing_answers else Workflow.Status.DRAFT
-    _transition(
-        workflow,
-        actor,
-        destination,
-        "event_facts_saved" if missing_answers else "event_facts_resolved",
-        {
-            "revision": revision.version,
-            "fields": list(answered_fields),
-            "missing_fields": missing_answers,
-        },
-    )
+    with workflow_operation(workflow, "answer_questions"):
+        snapshot = dict(workflow.revision.snapshot)
+        snapshot.update(answered_fields)
+        missing_answers = [
+            field for field in required_answers if not str(snapshot.get(field, "")).strip()
+        ]
+        revision = EventRevision.objects.create(
+            event=workflow.event,
+            version=workflow.revision.version + 1,
+            snapshot=snapshot,
+            author=actor,
+        )
+        workflow.revision = revision
+        workflow.package = None
+        workflow.package_hash = ""
+        workflow.save(update_fields=("revision", "package", "package_hash", "updated_at"))
+        ApprovalRequest.objects.filter(workflow=workflow).delete()
+        destination = Workflow.Status.NEEDS_INPUT if missing_answers else Workflow.Status.DRAFT
+        _transition(
+            workflow,
+            actor,
+            destination,
+            "event_facts_saved" if missing_answers else "event_facts_resolved",
+            {
+                "revision": revision.version,
+                "fields": list(answered_fields),
+                "missing_fields": missing_answers,
+            },
+        )
     return workflow
 
 
@@ -286,18 +309,25 @@ def submit_workflow(workflow_id: UUID, actor: DemoActor) -> ApprovalRequest:
             409,
         )
 
-    approval = ApprovalRequest.objects.create(
-        workflow=workflow,
-        submitter=actor,
-        package_hash=workflow.package_hash,
-    )
-    _transition(
-        workflow,
-        actor,
-        Workflow.Status.IN_REVIEW,
-        "package_submitted",
-        {"package_hash": workflow.package_hash},
-    )
+    with workflow_operation(workflow, "submit"):
+        with workflow_stage(
+            workflow,
+            "launchloop.approval",
+            OpenInferenceSpanKindValues.CHAIN,
+        ) as approval_span:
+            approval = ApprovalRequest.objects.create(
+                workflow=workflow,
+                submitter=actor,
+                package_hash=workflow.package_hash,
+            )
+            _transition(
+                workflow,
+                actor,
+                Workflow.Status.IN_REVIEW,
+                "package_submitted",
+                {"package_hash": workflow.package_hash},
+            )
+            approval_span.set_attribute("civicloop.approval_state", "pending")
     return approval
 
 
@@ -341,52 +371,68 @@ def decide_approval(
     approval.reason = reason
     approval.decided_at = timezone.now()
     workflow = approval.workflow
-    if decision == "reject":
-        approval.status = ApprovalRequest.Status.REJECTED
-        approval.save()
-        workflow.package = None
-        workflow.package_hash = ""
-        workflow.save(update_fields=("package", "package_hash", "updated_at"))
+    with workflow_operation(workflow, "approval_decision"):
+        with workflow_stage(
+            workflow,
+            "launchloop.approval",
+            OpenInferenceSpanKindValues.CHAIN,
+        ) as approval_span:
+            approval_span.set_attribute("civicloop.approval_state", decision)
+            if decision == "reject":
+                approval.status = ApprovalRequest.Status.REJECTED
+                approval.save()
+                workflow.package = None
+                workflow.package_hash = ""
+                workflow.save(update_fields=("package", "package_hash", "updated_at"))
+                _transition(
+                    workflow,
+                    actor,
+                    Workflow.Status.NEEDS_INPUT,
+                    "package_rejected",
+                    {"reason": reason},
+                )
+                return approval
+
+            approval.status = ApprovalRequest.Status.APPROVED
+            approval.save()
+            _transition(
+                workflow,
+                actor,
+                Workflow.Status.APPROVED,
+                "package_approved",
+                {"package_hash": approval.package_hash},
+            )
+        audience_count = int(
+            (workflow.package or {}).get("audience", {}).get("member_count", 0)
+        )
+        receipt = {
+            "connector": "sandbox_iterable",
+            "campaign": "New York Youth Day invitation and reminder",
+            "audience_count": audience_count,
+            "mode": "simulation",
+            "external_actions": 0,
+            "message": "Sandbox delivery recorded. No email or social post was sent.",
+        }
+        with workflow_stage(
+            workflow,
+            "launchloop.sandbox_connector",
+            OpenInferenceSpanKindValues.TOOL,
+        ) as connector_span:
+            ConnectorExecution.objects.create(
+                approval=approval,
+                idempotency_key=f"launchloop:{approval.package_hash}",
+                status=ConnectorExecution.Status.DELIVERED,
+                receipt=receipt,
+            )
+            connector_span.set_attribute("civicloop.connector_category", "sandbox_iterable")
+            connector_span.set_attribute("civicloop.outcome", "delivered")
         _transition(
             workflow,
             actor,
-            Workflow.Status.NEEDS_INPUT,
-            "package_rejected",
-            {"reason": reason},
+            Workflow.Status.COMPLETED,
+            "sandbox_receipt_recorded",
+            {"connector": "sandbox_iterable", "audience_count": audience_count},
         )
-        return approval
-
-    approval.status = ApprovalRequest.Status.APPROVED
-    approval.save()
-    _transition(
-        workflow,
-        actor,
-        Workflow.Status.APPROVED,
-        "package_approved",
-        {"package_hash": approval.package_hash},
-    )
-    audience_count = int((workflow.package or {}).get("audience", {}).get("member_count", 0))
-    receipt = {
-        "connector": "sandbox_iterable",
-        "campaign": "New York Youth Day invitation and reminder",
-        "audience_count": audience_count,
-        "mode": "simulation",
-        "external_actions": 0,
-        "message": "Sandbox delivery recorded. No email or social post was sent.",
-    }
-    ConnectorExecution.objects.create(
-        approval=approval,
-        idempotency_key=f"launchloop:{approval.package_hash}",
-        status=ConnectorExecution.Status.DELIVERED,
-        receipt=receipt,
-    )
-    _transition(
-        workflow,
-        actor,
-        Workflow.Status.COMPLETED,
-        "sandbox_receipt_recorded",
-        {"connector": "sandbox_iterable", "audience_count": audience_count},
-    )
     return approval
 
 

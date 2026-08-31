@@ -20,6 +20,8 @@ SafeAttributeValue: TypeAlias = (
 ALLOWED_SPAN_ATTRIBUTES = frozenset(
     {
         "openinference.span.kind",
+        "http.request.method",
+        "http.response.status_code",
         "civicloop.run_id",
         "civicloop.step_id",
         "civicloop.workflow_id",
