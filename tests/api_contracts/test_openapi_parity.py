@@ -47,6 +47,7 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/eventbrite/events/refresh",
         "/api/v1/eventbrite/events/{sourceId}/select",
         "/api/v1/workflows/{workflowId}/runs",
+        "/api/v1/workflows/{workflowId}/evaluations",
         "/api/v1/workflows/{workflowId}/answers",
         "/api/v1/workflows/{workflowId}/submit",
         "/api/v1/approvals/{approvalId}/decision",
