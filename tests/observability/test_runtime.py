@@ -90,4 +90,4 @@ def test_exporter_outage_never_escapes_the_business_span() -> None:
     with runtime.start_span("launchloop.request") as span:
         span.set_attribute("civicloop.workflow_id", "workflow-1")
 
-    assert runtime.force_flush() is True
+    assert runtime.force_flush() is False

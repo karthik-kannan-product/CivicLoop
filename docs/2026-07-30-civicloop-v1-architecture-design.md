@@ -2,7 +2,7 @@
 
 **Status:** Approved target architecture; implementation in progress  
 **Decision date:** 2026-07-30  
-**Last reconciled with the repository:** 2026-08-24
+**Last reconciled with the repository:** 2026-08-30
 **License:** MIT  
 **First workflow:** LaunchLoop  
 **Deployment model:** One nonprofit organization per deployment
@@ -59,7 +59,7 @@ surface, and write-only integration administration.
 | Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only Eventbrite, Iterable, OpenAI, and Groq connection lifecycle; bounded read-only connection probes; persisted `sandbox_iterable` receipt with zero external actions | Callable draft adapters, webhook/polling refresh, external idempotency and reconciliation, and separately approval-gated publish/send operations |
 | Agents and evaluation | Deterministic Python package engine; 15-event scenario corpus; 16 executable cases; 100 labeled examples; immutable model/routing profiles; transactional run/month budgets; durable run, step, and advisory evaluation records; safe owner/reviewer read APIs | Fixed LLM judge, Hermes adapter, bounded specialist tasks, schema validation/repair, and concurrency semaphore |
 | Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, model/routing policy, budget ledger, agent run/step, evaluation, and audit records; browser-local state for GitHub Pages | Organization, outbox, operational metrics, and retention enforcement |
-| Runtime | Production Vultr deployment with Caddy/TLS, one multi-stage app image, Django/Gunicorn, Celery worker and scheduler, PostgreSQL, Valkey, health/readiness, host-only key rings, backup/restore, status, and rollback automation | Real background workflow tasks, OpenTelemetry/OpenInference, authenticated Phoenix, Hermes/LiteLLM, and retention automation |
+| Runtime | Production Vultr deployment foundation plus feature-gated OpenTelemetry/OpenInference tracing, bounded redaction/export, and an optional version-pinned authenticated Phoenix Compose profile with separate storage and 14-day retention | Production Phoenix activation, real background workflow tasks, Hermes/LiteLLM, and broader operational metrics |
 | Delivery | GitHub Actions verification, protected approval-gated GitHub-to-Vultr deployment, dynamic temporary SSH firewall access, GitHub Pages, pinned release state, and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
 
 The Celery worker and scheduler are foundation process modes today. The only
@@ -67,9 +67,10 @@ Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes
 synchronously in Django. Integration capability labels declare the approved
 future boundary, but current provider adapters only test credentials with
 harmless reads. Likewise, `AGENT_MAX_CONCURRENCY` is parsed and capped at three,
-but no agent runtime or cross-process semaphore is connected. OpenTelemetry,
-OpenInference, Phoenix, Hermes, LiteLLM, and the evaluation LLM are not yet
-runtime services.
+but no agent runtime or cross-process semaphore is connected. OpenTelemetry and
+OpenInference now trace the deterministic LaunchLoop path. Phoenix is packaged
+as an optional, authenticated service and remains outside business readiness;
+Hermes, LiteLLM, and the evaluation LLM are not yet runtime services.
 
 ## 5. System Context
 
@@ -133,7 +134,7 @@ PostgreSQL remains the only required durable backup. A future transactional outb
 | Python tooling | uv, pytest, Ruff, mypy | Locked dependencies, tests, linting, and type checks |
 | Frontend testing | Vitest and Testing Library | Component and browser-like interaction checks |
 | Agent runtime target | Hermes behind an adapter | Provider-flexible bounded reasoning; not integrated yet |
-| Telemetry target | OpenTelemetry and optional Phoenix | Vendor-neutral tracing and agent-run inspection; not integrated yet |
+| Telemetry | OpenTelemetry/OpenInference and optional Phoenix | Redacted vendor-neutral tracing, W3C propagation, and optional agent-run inspection |
 | Kubernetes target | Helm | Future production packaging; not present yet |
 
 Versions are pinned in lockfiles or container tags and upgraded through reviewed changes.

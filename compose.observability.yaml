@@ -1,0 +1,55 @@
+services:
+  phoenix:
+    image: arizephoenix/phoenix:version-20.4.0-nonroot@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07
+    profiles: [observability]
+    env_file:
+      - ${CIVICLOOP_PHOENIX_ENV_HOST_PATH:?Set an absolute host Phoenix environment path}
+    environment:
+      PHOENIX_ENABLE_AUTH: "True"
+      PHOENIX_USE_SECURE_COOKIES: "True"
+      PHOENIX_DEFAULT_RETENTION_POLICY_DAYS: "14"
+      PHOENIX_ALLOW_EXTERNAL_RESOURCES: "False"
+      PHOENIX_WORKING_DIR: /data
+    ports:
+      - "127.0.0.1:6006:6006"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - phoenix-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:6006/healthz')"
+      interval: 10s
+      timeout: 3s
+      retries: 18
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 768M
+
+  web:
+    environment:
+      CIVICLOOP_TELEMETRY_ENABLED: "true"
+      CIVICLOOP_TELEMETRY_ENDPOINT: http://phoenix:6006/v1/traces
+      CIVICLOOP_TELEMETRY_HEADERS_FILE: /run/secrets/phoenix-otlp-headers
+    volumes:
+      - ${CIVICLOOP_PHOENIX_OTLP_HEADERS_HOST_PATH:?Set an absolute host OTLP headers path}:/run/secrets/phoenix-otlp-headers:ro
+
+  worker:
+    environment:
+      CIVICLOOP_TELEMETRY_ENABLED: "true"
+      CIVICLOOP_TELEMETRY_ENDPOINT: http://phoenix:6006/v1/traces
+      CIVICLOOP_TELEMETRY_HEADERS_FILE: /run/secrets/phoenix-otlp-headers
+    volumes:
+      - ${CIVICLOOP_PHOENIX_OTLP_HEADERS_HOST_PATH:?Set an absolute host OTLP headers path}:/run/secrets/phoenix-otlp-headers:ro
+
+volumes:
+  phoenix-data:

@@ -179,21 +179,18 @@ See `docs/api-contracts.md` for contributor rules and authentication details.
 
 ## Next PRD Milestone
 
-The synthetic gate and durable control-plane gate of the observable agent
-foundation are complete: 15 event scenarios, 16 deterministic executable
-cases, 100 labeled examples, versioned model/routing policy, transactional
-budget records, immutable run/step/evaluation records, and safe owner/reviewer
-read APIs are implemented. The remaining approved increment is:
+The synthetic, durable-control-plane, and observable-deterministic gates are
+implemented: 15 event scenarios, 16 deterministic executable cases, 100
+labeled examples, durable run/budget/evaluation records, redacted
+OpenTelemetry/OpenInference tracing, and an optional authenticated Phoenix
+profile with 14-day retention. Phoenix is not required for CivicLoop readiness
+and its production activation remains a protected operations step.
 
-1. instrument the deterministic workflow with OpenTelemetry and OpenInference;
-2. deploy administrator-only Phoenix with 14-day retention and safe degradation;
-3. add a fixed, budgeted LLM evaluation judge; and
-4. show trace, evaluation, provider, usage, cost, and fallback status in review.
-
-After the observable deterministic workflow is proven, the approved live-read
-pilot lets an authorized human initiate manually or select safely imported
-Eventbrite state while all external mutation remains disabled. Hermes remains
-synthetic and internal-only in the following increment, and Iterable draft
+The next approved product increment is the live-read pilot: an authorized human
+can initiate manually or select safely imported Eventbrite state while all
+external mutation remains disabled. The following evaluation increment adds a
+fixed budgeted judge and safe trace/evaluation/usage status in review. Hermes
+remains synthetic and internal-only until its later gate, and Iterable draft
 operations remain disabled. See the
 [architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence).
 

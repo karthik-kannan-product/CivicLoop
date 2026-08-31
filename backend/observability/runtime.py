@@ -54,16 +54,20 @@ class RedactingSpanExporter(SpanExporter):
     def __init__(self, delegate: Exporter, *, max_attribute_length: int) -> None:
         self._delegate = delegate
         self._max_attribute_length = max_attribute_length
+        self.last_export_succeeded = True
 
     def export(self, spans: Any) -> SpanExportResult:
         sanitized = tuple(self._sanitize_span(span) for span in spans)
         try:
             result = self._delegate.export(sanitized)
         except Exception:
+            self.last_export_succeeded = False
             logger.warning("telemetry_export_failed", extra={"event": "telemetry_export_failed"})
             return SpanExportResult.FAILURE
         if isinstance(result, SpanExportResult):
+            self.last_export_succeeded = result is SpanExportResult.SUCCESS
             return result
+        self.last_export_succeeded = True
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
@@ -102,9 +106,15 @@ class RedactingSpanExporter(SpanExporter):
 
 
 class TelemetryRuntime:
-    def __init__(self, provider: TracerProvider | None, tracer: Tracer) -> None:
+    def __init__(
+        self,
+        provider: TracerProvider | None,
+        tracer: Tracer,
+        exporter: RedactingSpanExporter | None = None,
+    ) -> None:
         self._provider = provider
         self._tracer = tracer
+        self._exporter = exporter
         self.enabled = provider is not None
 
     def start_span(self, name: str, **kwargs: Any) -> AbstractContextManager[Span]:
@@ -123,7 +133,10 @@ class TelemetryRuntime:
         if self._provider is None:
             return True
         try:
-            return bool(self._provider.force_flush(timeout_millis))
+            flushed = bool(self._provider.force_flush(timeout_millis))
+            return flushed and bool(
+                self._exporter is None or self._exporter.last_export_succeeded
+            )
         except Exception:
             return True
 
@@ -188,7 +201,11 @@ def build_runtime(
                 export_timeout_millis=config.export_timeout_millis,
             )
         )
-    return TelemetryRuntime(provider, provider.get_tracer("civicloop", "1.0"))
+    return TelemetryRuntime(
+        provider,
+        provider.get_tracer("civicloop", "1.0"),
+        safe_exporter,
+    )
 
 
 _runtime: TelemetryRuntime | None = None

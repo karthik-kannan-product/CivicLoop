@@ -104,3 +104,64 @@ is required. Budget and LLM evaluation records retain the referenced profile
 revision. Evaluation input and prompt references are bounded opaque IDs; they
 must not contain filesystem traversal, paths, or raw content. Later persistence
 work verifies coordinate resolution and manifest membership.
+
+## Implemented deterministic trace
+
+The feature-gated runtime emits one linked trace for the current LaunchLoop
+journey. It includes HTTP, workflow, request, deterministic-lane, policy,
+evaluation, approval, and sandbox-connector spans. W3C `traceparent` context is
+continued from HTTP and persisted as an opaque workflow correlation value for
+future Celery headers. Telemetry never contributes to package content or its
+hash, workflow status, approval decisions, or connector receipts.
+
+The exporter drops unknown attributes, drops span events and links, bounds
+attribute counts and lengths, replaces recognized credential-like values, and
+uses a bounded asynchronous queue. Export exceptions are converted to a failed
+diagnostic result and do not escape into business work.
+
+The primary operating questions are:
+
+1. Is telemetry enabled, and did the collector accept the latest batch?
+2. Which deterministic stage and policy outcome occurred for one workflow?
+3. Did a workflow reach approval and the sandbox connector without changing
+   its package hash?
+4. Can CivicLoop remain live and ready while Phoenix is stopped?
+
+## Optional Phoenix profile
+
+`compose.observability.yaml` adds Phoenix only when the `observability` profile
+is selected. The image is version- and digest-pinned, runs non-root and
+read-only, stores diagnostic data in its own `phoenix-data` volume, limits CPU
+and memory, binds the UI to host loopback port 6006, and publishes no OTLP or
+gRPC collector port. CivicLoop exports over the internal Compose network.
+
+Phoenix authentication material is human-created and host-only:
+
+- a mode-0600 Phoenix environment file contains the Phoenix signing secret,
+  distinct administrator ingestion secret, and initial administrator password;
+- a separate mode-0600 header file contains the matching OTLP authorization
+  header and is mounted read-only into CivicLoop web and worker containers; and
+- neither file may share CivicLoop database, integration, identity, or provider
+  credentials.
+
+With telemetry enabled, verify authenticated ingestion without prompt content:
+
+```powershell
+docker compose -f compose.yaml -f compose.observability.yaml --profile observability exec -T web python backend/manage.py emit_synthetic_trace
+```
+
+The command emits one content-free synthetic span and fails if the collector
+does not accept it. Phoenix applies `PHOENIX_DEFAULT_RETENTION_POLICY_DAYS=14`;
+cleanup runs on Phoenix's retention schedule. Phoenix data is diagnostic and is
+excluded from CivicLoop PostgreSQL backup/restore. Operators may separately
+snapshot the `phoenix-data` volume when incident evidence must be preserved.
+
+## Outage drill and rollback
+
+Stop Phoenix, run ordinary CivicLoop readiness, and complete a deterministic
+LaunchLoop journey. Readiness, package hash, approval, and sandbox receipt must
+remain unchanged. Restarting Phoenix resumes bounded export; no business record
+is replayed or rewritten. To disable the profile, set
+`CIVICLOOP_OBSERVABILITY_ENABLED=false`, remove the observability Compose
+fragment from the invocation, and recreate web and worker. Do not delete the
+Phoenix volume unless its diagnostic evidence is intentionally disposable.

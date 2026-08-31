@@ -59,6 +59,7 @@ jobs:
         run: >-
           python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-ci-integration-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-integration-synthetic','keys':{'ci-integration-synthetic':key}})); p.chmod(0o600)"
       - run: uv sync --locked
+      - run: uv run pip-audit
       - run: uv run python scripts/validate_api_contracts.py
       - run: uv run ruff check backend tests scripts
       - run: uv run mypy scripts
@@ -100,7 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     env:
-      COMPOSE_FILE: compose.yaml:compose.integrations.yaml
+      COMPOSE_FILE: compose.yaml:compose.integrations.yaml:compose.observability.yaml
+      COMPOSE_PROFILES: observability
     steps:
       # actions/checkout@v4
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -113,14 +115,45 @@ jobs:
           sed -i 's/CIVICLOOP_INTEGRATIONS_ENABLED=false/CIVICLOOP_INTEGRATIONS_ENABLED=true/' .env
           sed -i 's|/srv/civicloop/secrets/identity-keyring.json|/tmp/civicloop-compose-identity-keyring.json|' .env
           sed -i 's|/srv/civicloop/secrets/integration-keyring.json|/tmp/civicloop-compose-integration-keyring.json|' .env
+          sed -i 's|/srv/civicloop/secrets/phoenix.env|/tmp/civicloop-compose-phoenix.env|' .env
+          sed -i 's|/srv/civicloop/secrets/phoenix-otlp-headers|/tmp/civicloop-compose-phoenix-otlp-headers|' .env
       - name: Create synthetic Compose identity key
         run: |
           python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-compose-identity-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-compose-synthetic','keys':{'ci-compose-synthetic':key}})); p.chmod(0o600)"
           python3 -c "import base64,json,secrets; from pathlib import Path; p=Path('/tmp/civicloop-compose-integration-keyring.json'); key=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=').decode(); p.write_text(json.dumps({'active_key_id':'ci-compose-integration-synthetic','keys':{'ci-compose-integration-synthetic':key}})); p.chmod(0o600)"
           sudo chown 10001:10001 /tmp/civicloop-compose-identity-keyring.json
           sudo chown 10001:10001 /tmp/civicloop-compose-integration-keyring.json
+      - name: Create synthetic Phoenix authentication files
+        run: |
+          python3 - <<'PY'
+          import secrets
+          from pathlib import Path
+
+          signing = f"ci-signing-{secrets.token_hex(32)}1a"
+          admin = f"ci-admin-{secrets.token_hex(32)}2b"
+          password = f"ci-password-{secrets.token_hex(24)}3c"
+          env_path = Path("/tmp/civicloop-compose-phoenix.env")
+          env_path.write_text(
+              "\n".join(
+                  (
+                      f"PHOENIX_SECRET={signing}",
+                      f"PHOENIX_ADMIN_SECRET={admin}",
+                      f"PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD={password}",
+                      "PHOENIX_ROOT_URL=https://phoenix.example.test",
+                      "PHOENIX_CSRF_TRUSTED_ORIGINS=https://phoenix.example.test",
+                  )
+              )
+              + "\n"
+          )
+          headers_path = Path("/tmp/civicloop-compose-phoenix-otlp-headers")
+          headers_path.write_text(f"authorization=Bearer {admin}\n")
+          env_path.chmod(0o600)
+          headers_path.chmod(0o600)
+          PY
+          sudo chown 10001:10001 /tmp/civicloop-compose-phoenix-otlp-headers
       - run: docker compose build
       - run: docker compose up -d --wait --wait-timeout 120 db valkey
+      - run: docker compose up -d --wait --wait-timeout 180 phoenix
       - run: docker compose up --no-deps --exit-code-from migrate migrate
       - run: docker compose up -d --no-deps web worker scheduler
       - run: |
@@ -136,6 +169,13 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Verify authenticated trace ingestion and Phoenix outage isolation
+        run: |
+          docker compose exec -T web python backend/manage.py emit_synthetic_trace
+          docker compose stop phoenix
+          docker compose exec -T web python scripts/readiness.py --base-url http://localhost:8000 --require-admin-identity --require-admin-integrations
+          docker compose up -d --wait --wait-timeout 180 phoenix
+          docker compose exec -T web python backend/manage.py emit_synthetic_trace
       - if: failure()
         run: |
           docker compose ps -a || true
@@ -143,4 +183,4 @@ jobs:
       - if: always()
         run: |
           docker compose down -v --remove-orphans
-          sudo rm -f /tmp/civicloop-compose-identity-keyring.json /tmp/civicloop-compose-integration-keyring.json
+          sudo rm -f /tmp/civicloop-compose-identity-keyring.json /tmp/civicloop-compose-integration-keyring.json /tmp/civicloop-compose-phoenix.env /tmp/civicloop-compose-phoenix-otlp-headers
