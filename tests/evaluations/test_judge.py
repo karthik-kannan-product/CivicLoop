@@ -2,7 +2,13 @@ import uuid
 from dataclasses import dataclass
 
 import pytest
-from agents.models import AgentRun, BudgetPeriod, BudgetReservation
+from agents.models import (
+    AgentRun,
+    BudgetPeriod,
+    BudgetReservation,
+    ModelProfile,
+    RoutingPolicy,
+)
 from django.contrib.auth.models import User
 from django.utils import timezone
 from evaluations.judge import JudgeResponse, run_fixed_judge
@@ -22,7 +28,7 @@ class FakeJudgeClient:
 
     def evaluate(self, *, credential, package, model):
         self.calls += 1
-        assert model == "gpt-5-mini-2025-08-07"
+        assert model == "gpt-5.5-2026-04-23"
         assert set(package) == {"status", "assets", "audience", "sponsor", "evidence"}
         if isinstance(self.response, Exception):
             raise self.response
@@ -106,6 +112,19 @@ def _configured_openai(monkeypatch) -> None:
         "evaluations.judge.PostgresSecretStore.lease",
         lambda *_args, **_kwargs: Lease(),
     )
+
+
+@pytest.mark.django_db
+def test_fixed_judge_uses_versioned_accessible_openai_profile() -> None:
+    profile = ModelProfile.objects.get(profile_id="launchloop_openai_judge", revision=2)
+    policy = RoutingPolicy.objects.get(policy_id="launchloop_openai_judge", revision=2)
+
+    assert profile.model == "gpt-5.5-2026-04-23"
+    assert profile.input_price_microusd_per_million == 5_000_000
+    assert profile.output_price_microusd_per_million == 30_000_000
+    assert policy.model_profile == profile
+    assert policy.per_run_limit_microusd == 500_000
+    assert policy.monthly_limit_microusd == 25_000_000
 
 
 @pytest.mark.django_db
