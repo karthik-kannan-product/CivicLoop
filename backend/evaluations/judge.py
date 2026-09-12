@@ -33,7 +33,7 @@ from openinference.semconv.trace import OpenInferenceSpanKindValues
 from evaluations.models import EvaluationResult
 
 PROFILE_ID = "launchloop_openai_judge"
-PROFILE_REVISION = 1
+PROFILE_REVISION = 2
 RUBRIC_ID = "launchloop_package_quality"
 RUBRIC_VERSION = 1
 PROMPT_REFERENCE = "launchloop_package_judge"
