@@ -81,6 +81,25 @@ class _NoRedirects(HTTPRedirectHandler):
         return None
 
 
+def _structured_output_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["outcome", "score", "labels", "rationale"],
+        "properties": {
+            "outcome": {"enum": ["passed", "failed", "inconclusive"]},
+            "score": {"type": "number", "minimum": 0, "maximum": 1},
+            "labels": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 5,
+                "items": {"enum": sorted(ALLOWED_LABELS)},
+            },
+            "rationale": {"type": "string"},
+        },
+    }
+
+
 class OpenAIResponsesJudgeClient:
     def evaluate(
         self, *, credential: SecretLease, package: dict[str, Any], model: str
@@ -114,23 +133,7 @@ class OpenAIResponsesJudgeClient:
                     "type": "json_schema",
                     "name": "civicloop_evaluation",
                     "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["outcome", "score", "labels", "rationale"],
-                        "properties": {
-                            "outcome": {"enum": ["passed", "failed", "inconclusive"]},
-                            "score": {"type": "number", "minimum": 0, "maximum": 1},
-                            "labels": {
-                                "type": "array",
-                                "minItems": 1,
-                                "maxItems": 5,
-                                "uniqueItems": True,
-                                "items": {"enum": sorted(ALLOWED_LABELS)},
-                            },
-                            "rationale": {"type": "string", "maxLength": 500},
-                        },
-                    },
+                    "schema": _structured_output_schema(),
                 }
             },
         }

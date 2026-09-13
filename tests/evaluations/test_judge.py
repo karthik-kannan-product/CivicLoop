@@ -127,6 +127,17 @@ def test_fixed_judge_uses_versioned_accessible_openai_profile() -> None:
     assert policy.monthly_limit_microusd == 25_000_000
 
 
+def test_openai_response_schema_uses_only_supported_constraints() -> None:
+    from evaluations.judge import _structured_output_schema
+
+    schema = _structured_output_schema()
+    labels = schema["properties"]["labels"]
+    rationale = schema["properties"]["rationale"]
+
+    assert "uniqueItems" not in labels
+    assert "maxLength" not in rationale
+
+
 @pytest.mark.django_db
 def test_fixed_judge_persists_typed_advisory_result_and_settles_budget(monkeypatch) -> None:
     workflow, approval = _workflow()
