@@ -122,12 +122,14 @@ class OpenAIResponsesJudgeClient:
                     "content": (
                         "Evaluate this synthetic, review-only CivicLoop package. Apply rubric "
                         "launchloop_package_quality version 1. Return only the required schema. "
-                        "This result is advisory and cannot approve or execute actions."
+                        "Keep the rationale at most 500 characters. This result is advisory and "
+                        "cannot approve or execute actions."
                     ),
                 },
                 {"role": "user", "content": json.dumps(package, sort_keys=True)},
             ],
             "max_output_tokens": 256,
+            "reasoning": {"effort": "none"},
             "text": {
                 "format": {
                     "type": "json_schema",
