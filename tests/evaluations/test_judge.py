@@ -1,3 +1,4 @@
+import json
 import uuid
 from dataclasses import dataclass
 
@@ -136,6 +137,65 @@ def test_openai_response_schema_uses_only_supported_constraints() -> None:
 
     assert "uniqueItems" not in labels
     assert "maxLength" not in rationale
+
+
+def test_openai_judge_disables_reasoning_and_prompts_for_bounded_rationale(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self, _limit):
+            return json.dumps(
+                {
+                    "output": [
+                        {
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": json.dumps(
+                                        {
+                                            "outcome": "passed",
+                                            "score": 1,
+                                            "labels": ["expected_output"],
+                                            "rationale": "Within the limit.",
+                                        }
+                                    ),
+                                }
+                            ]
+                        }
+                    ],
+                    "usage": {"input_tokens": 10, "output_tokens": 10},
+                }
+            ).encode()
+
+    class Opener:
+        def open(self, request, *, timeout):
+            assert timeout > 0
+            captured.update(json.loads(request.data))
+            return Response()
+
+    class Lease:
+        def use(self, operation):
+            return operation(memoryview(b"synthetic"))
+
+    monkeypatch.setattr("evaluations.judge.build_opener", lambda *_args: Opener())
+
+    from evaluations.judge import OpenAIResponsesJudgeClient
+
+    result = OpenAIResponsesJudgeClient().evaluate(
+        credential=Lease(), package={"status": "ready_for_review"}, model="synthetic-model"
+    )
+
+    assert result.outcome == "passed"
+    assert captured["reasoning"] == {"effort": "none"}
+    assert "at most 500 characters" in captured["input"][0]["content"]
 
 
 @pytest.mark.django_db
