@@ -18,7 +18,7 @@ class SecretReference:
     scope: str
     version: int
 
-    def with_provider(self, provider: str) -> "SecretReference":
+    def with_provider(self, provider: str) -> SecretReference:
         return SecretReference(
             id=self.id, provider=provider, scope=self.scope, version=self.version
         )
@@ -81,7 +81,7 @@ class SecretLease:
             self._plaintext[:] = b"\0" * len(self._plaintext)
             self._plaintext = None
 
-    def __enter__(self) -> "SecretLease":
+    def __enter__(self) -> SecretLease:
         self._ensure_available()
         return self
 

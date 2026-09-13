@@ -143,7 +143,7 @@ docker run --rm `
   -v "${PWD}:/app" `
   -w /app `
   ghcr.io/astral-sh/uv:0.11.32 `
-  uv run --python 3.11 pytest tests -v
+  uv run --python 3.14 pytest tests -v
 python .\loops\launchloop\launchloop.py
 ```
 
@@ -178,6 +178,14 @@ uv run python scripts/validate_api_contracts.py
 See `docs/api-contracts.md` for contributor rules and authentication details.
 
 ## Next PRD Milestone
+
+The observable-agent foundation release gate is complete: exact-commit CI,
+production deployment, a synthetic four-eyes journey, bounded Eventbrite and
+OpenAI smokes, Phoenix degradation/recovery, disposable backup restoration,
+rollback readiness, resource headroom, and sanitized log review have passed.
+Python 3.14 is now the supported application and build runtime. Runtime micro
+releases remain pinned and advance through the same full CI and production
+promotion gate; prerelease Python versions are not used.
 
 The synthetic, durable-control-plane, and observable-deterministic gates are
 implemented: 15 event scenarios, 16 deterministic executable cases, 100

@@ -6,7 +6,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM python:3.11.13-slim-bookworm AS python-builder
+FROM python:3.14.7-slim-bookworm AS python-builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
-FROM python:3.11.13-slim-bookworm AS runtime
+FROM python:3.14.7-slim-bookworm AS runtime
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/backend" \
     PYTHONDONTWRITEBYTECODE=1 \
