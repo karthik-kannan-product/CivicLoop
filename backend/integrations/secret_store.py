@@ -35,7 +35,7 @@ class SecretStore(ABC):
         workflow_id: UUID | None,
         purpose: str,
         ttl: timedelta,
-    ) -> "_LeaseContext":
+    ) -> _LeaseContext:
         """Return a context that exposes plaintext only during a validated call."""
 
     @abstractmethod
@@ -76,7 +76,7 @@ class PostgresSecretStore(SecretStore):
         workflow_id: UUID | None,
         purpose: str,
         ttl: timedelta,
-    ) -> "_LeaseContext":
+    ) -> _LeaseContext:
         self._validate_lease_request(reference, caller_id, workflow_id, purpose, ttl)
         return _LeaseContext(self, reference, caller_id, workflow_id, purpose, timezone.now() + ttl)
 

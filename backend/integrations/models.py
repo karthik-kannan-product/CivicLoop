@@ -123,7 +123,7 @@ class EncryptedSecret(models.Model):
 
 
 class IntegrationConnectionQuerySet(models.QuerySet):
-    def bulk_create(self, objs: list["IntegrationConnection"], **kwargs: Any) -> list[Any]:
+    def bulk_create(self, objs: list[IntegrationConnection], **kwargs: Any) -> list[Any]:
         for connection in objs:
             connection.clean()
         return cast(list[Any], super().bulk_create(objs, **kwargs))
@@ -135,7 +135,7 @@ class IntegrationConnectionQuerySet(models.QuerySet):
 
     def bulk_update(
         self,
-        objs: list["IntegrationConnection"],
+        objs: list[IntegrationConnection],
         fields: list[str],
         **kwargs: Any,
     ) -> int:

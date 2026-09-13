@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from typing import TypeAlias
 
 from opentelemetry.util.types import AttributeValue
 
-SafeAttributeValue: TypeAlias = (
+type SafeAttributeValue = (
     str
     | bool
     | int

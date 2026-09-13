@@ -2,7 +2,7 @@
 
 **Status:** Approved target architecture; implementation in progress  
 **Decision date:** 2026-07-30  
-**Last reconciled with the repository:** 2026-08-30
+**Last reconciled with the repository:** 2026-09-13
 **License:** MIT  
 **First workflow:** LaunchLoop  
 **Deployment model:** One nonprofit organization per deployment
@@ -46,7 +46,7 @@ Where those differ, the current-state sections are authoritative about the code 
 
 ## 4. Current Implementation Snapshot
 
-As of 2026-08-31, the repository contains a deployed deterministic LaunchLoop
+As of 2026-09-13, the repository contains a deployed deterministic LaunchLoop
 vertical slice, its production runtime, a single-owner administrator security
 surface, and write-only integration administration.
 
@@ -59,8 +59,8 @@ surface, and write-only integration administration.
 | Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only connection lifecycle; bounded, paginated, read-only Eventbrite organization/event metadata refresh; revision-aware local snapshots and provenance; persisted `sandbox_iterable` receipt with zero external actions | Webhook refresh, external reconciliation, and separately approval-gated publish/send operations |
 | Agents and evaluation | Deterministic Python package engine; 15-event scenario corpus; 16 executable cases; 100 labeled examples; immutable model/routing profiles; transactional run/month budgets; fixed schema-bound OpenAI judge for explicitly synthetic packages; durable run, step, and advisory evaluation records; safe owner/reviewer read APIs | Hermes adapter, bounded specialist tasks, general schema validation/repair, and concurrency semaphore |
 | Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, model/routing policy, budget ledger, agent run/step, evaluation, and audit records; browser-local state for GitHub Pages | Organization, outbox, operational metrics, and retention enforcement |
-| Runtime | Production Vultr deployment foundation plus feature-gated OpenTelemetry/OpenInference tracing, bounded redaction/export, and an optional version-pinned authenticated Phoenix Compose profile with separate storage and 14-day retention | Production Phoenix activation, real background workflow tasks, Hermes/LiteLLM, and broader operational metrics |
-| Delivery | GitHub Actions verification, protected approval-gated GitHub-to-Vultr deployment, dynamic temporary SSH firewall access, GitHub Pages, pinned release state, and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
+| Runtime | Production Vultr deployment with feature-gated OpenTelemetry/OpenInference tracing, bounded redaction/export, and an active version-pinned authenticated Phoenix Compose profile with separate storage and 14-day retention | Real background workflow tasks, Hermes/LiteLLM, and broader operational metrics |
+| Delivery | Python 3.14 application/build runtime; GitHub Actions verification; protected approval-gated GitHub-to-Vultr deployment; dynamic temporary SSH firewall access; GitHub Pages; pinned release state; tested backup/restore and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
 
 The Celery worker and scheduler are foundation process modes today. The only
 Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes
@@ -126,7 +126,7 @@ PostgreSQL remains the only required durable backup. A future transactional outb
 
 | Concern | Current selection | Architectural role |
 | --- | --- | --- |
-| Backend | Django 5.2, Python 3.11 | API, sessions, authorization, ORM, migrations, and domain services |
+| Backend | Django 5.2, Python 3.14 | API, sessions, authorization, ORM, migrations, and domain services |
 | Frontend | React 19, TypeScript, Vite | Interactive operator and approver application; static demo build |
 | Durable data | PostgreSQL 17 | Canonical transactional source of truth |
 | Cache and broker | Valkey 8 | Redis-compatible cache and Celery transport |
@@ -428,7 +428,10 @@ Deferred work includes membership lifecycle, sponsor-domain eligibility, Stripe 
    durable control plane, OpenTelemetry/OpenInference, authenticated Phoenix,
    fixed budgeted LLM judge, and safe review status. The judge remains strictly
    synthetic and advisory; provider or observability outages do not block human
-   review or approval.
+   review or approval. The final release gate includes exact-commit CI and
+   protected deployment, production synthetic and live-read smokes, disposable
+   backup restoration, rollback readiness, resource headroom, and sanitized log
+   review.
 5. **Hermes synthetic execution:** internal Hermes/LiteLLM service, deterministic
    profiles, capability-scoped tools, structured schemas, policy/prompt
    versioning, cost ledger, fallback rules, and global concurrency control.

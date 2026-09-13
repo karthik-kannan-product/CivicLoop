@@ -32,7 +32,7 @@ class Response:
         self.body = body
         self.status = status
 
-    def __enter__(self) -> "Response":
+    def __enter__(self) -> Response:
         return self
 
     def __exit__(self, *args: object) -> None:
