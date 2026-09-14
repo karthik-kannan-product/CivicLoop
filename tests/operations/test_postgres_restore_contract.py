@@ -2,6 +2,7 @@ import importlib.util
 import os
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,21 +17,69 @@ def _load_validator():
     return module
 
 
-def test_restore_validator_compares_schema_and_record_count_invariants() -> None:
-    validator = _load_validator()
-    expected = {
-        "columns": [["public", "events", "id", "bigint", "NO"]],
+def _complete_invariants() -> dict[str, list[list[object]]]:
+    return {
+        "columns": [["public", "events", "id", 1, "bigint", "int8", "NO", None, "NO", None]],
+        "constraints": [["public", "events", "events_pkey", "PRIMARY KEY (id)"]],
+        "indexes": [["public", "events", "events_pkey", "CREATE UNIQUE INDEX..."]],
+        "sequences": [["public", "events_id_seq", "bigint", 1, 1, 12]],
+        "views": [["public", "active_events", "SELECT ..."]],
+        "materialized_views": [["public", "event_summary", "SELECT ..."]],
+        "functions": [["public", "event_count", "", "bigint", "SELECT ..."]],
+        "extensions": [["plpgsql", "1.0", "pg_catalog"]],
+        "triggers": [["public", "events", "events_audit", "CREATE TRIGGER ..."]],
+        "privileges": [["table", "public", "events", "civicloop", "SELECT", "NO"]],
         "counts": [["public", "events", 12]],
     }
 
+
+def test_restore_validator_compares_all_application_equivalence_invariants() -> None:
+    validator = _load_validator()
+    expected = _complete_invariants()
+
     assert validator.validate_invariants(expected, expected) == []
-    assert validator.validate_invariants(
-        expected,
-        {
-            "columns": [["public", "events", "id", "integer", "NO"]],
-            "counts": [["public", "events", 11]],
-        },
-    ) == ["schema invariant mismatch", "record-count invariant mismatch"]
+    assert tuple(expected) == validator.INVARIANT_CATEGORIES
+    for category in validator.INVARIANT_CATEGORIES:
+        restored = {name: list(values) for name, values in expected.items()}
+        restored[category] = [["different"]]
+        assert validator.validate_invariants(expected, restored) == [
+            f"{category} invariant mismatch"
+        ]
+
+
+def test_restore_validator_uses_read_only_repeatable_read_source_transaction() -> None:
+    validator = _load_validator()
+
+    class Connection:
+        def __init__(self) -> None:
+            self.commands: list[str] = []
+
+        def transaction(self):
+            return nullcontext()
+
+        def execute(self, command: str) -> None:
+            self.commands.append(command)
+
+    connection = Connection()
+    with validator.read_only_snapshot(connection):
+        pass
+
+    assert connection.commands == [
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
+    ]
+
+
+def test_restore_validator_diagnostics_contain_only_digests_and_category_counts() -> None:
+    validator = _load_validator()
+    expected = _complete_invariants()
+    restored = _complete_invariants()
+    restored["functions"] = [["secret-function-body-marker"]]
+
+    diagnostic = validator.diagnostic_summary(expected, restored)
+
+    assert "sha256:" in diagnostic
+    assert "functions=1" in diagnostic
+    assert "secret-function-body-marker" not in diagnostic
 
 
 def test_restore_validator_requires_separate_database_hosts_without_exposing_passwords() -> None:

@@ -3,6 +3,8 @@ name: civicloop
 x-app: &app
   build:
     context: .
+    labels:
+      org.opencontainers.image.revision: ${CIVICLOOP_APPLICATION_SHA:-unbound-local-build}
   image: civicloop:local
   env_file:
     - .env
