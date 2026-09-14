@@ -16,6 +16,21 @@ SCHEMAS = {
     "draft_operation": "integrations/draft-operation.schema.json",
 }
 
+EXPECTED_RUNTIME_RULE_IDS = {
+    "draft_operation": {
+        "civicloop.draft_operation.v1.action_digest_matches_approval",
+        "civicloop.draft_operation.v1.approval_precedes_execution",
+        "civicloop.draft_operation.v1.distinct_operator_approver",
+        "civicloop.draft_operation.v1.revision_matches_approval",
+    },
+    "workflow_capability": {
+        "civicloop.workflow_capability.v1.issued_before_expires",
+        "civicloop.workflow_capability.v1.not_expired_at_use",
+        "civicloop.workflow_capability.v1.not_revoked_at_use",
+        "civicloop.workflow_capability.v1.ttl_matches_timestamps",
+    },
+}
+
 
 def _load_schema(name: str) -> dict[str, object]:
     with (SCHEMA_ROOT / SCHEMAS[name]).open(encoding="utf-8") as source:
@@ -217,6 +232,50 @@ def test_draft_operation_requires_exact_approved_digest_and_typed_success_receip
 
     assert "action_digest equals approval.approved_action_digest" in schema["$comment"]
     assert "submitting and approving actors are distinct" in schema["$comment"]
+
+
+@pytest.mark.parametrize(
+    ("provider", "operation_kind", "receipt_type"),
+    [
+        ("eventbrite", "create_eventbrite_draft", "iterable_draft"),
+        ("iterable", "create_iterable_email_draft", "eventbrite_draft"),
+    ],
+)
+def test_draft_operation_rejects_receipt_type_for_the_other_provider(
+    provider: str, operation_kind: str, receipt_type: str
+) -> None:
+    payload = _valid_payloads()["draft_operation"]
+    payload["provider"] = provider
+    payload["operation_kind"] = operation_kind
+    payload["receipt"]["receipt_type"] = receipt_type
+
+    with pytest.raises(ValidationError):
+        _validator("draft_operation").validate(payload)
+
+
+@pytest.mark.parametrize("name", EXPECTED_RUNTIME_RULE_IDS)
+def test_cross_field_and_current_time_rules_have_stable_machine_readable_ids(name: str) -> None:
+    schema = _load_schema(name)
+    rules = schema["x-civicloop-runtime-rules"]
+
+    assert {rule["id"] for rule in rules} == EXPECTED_RUNTIME_RULE_IDS[name]
+    for rule in rules:
+        assert set(rule) == {"id", "enforcement", "failure_behavior", "requirement"}
+        assert rule["enforcement"] == "runtime_required"
+        assert rule["failure_behavior"] == "reject"
+        assert rule["requirement"]
+
+
+def test_revoked_capability_rule_is_unconditional_and_fail_closed() -> None:
+    schema = _load_schema("workflow_capability")
+    rules = {rule["id"]: rule for rule in schema["x-civicloop-runtime-rules"]}
+    revoked = rules["civicloop.workflow_capability.v1.not_revoked_at_use"]
+
+    assert revoked["requirement"] == (
+        "Reject every use when revoked_at is non-null, regardless of issued_at, "
+        "expires_at, or ttl_seconds."
+    )
+    assert revoked["failure_behavior"] == "reject"
 
 
 def test_result_and_operation_contracts_prohibit_raw_sensitive_content_fields() -> None:

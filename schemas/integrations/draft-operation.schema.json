@@ -3,6 +3,32 @@
   "$id": "urn:civicloop:schema:integrations:draft-operation:v1.0",
   "title": "Provider draft operation v1",
   "$comment": "Consumers MUST reject unless revision_id equals approval.approved_revision_id, action_digest equals approval.approved_action_digest, and the submitting and approving actors are distinct.",
+  "x-civicloop-runtime-rules": [
+    {
+      "id": "civicloop.draft_operation.v1.revision_matches_approval",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless revision_id equals approval.approved_revision_id."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.action_digest_matches_approval",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless action_digest equals approval.approved_action_digest."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.approval_precedes_execution",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject an execution attempt unless approval.approved_at is earlier than the first execution attempt."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.distinct_operator_approver",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless approval.submitted_by_actor_id and approval.approved_by_actor_id identify distinct actors."
+    }
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -89,6 +115,18 @@
         "reconciliation_status": { "enum": ["confirmed", "ambiguous", "not_found"] },
         "recorded_at": { "type": "string", "format": "date-time", "maxLength": 40 }
       }
+    },
+    "EventbriteReceipt": {
+      "allOf": [
+        { "$ref": "#/$defs/Receipt" },
+        { "properties": { "receipt_type": { "const": "eventbrite_draft" } } }
+      ]
+    },
+    "IterableReceipt": {
+      "allOf": [
+        { "$ref": "#/$defs/Receipt" },
+        { "properties": { "receipt_type": { "const": "iterable_draft" } } }
+      ]
     }
   },
   "allOf": [
@@ -96,7 +134,13 @@
       "if": { "properties": { "provider": { "const": "eventbrite" } } },
       "then": {
         "properties": {
-          "operation_kind": { "enum": ["create_eventbrite_draft", "update_eventbrite_draft"] }
+          "operation_kind": { "enum": ["create_eventbrite_draft", "update_eventbrite_draft"] },
+          "receipt": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/EventbriteReceipt" }
+            ]
+          }
         }
       }
     },
@@ -106,6 +150,12 @@
         "properties": {
           "operation_kind": {
             "enum": ["create_iterable_email_draft", "create_iterable_reminder_draft"]
+          },
+          "receipt": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/IterableReceipt" }
+            ]
           }
         }
       }

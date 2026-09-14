@@ -3,6 +3,32 @@
   "$id": "urn:civicloop:schema:integrations:workflow-capability:v1.0",
   "title": "Workflow capability v1",
   "$comment": "Consumers MUST reject a capability when revoked_at is non-null, when the current time is at or after expires_at, or when expires_at is not later than issued_at and within ttl_seconds.",
+  "x-civicloop-runtime-rules": [
+    {
+      "id": "civicloop.workflow_capability.v1.issued_before_expires",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless issued_at is earlier than expires_at."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.not_expired_at_use",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject every use when the current time is at or after expires_at."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.not_revoked_at_use",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject every use when revoked_at is non-null, regardless of issued_at, expires_at, or ttl_seconds."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.ttl_matches_timestamps",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless expires_at minus issued_at equals ttl_seconds and ttl_seconds is at most 300."
+    }
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [
