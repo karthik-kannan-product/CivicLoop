@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:draft-operation:v1.0",
+  "title": "Provider draft operation v1",
+  "$comment": "Consumers MUST reject unless revision_id equals approval.approved_revision_id, action_digest equals approval.approved_action_digest, and the submitting and approving actors are distinct.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "workflow_id",
+    "revision_id",
+    "provider",
+    "operation_kind",
+    "action_digest",
+    "idempotency_key",
+    "approval",
+    "status",
+    "receipt"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "operation_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "provider": { "enum": ["eventbrite", "iterable"] },
+    "operation_kind": {
+      "enum": [
+        "create_eventbrite_draft",
+        "update_eventbrite_draft",
+        "create_iterable_email_draft",
+        "create_iterable_reminder_draft"
+      ]
+    },
+    "action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+      "maxLength": 128
+    },
+    "approval": { "$ref": "#/$defs/Approval" },
+    "status": {
+      "enum": ["pending", "approved", "executing", "reconciling", "succeeded", "failed", "cancelled"]
+    },
+    "receipt": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/Receipt" }
+      ]
+    }
+  },
+  "$defs": {
+    "Approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_id",
+        "submitted_by_actor_id",
+        "approved_by_actor_id",
+        "approved_revision_id",
+        "approved_action_digest",
+        "four_eyes_verified",
+        "approved_at"
+      ],
+      "properties": {
+        "approval_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "submitted_by_actor_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "approved_by_actor_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "approved_revision_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "approved_action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "four_eyes_verified": { "const": true },
+        "approved_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+      }
+    },
+    "Receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_type",
+        "provider_request_id",
+        "provider_resource_id",
+        "reconciliation_status",
+        "recorded_at"
+      ],
+      "properties": {
+        "receipt_type": { "enum": ["eventbrite_draft", "iterable_draft"] },
+        "provider_request_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "provider_resource_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "reconciliation_status": { "enum": ["confirmed", "ambiguous", "not_found"] },
+        "recorded_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "provider": { "const": "eventbrite" } } },
+      "then": {
+        "properties": {
+          "operation_kind": { "enum": ["create_eventbrite_draft", "update_eventbrite_draft"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "provider": { "const": "iterable" } } },
+      "then": {
+        "properties": {
+          "operation_kind": {
+            "enum": ["create_iterable_email_draft", "create_iterable_reminder_draft"]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } } },
+      "then": { "properties": { "receipt": { "$ref": "#/$defs/Receipt" } } }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["pending", "approved"] } } },
+      "then": { "properties": { "receipt": { "type": "null" } } }
+    }
+  ]
+}

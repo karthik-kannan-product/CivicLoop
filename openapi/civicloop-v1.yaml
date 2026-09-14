@@ -16,10 +16,66 @@ tags:
   - name: Administrator security
   - name: Administrator integrations
   - name: Agent observability
+  - name: Internal agent control
   - name: LaunchLoop
   - name: Approvals
   - name: Health
 paths:
+  /internal/v1/hermes/runs:
+    post:
+      tags: [Internal agent control]
+      operationId: startInternalHermesRun
+      summary: Start one bounded Hermes run on the private agent-control network
+      description: >-
+        Internal service-to-service boundary only. This operation is not routed
+        by Caddy and its bearer token, request content, and model output must not
+        enter logs or traces.
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HermesRunRequest" }
+      responses:
+        "200":
+          description: Schema-bound Hermes run status or terminal result
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HermesRunResult" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /internal/v1/draft-operations:
+    post:
+      tags: [Internal agent control]
+      operationId: requestInternalDraftOperation
+      summary: Record an approved provider draft operation for controlled execution
+      description: >-
+        Internal request boundary for create/update-draft operations only. It
+        never publishes, activates, schedules, sends, changes ticket economics,
+        creates segments, or exports constituent data.
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DraftOperation" }
+      responses:
+        "202":
+          description: Accepted idempotent draft operation awaiting execution or reconciliation
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DraftOperation" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/agent-runs/{runId}:
     get:
       tags: [Agent observability]
@@ -746,6 +802,22 @@ components:
       type: apiKey
       in: cookie
       name: sessionid
+    internalServiceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+      description: Internal-only token loaded from a mode-0600 file; never logged or traced.
+  schemas:
+    DraftOperation:
+      $ref: "../schemas/integrations/draft-operation.schema.json"
+    HermesRunRequest:
+      $ref: "../schemas/agents/hermes-run-request.schema.json"
+    HermesRunResult:
+      $ref: "../schemas/agents/hermes-run-result.schema.json"
+    ModelGatewayProfile:
+      $ref: "../schemas/agents/model-gateway-profile.schema.json"
+    WorkflowCapability:
+      $ref: "../schemas/integrations/workflow-capability.schema.json"
   parameters:
     CsrfToken:
       name: X-CSRFToken
