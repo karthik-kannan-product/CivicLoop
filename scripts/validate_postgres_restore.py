@@ -26,6 +26,8 @@ INVARIANT_CATEGORIES = (
     "materialized_views",
     "functions",
     "extensions",
+    "types",
+    "row_security_policies",
     "triggers",
     "privileges",
     "counts",
@@ -114,6 +116,84 @@ CATALOG_QUERIES = {
           FROM pg_catalog.pg_extension e
           JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
          ORDER BY e.extname
+    """,
+    "types": """
+        SELECT 'enum', n.nspname, t.typname, e.enumlabel,
+               e.enumsortorder::text, NULL, NULL
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+        UNION ALL
+        SELECT 'domain', n.nspname, t.typname,
+               pg_catalog.format_type(t.typbasetype, t.typtypmod),
+               t.typnotnull::text, pg_catalog.pg_get_expr(t.typdefaultbin, 0),
+               pg_catalog.pg_get_constraintdef(con.oid, true)
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          LEFT JOIN pg_catalog.pg_constraint con ON con.contypid = t.oid
+         WHERE t.typtype = 'd'
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        UNION ALL
+        SELECT 'composite', n.nspname, t.typname, a.attname,
+               a.attnum::text,
+               pg_catalog.format_type(a.atttypid, a.atttypmod),
+               a.attnotnull::text
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
+          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+         WHERE t.typtype = 'c' AND c.relkind = 'c'
+           AND a.attnum > 0 AND NOT a.attisdropped
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+        UNION ALL
+        SELECT 'range', n.nspname, t.typname,
+               pg_catalog.format_type(r.rngsubtype, NULL),
+               concat_ws('.', cn.nspname, coll.collname),
+               concat_ws('.', onsp.nspname, opc.opcname),
+               concat_ws(',', r.rngcanonical::regproc::text, r.rngsubdiff::regproc::text)
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_range r ON r.rngtypid = t.oid
+          JOIN pg_catalog.pg_opclass opc ON opc.oid = r.rngsubopc
+          JOIN pg_catalog.pg_namespace onsp ON onsp.oid = opc.opcnamespace
+          LEFT JOIN pg_catalog.pg_collation coll ON coll.oid = r.rngcollation
+          LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = coll.collnamespace
+         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+        UNION ALL
+        SELECT 'multirange', n.nspname, t.typname,
+               pg_catalog.format_type(r.rngsubtype, NULL),
+               concat_ws('.', cn.nspname, coll.collname),
+               concat_ws('.', onsp.nspname, opc.opcname),
+               concat_ws(',', r.rngcanonical::regproc::text, r.rngsubdiff::regproc::text)
+          FROM pg_catalog.pg_type t
+          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          JOIN pg_catalog.pg_range r ON r.rngmultitypid = t.oid
+          JOIN pg_catalog.pg_opclass opc ON opc.oid = r.rngsubopc
+          JOIN pg_catalog.pg_namespace onsp ON onsp.oid = opc.opcnamespace
+          LEFT JOIN pg_catalog.pg_collation coll ON coll.oid = r.rngcollation
+          LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = coll.collnamespace
+         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+         ORDER BY 1, 2, 3, 4, 5, 6, 7
+    """,
+    "row_security_policies": """
+        SELECT n.nspname, c.relname, c.relrowsecurity, c.relforcerowsecurity,
+               p.polname, p.polpermissive, p.polcmd,
+               ARRAY(
+                 SELECT CASE WHEN role_oid = 0 THEN 'public'
+                             ELSE pg_catalog.pg_get_userbyid(role_oid) END
+                   FROM unnest(p.polroles) AS role_oid
+                  ORDER BY 1
+               ),
+               pg_catalog.pg_get_expr(p.polqual, p.polrelid),
+               pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid)
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          LEFT JOIN pg_catalog.pg_policy p ON p.polrelid = c.oid
+         WHERE c.relkind IN ('r', 'p')
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+           AND n.nspname !~ '^pg_toast'
+         ORDER BY n.nspname, c.relname, p.polname
     """,
     "triggers": """
         SELECT n.nspname, c.relname, t.tgname,

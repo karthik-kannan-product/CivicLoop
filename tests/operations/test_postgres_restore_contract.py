@@ -27,6 +27,10 @@ def _complete_invariants() -> dict[str, list[list[object]]]:
         "materialized_views": [["public", "event_summary", "SELECT ..."]],
         "functions": [["public", "event_count", "", "bigint", "SELECT ..."]],
         "extensions": [["plpgsql", "1.0", "pg_catalog"]],
+        "types": [["enum", "public", "event_status", "active", 1.0]],
+        "row_security_policies": [
+            ["public", "events", True, True, "owner_only", True, ["civicloop"], "r"]
+        ],
         "triggers": [["public", "events", "events_audit", "CREATE TRIGGER ..."]],
         "privileges": [["table", "public", "events", "civicloop", "SELECT", "NO"]],
         "counts": [["public", "events", 12]],
@@ -80,6 +84,19 @@ def test_restore_validator_diagnostics_contain_only_digests_and_category_counts(
     assert "sha256:" in diagnostic
     assert "functions=1" in diagnostic
     assert "secret-function-body-marker" not in diagnostic
+
+
+def test_restore_validator_detects_user_defined_type_and_rls_policy_mismatches() -> None:
+    validator = _load_validator()
+    expected = _complete_invariants()
+    restored = _complete_invariants()
+    restored["types"] = [["enum", "public", "event_status", "disabled", 2.0]]
+    restored["row_security_policies"] = []
+
+    assert validator.validate_invariants(expected, restored) == [
+        "types invariant mismatch",
+        "row_security_policies invariant mismatch",
+    ]
 
 
 def test_restore_validator_requires_separate_database_hosts_without_exposing_passwords() -> None:
