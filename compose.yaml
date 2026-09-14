@@ -2,7 +2,7 @@ name: civicloop
 
 x-app: &app
   build:
-    context: .
+    context: ${CIVICLOOP_BUILD_CONTEXT:-.}
     labels:
       org.opencontainers.image.revision: ${CIVICLOOP_APPLICATION_SHA:-unbound-local-build}
   image: civicloop:local
