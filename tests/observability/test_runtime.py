@@ -130,6 +130,34 @@ def test_exported_span_metadata_cannot_carry_sensitive_payloads() -> None:
     assert "private model output" not in rendered
 
 
+def test_exported_resource_is_allowlisted_bounded_and_redacted() -> None:
+    exporter = CaptureExporter()
+    runtime = build_runtime(
+        TelemetryConfig(
+            enabled=True,
+            synchronous=True,
+            max_attribute_length=64,
+            service_name="constituent@example.org",
+            environment="private provider draft body",
+        ),
+        exporter=exporter,
+    )
+
+    with runtime.start_span("launchloop.request"):
+        pass
+    runtime.force_flush()
+
+    resource = dict(exporter.spans[0].resource.attributes)
+    rendered = repr(resource)
+    assert set(resource) == {"service.name", "deployment.environment.name"}
+    assert resource["service.name"] == "[REDACTED]"
+    assert resource["deployment.environment.name"] == "[REDACTED]"
+    assert all(len(str(value)) <= 64 for value in resource.values())
+    assert "constituent@example.org" not in rendered
+    assert "private provider draft body" not in rendered
+    assert "telemetry.sdk" not in rendered
+
+
 def test_exporter_outage_warns_without_logging_sensitive_failure_details(
     caplog,
 ) -> None:

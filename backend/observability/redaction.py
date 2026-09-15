@@ -50,6 +50,12 @@ ALLOWED_SPAN_ATTRIBUTES = frozenset(
         "civicloop.fixture_hash",
     }
 )
+ALLOWED_RESOURCE_ATTRIBUTES = frozenset(
+    {
+        "service.name",
+        "deployment.environment.name",
+    }
+)
 
 ALLOWED_SPAN_NAMES = frozenset(
     {
@@ -111,6 +117,21 @@ def sanitize_span_attributes(
     sanitized: dict[str, SafeAttributeValue] = {}
     for key, value in (attributes or {}).items():
         if key not in ALLOWED_SPAN_ATTRIBUTES:
+            continue
+        safe_value = _sanitize_value(value, max_length)
+        if safe_value is not None:
+            sanitized[key] = safe_value
+    return sanitized
+
+
+def sanitize_resource_attributes(
+    attributes: Mapping[str, AttributeValue] | None,
+    *,
+    max_length: int,
+) -> dict[str, SafeAttributeValue]:
+    sanitized: dict[str, SafeAttributeValue] = {}
+    for key, value in (attributes or {}).items():
+        if key not in ALLOWED_RESOURCE_ATTRIBUTES:
             continue
         safe_value = _sanitize_value(value, max_length)
         if safe_value is not None:
