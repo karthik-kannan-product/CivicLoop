@@ -5,6 +5,67 @@ x-litellm-image-lock:
   activation_allowed: false
 
 services:
+  model-gateway-init:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404}
+    platform: linux/amd64
+    profiles: [agent]
+    entrypoint: ["python", "/ops/scripts/model-gateway-ops-support.py"]
+    command:
+      - activate
+      - --lock
+      - /ops/image-lock.json
+      - --approval
+      - /source/model-gateway-approval.json
+      - --signature
+      - /source/model-gateway-approval.sig
+      - --verifier
+      - /source/model-gateway-approval-verifier
+      - --handoff
+      - /handoff
+      - --ledger
+      - /ledger
+      - --operations-sha
+      - ${CIVICLOOP_OPERATIONS_SHA:?Set exact private operations SHA}
+      - --verifier-sha256
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER_SHA256:?Set verifier SHA256}
+      - --trusted-signer
+      - ${CIVICLOOP_MODEL_GATEWAY_TRUSTED_SIGNER:?Set trusted signer}
+      - --trusted-workflow
+      - ${CIVICLOOP_MODEL_GATEWAY_TRUSTED_WORKFLOW:?Set trusted workflow}
+      - --provider-credential
+      - /source/provider-credential
+      - --master-key
+      - /source/litellm-master-key
+      - --gateway-token
+      - /source/gateway-token
+      - --budget-assertion-key
+      - /source/budget-assertion-key
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ${CIVICLOOP_MODEL_GATEWAY_OPS_DIR:-/opt/civicloop/ops}:/ops:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_PATH:?Set root-owned approval path}:/source/model-gateway-approval.json:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_SIGNATURE_PATH:?Set root-owned signature path}:/source/model-gateway-approval.sig:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER:?Set root-owned verifier path}:/source/model-gateway-approval-verifier:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE:?Set root-owned provider credential path}:/source/provider-credential:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE:?Set root-owned master-key path}:/source/litellm-master-key:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE:?Set root-owned gateway-token path}:/source/gateway-token:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_BUDGET_ASSERTION_KEY_FILE:?Set root-owned budget-key path}:/source/budget-assertion-key:ro
+      - model-gateway-handoff:/handoff
+      - model-gateway-ledger:/ledger
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=0700
+    restart: "no"
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 128m
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
   litellm:
     image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404}
     platform: linux/amd64
@@ -15,6 +76,9 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [agent-control, provider-egress]
+    depends_on:
+      model-gateway-init:
+        condition: service_completed_successfully
     environment:
       DISABLE_ADMIN_UI: "True"
       NO_DOCS: "True"
@@ -29,16 +93,28 @@ services:
       LITELLM_UPSTREAM_BASE_URL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_BASE_URL:-https://api.openai.com/v1}
       LITELLM_REQUEST_MAX_TOKENS: "2000"
       LITELLM_REQUEST_TIMEOUT_SECONDS: "60"
-      LITELLM_PROVIDER_CREDENTIAL_FILE: /run/secrets/litellm-provider-credential
-      LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
-      MODEL_GATEWAY_TOKEN_FILE: /run/secrets/model-gateway-token
+      CIVICLOOP_OPERATIONS_SHA: ${CIVICLOOP_OPERATIONS_SHA:?Set exact private operations SHA}
+      LITELLM_INDEX_DIGEST: sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+      LITELLM_PLATFORM_DIGEST: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
+      MODEL_GATEWAY_STARTUP_RECEIPT: /run/model-gateway/current/receipt.json
+      MODEL_GATEWAY_LEDGER_PATH: /var/lib/civicloop-model-gateway/ledger.sqlite3
     volumes:
-      - ./deploy/litellm/config.yaml:/app/config.yaml:ro
-      - ./deploy/litellm/gateway.py:/app/gateway.py:ro
-    secrets:
-      - {source: litellm-provider-credential, target: /run/secrets/litellm-provider-credential, mode: "0600"}
-      - {source: litellm-master-key, target: /run/secrets/litellm-master-key, mode: "0600"}
-      - {source: model-gateway-token, target: /run/secrets/model-gateway-token, mode: "0600"}
+      - type: bind
+        source: ./deploy/litellm/config.yaml
+        target: /app/config.yaml
+        read_only: true
+      - type: bind
+        source: ./deploy/litellm/gateway.py
+        target: /app/gateway.py
+        read_only: true
+      - type: volume
+        source: model-gateway-handoff
+        target: /run/model-gateway
+        read_only: true
+      - type: volume
+        source: model-gateway-ledger
+        target: /var/lib/civicloop-model-gateway
+        read_only: false
     tmpfs:
       - /app/cache:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
       - /app/migrations:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
@@ -58,10 +134,6 @@ networks:
   agent-control: {internal: true}
   provider-egress: {}
 
-secrets:
-  litellm-provider-credential:
-    file: ${CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE:?Set an absolute host provider credential path}
-  litellm-master-key:
-    file: ${CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE:?Set an absolute host LiteLLM master-key path}
-  model-gateway-token:
-    file: ${CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE:?Set an absolute host gateway-token path}
+volumes:
+  model-gateway-handoff: {}
+  model-gateway-ledger: {}

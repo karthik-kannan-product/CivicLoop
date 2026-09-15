@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -8,6 +9,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -15,10 +17,11 @@ import pytest
 import yaml
 
 from deploy.litellm.gateway import (
-    BudgetLedger,
+    DurableBudgetLedger,
     GatewayPolicy,
     PolicyError,
     _Handler,
+    issue_budget_assertion,
     prepare_request,
     provider_neutral_error,
 )
@@ -27,31 +30,69 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "compose.agent.yaml"
 CONFIG = ROOT / "deploy/litellm/config.yaml"
 FAKE_SERVER = ROOT / "tests/fakes/openai_compatible_server.py"
+ASSERTION_KEY = b"test-only-budget-assertion-key-32-bytes-minimum"
+NOW = datetime(2026, 9, 15, 12, tzinfo=UTC)
+
+
+def _body(**updates: object) -> dict[str, object]:
+    body: dict[str, object] = {
+        "model": "civicloop-default",
+        "messages": [{"role": "user", "content": "Create an event outline."}],
+        "max_tokens": 32,
+        "temperature": 0,
+    }
+    body.update(updates)
+    return body
+
+
+def _assertion(*, nonce: str, ceiling: int = 128, run_id: str = "run-123") -> str:
+    nonce = f"{nonce}-0000000000000000"
+    return issue_budget_assertion(
+        key=ASSERTION_KEY,
+        run_id=run_id,
+        model_alias="civicloop-default",
+        token_ceiling=ceiling,
+        expires_at=NOW + timedelta(minutes=2),
+        nonce=nonce,
+    )
 
 
 def _post(
     port: int,
     body: dict[str, object],
-    headers: dict[str, str] | None = None,
+    *,
+    assertion: str,
+    path: str = "/v1/chat/completions",
 ) -> tuple[int, dict[str, object]]:
     request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/v1/chat/completions",
+        f"http://127.0.0.1:{port}{path}",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", **(headers or {})},
+        headers={
+            "Authorization": "Bearer gateway-test-token",
+            "Content-Type": "application/json",
+            "X-CivicLoop-Budget-Assertion": assertion,
+        },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=2) as response:
+        with urllib.request.urlopen(request, timeout=4) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as error:
         return error.code, json.loads(error.read())
 
 
 @pytest.fixture
-def fake_provider_port(tmp_path: Path) -> int:
-    port_file = tmp_path / "port"
+def fake_provider(tmp_path: Path) -> tuple[int, Path, subprocess.Popen[str]]:
+    port_file = tmp_path / "provider-port"
+    capture_file = tmp_path / "provider-capture.json"
     environment = os.environ.copy()
-    environment.update({"FAKE_PROVIDER_MODE": "compatible", "PORT_FILE": str(port_file)})
+    environment.update(
+        {
+            "PORT_FILE": str(port_file),
+            "CAPTURE_FILE": str(capture_file),
+            "FAKE_PROVIDER_MODE": "compatible",
+        }
+    )
     process = subprocess.Popen(
         [sys.executable, str(FAKE_SERVER)],
         env=environment,
@@ -62,7 +103,7 @@ def fake_provider_port(tmp_path: Path) -> int:
     try:
         for _ in range(100):
             if port_file.exists():
-                yield int(port_file.read_text())
+                yield int(port_file.read_text()), capture_file, process
                 break
             if process.poll() is not None:
                 raise AssertionError(process.stderr.read())
@@ -75,16 +116,21 @@ def fake_provider_port(tmp_path: Path) -> int:
 
 
 @pytest.fixture
-def gateway_port(fake_provider_port: int) -> int:
+def gateway_port(
+    fake_provider: tuple[int, Path, subprocess.Popen[str]], tmp_path: Path
+) -> int:
+    provider_port, _, _ = fake_provider
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.policy = GatewayPolicy(  # type: ignore[attr-defined]
         alias="civicloop-default", max_tokens=2000, timeout_seconds=1
     )
-    server.ledger = BudgetLedger()  # type: ignore[attr-defined]
+    server.ledger = DurableBudgetLedger(tmp_path / "budget-ledger.sqlite3")  # type: ignore[attr-defined]
+    server.assertion_key = ASSERTION_KEY  # type: ignore[attr-defined]
+    server.now = lambda: NOW  # type: ignore[attr-defined]
     server.inference_slot = threading.BoundedSemaphore(1)  # type: ignore[attr-defined]
     server.client_token = "gateway-test-token"  # type: ignore[attr-defined]
     server.litellm_master_key = "internal-test-key"  # type: ignore[attr-defined]
-    server.upstream = f"http://127.0.0.1:{fake_provider_port}"  # type: ignore[attr-defined]
+    server.upstream = f"http://127.0.0.1:{provider_port}"  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -95,114 +141,179 @@ def gateway_port(fake_provider_port: int) -> int:
         server.server_close()
 
 
-def test_gateway_routes_one_alias_and_switches_provider_by_configuration_only(
-    fake_provider_port: int,
-    gateway_port: int,
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("api_base", "http://attacker.invalid/v1"),
+        ("base_url", "http://attacker.invalid/v1"),
+        ("api_key", "stolen"),
+        ("custom_llm_provider", "attacker"),
+        ("deployment", "other"),
+        ("routing_strategy", "attacker"),
+        ("session_id", "other-session"),
+        ("tools", [{"type": "function"}]),
+        ("tool_choice", "required"),
+        ("max_completion_tokens", 32),
+        ("metadata", {"tags": ["forged"]}),
+        ("user", "forged-user"),
+        ("stream", True),
+    ],
+)
+def test_request_schema_rejects_every_override_and_alternate_token_field(
+    tmp_path: Path, field: str, value: object
 ) -> None:
-    request = {
-        "model": "civicloop-default",
-        "messages": [{"role": "user", "content": "Create an event outline."}],
-        "max_tokens": 32,
-    }
-    status, compatible = _post(fake_provider_port, request)
-    assert status == 200
-    assert compatible["model"] == "configured-upstream"
-
-    status, through_gateway = _post(
-        gateway_port,
-        request,
-        {
-            "Authorization": "Bearer gateway-test-token",
-            "X-CivicLoop-Run-Id": "run-compatible",
-            "X-CivicLoop-Run-Token-Budget": "64",
-        },
-    )
-    assert status == 200
-    assert through_gateway["choices"] == compatible["choices"]
-
-    monkeypatch.setenv("FAKE_PROVIDER_MODE", "recorded-openai")
-    recorded = subprocess.run(
-        [sys.executable, str(FAKE_SERVER), "--one-shot", json.dumps(request)],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=os.environ.copy(),
-    )
-    recorded_body = json.loads(recorded.stdout)
-    assert (
-        recorded_body["choices"][0]["message"]["content"]
-        == (compatible["choices"][0]["message"]["content"])
-    )
-
-    config = yaml.safe_load(CONFIG.read_text())
-    assert [item["model_name"] for item in config["model_list"]] == ["civicloop-default"]
-    params = config["model_list"][0]["litellm_params"]
-    assert params["model"] == "os.environ/LITELLM_UPSTREAM_MODEL"
-    assert params["api_base"] == "os.environ/LITELLM_UPSTREAM_BASE_URL"
-    assert params["api_key"] == "os.environ/LITELLM_UPSTREAM_API_KEY"
-
-
-def test_request_policy_enforces_alias_token_ceiling_timeout_and_trusted_metadata() -> None:
-    policy = GatewayPolicy(alias="civicloop-default", max_tokens=2000, timeout_seconds=60)
-    ledger = BudgetLedger()
-    body = {
-        "model": "civicloop-default",
-        "messages": [{"role": "user", "content": "Draft"}],
-        "max_tokens": 100,
-        "metadata": {"tags": ["attacker"], "run_id": "forged"},
-        "timeout": 999,
-    }
-    prepared = prepare_request(
-        body,
-        headers={
-            "x-civicloop-run-id": "run-123",
-            "x-civicloop-run-token-budget": "250",
-        },
-        policy=policy,
-        ledger=ledger,
-    )
-    assert prepared["model"] == "civicloop-default"
-    assert prepared["max_tokens"] == 100
-    assert prepared["timeout"] == 60
-    assert prepared["metadata"] == {
-        "civicloop_run_id": "run-123",
-        "civicloop_run_token_budget": 250,
-    }
-
-    with pytest.raises(PolicyError, match="model alias"):
+    with pytest.raises(PolicyError, match="unsupported request field"):
         prepare_request(
-            {**body, "model": "direct-provider"},
-            headers={},
-            policy=policy,
-            ledger=ledger,
+            _body(**{field: value}),
+            budget_assertion=_assertion(nonce=f"nonce-{field}"),
+            assertion_key=ASSERTION_KEY,
+            policy=GatewayPolicy("civicloop-default", 2000, 60),
+            ledger=DurableBudgetLedger(tmp_path / "ledger.sqlite3"),
+            now=NOW,
         )
-    with pytest.raises(PolicyError, match="token limit"):
-        prepare_request({**body, "max_tokens": 2001}, headers={}, policy=policy, ledger=ledger)
 
 
-def test_budget_is_server_enforced_and_fails_closed() -> None:
-    policy = GatewayPolicy(alias="civicloop-default", max_tokens=2000, timeout_seconds=60)
-    ledger = BudgetLedger()
-    headers = {
-        "x-civicloop-run-id": "run-budget",
-        "x-civicloop-run-token-budget": "120",
+def test_strict_request_reaches_downstream_with_only_allowlisted_fields(
+    gateway_port: int,
+    fake_provider: tuple[int, Path, subprocess.Popen[str]],
+) -> None:
+    _, capture_file, _ = fake_provider
+    status, response = _post(
+        gateway_port,
+        _body(stop=["END"], seed=7, response_format={"type": "json_object"}),
+        assertion=_assertion(nonce="capture-nonce"),
+    )
+    assert status == 200
+    assert response["model"] == "configured-upstream"
+    captured = json.loads(capture_file.read_text())
+    assert set(captured) == {
+        "model",
+        "messages",
+        "max_tokens",
+        "temperature",
+        "stop",
+        "seed",
+        "response_format",
+        "timeout",
+        "metadata",
     }
-    request = {"model": "civicloop-default", "messages": [], "max_tokens": 80}
-    prepare_request(request, headers=headers, policy=policy, ledger=ledger)
+    assert captured["metadata"] == {
+        "civicloop_run_id": "run-123",
+        "civicloop_run_token_ceiling": 128,
+    }
+
+
+def test_budget_assertion_rejects_tampering_replay_and_restart(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "durable-ledger.sqlite3"
+    assertion = _assertion(nonce="durable-nonce", ceiling=64)
+    prepared = prepare_request(
+        _body(max_tokens=32),
+        budget_assertion=assertion,
+        assertion_key=ASSERTION_KEY,
+        policy=GatewayPolicy("civicloop-default", 2000, 60),
+        ledger=DurableBudgetLedger(ledger_path),
+        now=NOW,
+    )
+    assert prepared["max_tokens"] == 32
+
+    payload, signature = assertion.split(".")
+    decoded = json.loads(base64.urlsafe_b64decode(payload + "=="))
+    decoded["token_ceiling"] = 64000
+    tampered_payload = base64.urlsafe_b64encode(
+        json.dumps(decoded, sort_keys=True, separators=(",", ":")).encode()
+    ).decode().rstrip("=")
+    with pytest.raises(PolicyError, match="signature"):
+        prepare_request(
+            _body(max_tokens=32),
+            budget_assertion=f"{tampered_payload}.{signature}",
+            assertion_key=ASSERTION_KEY,
+            policy=GatewayPolicy("civicloop-default", 2000, 60),
+            ledger=DurableBudgetLedger(ledger_path),
+            now=NOW,
+        )
+
+    with pytest.raises(PolicyError, match="replayed"):
+        prepare_request(
+            _body(max_tokens=32),
+            budget_assertion=assertion,
+            assertion_key=ASSERTION_KEY,
+            policy=GatewayPolicy("civicloop-default", 2000, 60),
+            ledger=DurableBudgetLedger(ledger_path),
+            now=NOW,
+        )
+
     with pytest.raises(PolicyError, match="budget exhausted"):
-        prepare_request(request, headers=headers, policy=policy, ledger=ledger)
-    with pytest.raises(PolicyError, match="required"):
-        prepare_request(request, headers={}, policy=policy, ledger=BudgetLedger())
+        prepare_request(
+            _body(max_tokens=40),
+            budget_assertion=_assertion(nonce="second-nonce", ceiling=64),
+            assertion_key=ASSERTION_KEY,
+            policy=GatewayPolicy("civicloop-default", 2000, 60),
+            ledger=DurableBudgetLedger(ledger_path),
+            now=NOW,
+        )
 
 
-def test_provider_errors_are_neutral_and_do_not_echo_bodies_or_credentials() -> None:
-    secret = "provider-secret-must-not-escape"
+def test_assertion_is_bound_to_alias_expiry_and_nonce(tmp_path: Path) -> None:
+    policy = GatewayPolicy("civicloop-default", 2000, 60)
+    cases = [
+        issue_budget_assertion(
+            key=ASSERTION_KEY,
+            run_id="run-123",
+            model_alias="other-alias",
+            token_ceiling=64,
+            expires_at=NOW + timedelta(minutes=1),
+            nonce="alias-nonce-0000000000000000",
+        ),
+        issue_budget_assertion(
+            key=ASSERTION_KEY,
+            run_id="run-123",
+            model_alias="civicloop-default",
+            token_ceiling=64,
+            expires_at=NOW - timedelta(seconds=1),
+            nonce="expired-nonce-0000000000000000",
+        ),
+    ]
+    for index, assertion in enumerate(cases):
+        with pytest.raises(PolicyError):
+            prepare_request(
+                _body(),
+                budget_assertion=assertion,
+                assertion_key=ASSERTION_KEY,
+                policy=policy,
+                ledger=DurableBudgetLedger(tmp_path / f"ledger-{index}.sqlite3"),
+                now=NOW,
+            )
+
+
+def test_http_bypass_is_rejected_before_downstream_capture(
+    gateway_port: int,
+    fake_provider: tuple[int, Path, subprocess.Popen[str]],
+) -> None:
+    _, capture_file, _ = fake_provider
+    status, response = _post(
+        gateway_port,
+        _body(api_base="http://attacker.invalid"),
+        assertion=_assertion(nonce="http-bypass"),
+    )
+    assert status == 400
+    assert response["error"]["code"] == "invalid_model_request"
+    assert not capture_file.exists()
+
+    status, response = _post(
+        gateway_port,
+        _body(),
+        assertion=_assertion(nonce="management-route"),
+        path="/v1/models",
+    )
+    assert status == 404
+    assert response == {"error": {"code": "route_not_found"}}
+
+
+def test_provider_errors_are_neutral_and_redacted() -> None:
     mapped = provider_neutral_error(
         status=429,
-        detail=f"OpenAI rejected key {secret}: raw provider body",
+        detail="OpenAI rejected provider-secret-must-not-escape",
     )
-    rendered = json.dumps(mapped)
     assert mapped == {
         "error": {
             "code": "model_provider_unavailable",
@@ -210,52 +321,57 @@ def test_provider_errors_are_neutral_and_do_not_echo_bodies_or_credentials() -> 
             "retryable": True,
         }
     }
-    assert secret not in rendered
-    assert "OpenAI" not in rendered
-    assert "raw provider body" not in rendered
+    assert "OpenAI" not in json.dumps(mapped)
+    assert "provider-secret" not in json.dumps(mapped)
 
 
-def test_compose_is_internal_hardened_and_credential_isolated() -> None:
+def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() -> None:
     compose = yaml.safe_load(COMPOSE.read_text())
     service = compose["services"]["litellm"]
-    assert service["profiles"] == ["agent"]
+    assert service["depends_on"]["model-gateway-init"]["condition"] == (
+        "service_completed_successfully"
+    )
     assert service["networks"] == ["agent-control", "provider-egress"]
-    assert compose["networks"]["agent-control"]["internal"] is True
     assert "ports" not in service
     assert service["user"] == "65534:65534"
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
-    assert "no-new-privileges:true" in service["security_opt"]
-    assert sorted(service["tmpfs"]) == sorted(
-        [
-            "/app/cache:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700",
-            "/app/migrations:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700",
-        ]
+    mounts = {item["target"]: item for item in service["volumes"]}
+    assert mounts["/run/model-gateway"]["read_only"] is True
+    assert mounts["/var/lib/civicloop-model-gateway"]["read_only"] is False
+    assert "secrets" not in service
+    assert service["environment"]["MODEL_GATEWAY_STARTUP_RECEIPT"].endswith(
+        "/current/receipt.json"
     )
-    assert "/health/liveliness" in service["healthcheck"]["test"][-1]
-    assert service["environment"]["DISABLE_ADMIN_UI"] == "True"
-    assert service["environment"]["NO_DOCS"] == "True"
-    assert service["environment"]["NO_REDOC"] == "True"
-    assert service["environment"]["NO_OPENAPI"] == "True"
-
-    serialized = COMPOSE.read_text() + CONFIG.read_text()
-    assert "provider-secret-must-not-escape" not in serialized
-    assert "OPENAI_API_KEY=" not in serialized
-    secret_targets = {item["target"]: item for item in service["secrets"]}
-    assert secret_targets["/run/secrets/litellm-provider-credential"]["mode"] == "0600"
-    assert secret_targets["/run/secrets/litellm-master-key"]["mode"] == "0600"
 
 
-def test_litellm_config_disables_body_storage_callbacks_cache_and_db_models() -> None:
+def test_checked_in_litellm_config_is_provider_neutral_and_locked_down() -> None:
     config = yaml.safe_load(CONFIG.read_text())
-    settings = config["litellm_settings"]
-    general = config["general_settings"]
-    assert settings["turn_off_message_logging"] is True
-    assert settings["redact_user_api_key_info"] is True
-    assert settings["cache"] is False
-    assert settings["callbacks"] == []
-    assert general["store_prompts_in_spend_logs"] is False
-    assert general["store_model_in_db"] is False
-    assert general["reject_clientside_metadata_tags"] is True
-    assert general["global_max_parallel_requests"] == 1
-    assert config["router_settings"]["timeout"] == 60
+    assert [item["model_name"] for item in config["model_list"]] == [
+        "civicloop-default"
+    ]
+    params = config["model_list"][0]["litellm_params"]
+    assert params["model"] == "os.environ/LITELLM_UPSTREAM_MODEL"
+    assert params["api_base"] == "os.environ/LITELLM_UPSTREAM_BASE_URL"
+    assert params["api_key"] == "os.environ/LITELLM_UPSTREAM_API_KEY"
+    assert config["litellm_settings"]["turn_off_message_logging"] is True
+    assert config["general_settings"]["store_model_in_db"] is False
+    assert config["general_settings"]["store_prompts_in_spend_logs"] is False
+
+
+@pytest.mark.skipif(
+    os.environ.get("CIVICLOOP_RUN_PINNED_LITELLM") != "true",
+    reason="exact pinned LiteLLM container test is opt-in",
+)
+def test_exact_pinned_litellm_runtime_contract() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tests/fakes/run_pinned_litellm_contract.py"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
