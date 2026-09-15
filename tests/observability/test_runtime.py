@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from observability.runtime import TelemetryConfig, build_runtime
+from opentelemetry.trace import Status, StatusCode
 
 
 class CaptureExporter:
@@ -91,3 +93,54 @@ def test_exporter_outage_never_escapes_the_business_span() -> None:
         span.set_attribute("civicloop.workflow_id", "workflow-1")
 
     assert runtime.force_flush() is False
+
+
+def test_exported_span_metadata_cannot_carry_sensitive_payloads() -> None:
+    exporter = CaptureExporter()
+    runtime = build_runtime(
+        TelemetryConfig(enabled=True, synchronous=True),
+        exporter=exporter,
+    )
+
+    with runtime.start_span(
+        "prompt: constituent@example.org",
+        attributes={
+            "civicloop.workflow_id": "constituent@example.org",
+            "civicloop.model": "private provider draft body",
+            "authorization": "Bearer must-not-export",
+            "input.value": "private provider draft body",
+        },
+    ) as span:
+        span.set_status(Status(StatusCode.ERROR, "response: private model output"))
+    runtime.force_flush()
+
+    exported = exporter.spans[0]
+    rendered = repr(
+        {
+            "name": exported.name,
+            "attributes": dict(exported.attributes or {}),
+            "status": exported.status,
+        }
+    )
+    assert exported.name == "civicloop.telemetry"
+    assert exported.status.description is None
+    assert "constituent@example.org" not in rendered
+    assert "must-not-export" not in rendered
+    assert "private provider draft body" not in rendered
+    assert "private model output" not in rendered
+
+
+def test_exporter_outage_warns_without_logging_sensitive_failure_details(
+    caplog,
+) -> None:
+    runtime = build_runtime(
+        TelemetryConfig(enabled=True, synchronous=True),
+        exporter=DownExporter(),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="observability.runtime"):
+        with runtime.start_span("launchloop.request"):
+            pass
+
+    assert "telemetry_export_failed" in caplog.text
+    assert "sk-prohibited-canary" not in caplog.text

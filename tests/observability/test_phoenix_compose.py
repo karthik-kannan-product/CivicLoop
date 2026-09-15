@@ -5,8 +5,8 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_PATH = REPOSITORY_ROOT / "compose.observability.yaml"
 EXPECTED_IMAGE = (
-    "arizephoenix/phoenix:version-20.4.0-nonroot"
-    "@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07"
+    "${PHOENIX_IMAGE:-docker.io/arizephoenix/phoenix:version-20.4.0-nonroot"
+    "@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07}"
 )
 EXPECTED_INIT_IMAGE = (
     "busybox:1.37.0-musl"
@@ -70,7 +70,10 @@ def test_app_exports_over_internal_http_without_readiness_dependency() -> None:
         ]
         assert "phoenix" not in service.get("depends_on", {})
 
-    assert "phoenix-data" in compose["volumes"]
+    assert compose["volumes"]["phoenix-data"] == {
+        "name": "${PHOENIX_VOLUME_NAME:?Set the exact existing Phoenix volume name}",
+        "external": True,
+    }
 
 
 def test_base_compose_remains_phoenix_free_and_independently_ready() -> None:
