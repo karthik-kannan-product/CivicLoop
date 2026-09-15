@@ -1,0 +1,67 @@
+x-litellm-image-lock:
+  release: v1.100.1
+  index_digest: sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+  platform_manifest_digest: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
+  activation_allowed: false
+
+services:
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404}
+    platform: linux/amd64
+    profiles: [agent]
+    command: ["python", "/app/gateway.py"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [agent-control, provider-egress]
+    environment:
+      DISABLE_ADMIN_UI: "True"
+      NO_DOCS: "True"
+      NO_REDOC: "True"
+      NO_OPENAPI: "True"
+      XDG_CACHE_HOME: /app/cache
+      PRISMA_BINARY_CACHE_DIR: /app/cache/prisma-python/binaries
+      LITELLM_MIGRATION_DIR: /app/migrations
+      LITELLM_CONFIG_FILE: /app/config.yaml
+      LITELLM_MODEL_ALIAS: civicloop-default
+      LITELLM_UPSTREAM_MODEL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_MODEL:-openai/gpt-4.1-mini}
+      LITELLM_UPSTREAM_BASE_URL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_BASE_URL:-https://api.openai.com/v1}
+      LITELLM_REQUEST_MAX_TOKENS: "2000"
+      LITELLM_REQUEST_TIMEOUT_SECONDS: "60"
+      LITELLM_PROVIDER_CREDENTIAL_FILE: /run/secrets/litellm-provider-credential
+      LITELLM_MASTER_KEY_FILE: /run/secrets/litellm-master-key
+      MODEL_GATEWAY_TOKEN_FILE: /run/secrets/model-gateway-token
+    volumes:
+      - ./deploy/litellm/config.yaml:/app/config.yaml:ro
+      - ./deploy/litellm/gateway.py:/app/gateway.py:ro
+    secrets:
+      - {source: litellm-provider-credential, target: /run/secrets/litellm-provider-credential, mode: "0600"}
+      - {source: litellm-master-key, target: /run/secrets/litellm-master-key, mode: "0600"}
+      - {source: model-gateway-token, target: /run/secrets/model-gateway-token, mode: "0600"}
+    tmpfs:
+      - /app/cache:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
+      - /app/migrations:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+    restart: unless-stopped
+    pids_limit: 128
+    cpus: "0.50"
+    mem_limit: 512m
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+networks:
+  agent-control: {internal: true}
+  provider-egress: {}
+
+secrets:
+  litellm-provider-credential:
+    file: ${CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE:?Set an absolute host provider credential path}
+  litellm-master-key:
+    file: ${CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE:?Set an absolute host LiteLLM master-key path}
+  model-gateway-token:
+    file: ${CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE:?Set an absolute host gateway-token path}
