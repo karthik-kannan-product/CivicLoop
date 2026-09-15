@@ -6,7 +6,7 @@ x-litellm-image-lock:
 
 services:
   model-gateway-init:
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404}
+    image: ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
     platform: linux/amd64
     profiles: [agent]
     entrypoint: ["python", "/ops/scripts/model-gateway-ops-support.py"]
@@ -67,7 +67,7 @@ services:
       options: {max-size: 10m, max-file: "3"}
 
   litellm:
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404}
+    image: ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
     platform: linux/amd64
     profiles: [agent]
     command: ["python", "/app/gateway.py"]

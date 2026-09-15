@@ -12,6 +12,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -19,6 +20,7 @@ import yaml
 from deploy.litellm.gateway import (
     DurableBudgetLedger,
     GatewayPolicy,
+    LiteLLMSupervisor,
     PolicyError,
     _Handler,
     issue_budget_assertion,
@@ -131,6 +133,7 @@ def gateway_port(
     server.client_token = "gateway-test-token"  # type: ignore[attr-defined]
     server.litellm_master_key = "internal-test-key"  # type: ignore[attr-defined]
     server.upstream = f"http://127.0.0.1:{provider_port}"  # type: ignore[attr-defined]
+    server.supervisor = SimpleNamespace(is_running=lambda: True)  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -253,6 +256,60 @@ def test_budget_assertion_rejects_tampering_replay_and_restart(tmp_path: Path) -
         )
 
 
+def test_expired_run_id_stays_retired_across_process_restart(tmp_path: Path) -> None:
+    ledger_path = tmp_path / "durable-ledger.sqlite3"
+    policy = GatewayPolicy("civicloop-default", 2000, 60)
+    prepare_request(
+        _body(max_tokens=32),
+        budget_assertion=_assertion(nonce="expiring-run", ceiling=64),
+        assertion_key=ASSERTION_KEY,
+        policy=policy,
+        ledger=DurableBudgetLedger(ledger_path),
+        now=NOW,
+    )
+    later = NOW + timedelta(minutes=3)
+    replacement = issue_budget_assertion(
+        key=ASSERTION_KEY,
+        run_id="run-123",
+        model_alias="civicloop-default",
+        token_ceiling=64000,
+        expires_at=later + timedelta(minutes=2),
+        nonce="same-run-after-expiry-0001",
+    )
+    with pytest.raises(PolicyError, match="retired"):
+        prepare_request(
+            _body(max_tokens=32),
+            budget_assertion=replacement,
+            assertion_key=ASSERTION_KEY,
+            policy=policy,
+            ledger=DurableBudgetLedger(ledger_path),
+            now=later,
+        )
+
+
+def test_supervisor_fails_when_child_exits_before_readiness() -> None:
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; print('bounded startup diagnostic must-not-appear'); sys.exit(7)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    supervisor = LiteLLMSupervisor(child, secrets=("must-not-appear",))
+    with pytest.raises(RuntimeError, match="exited before readiness"):
+        supervisor.wait_until_ready(
+            readiness_probe=lambda: False,
+            timeout_seconds=2,
+            poll_seconds=0.01,
+        )
+    diagnostics = supervisor.diagnostics()
+    assert "bounded startup diagnostic" in diagnostics
+    assert len(diagnostics) <= 16_384
+    assert "must-not-appear" not in diagnostics
+    assert "[REDACTED]" in diagnostics
+
 def test_assertion_is_bound_to_alias_expiry_and_nonce(tmp_path: Path) -> None:
     policy = GatewayPolicy("civicloop-default", 2000, 60)
     cases = [
@@ -328,6 +385,14 @@ def test_provider_errors_are_neutral_and_redacted() -> None:
 def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() -> None:
     compose = yaml.safe_load(COMPOSE.read_text())
     service = compose["services"]["litellm"]
+    initializer = compose["services"]["model-gateway-init"]
+    expected_image = (
+        "ghcr.io/berriai/litellm-non_root:v1.100.1@"
+        "sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404"
+    )
+    assert initializer["image"] == expected_image
+    assert service["image"] == expected_image
+    assert "LITELLM_IMAGE" not in COMPOSE.read_text()
     assert service["depends_on"]["model-gateway-init"]["condition"] == (
         "service_completed_successfully"
     )
@@ -359,10 +424,6 @@ def test_checked_in_litellm_config_is_provider_neutral_and_locked_down() -> None
     assert config["general_settings"]["store_prompts_in_spend_logs"] is False
 
 
-@pytest.mark.skipif(
-    os.environ.get("CIVICLOOP_RUN_PINNED_LITELLM") != "true",
-    reason="exact pinned LiteLLM container test is opt-in",
-)
 def test_exact_pinned_litellm_runtime_contract() -> None:
     result = subprocess.run(
         [
@@ -372,6 +433,6 @@ def test_exact_pinned_litellm_runtime_contract() -> None:
         check=False,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=240,
     )
     assert result.returncode == 0, result.stdout + result.stderr

@@ -180,6 +180,8 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         "-e",
         "LITELLM_REQUEST_TIMEOUT_SECONDS=1",
         "-e",
+        "LITELLM_STARTUP_TIMEOUT_SECONDS=90",
+        "-e",
         f"CIVICLOOP_OPERATIONS_SHA={OPERATIONS_SHA}",
         "-e",
         f"LITELLM_INDEX_DIGEST={INDEX_DIGEST}",
@@ -195,7 +197,7 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         "/app/gateway.py",
     )
     assert result.stdout.strip()
-    for _ in range(240):
+    for _ in range(400):
         port_result = _run("port", container, "4000/tcp", check=False)
         if port_result.returncode == 0 and port_result.stdout.strip():
             port = int(port_result.stdout.strip().rsplit(":", 1)[1])

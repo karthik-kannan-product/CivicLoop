@@ -12,9 +12,10 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -60,6 +61,7 @@ HANDOFF_FILES = (
     "gateway-token",
     "budget-assertion-key",
 )
+RUN_TOMBSTONE_RETENTION_SECONDS = 90 * 24 * 60 * 60
 
 
 class PolicyError(ValueError):
@@ -80,6 +82,67 @@ class BudgetAssertion:
     token_ceiling: int
     expires_at: int
     nonce: str
+
+
+class LiteLLMSupervisor:
+    """Own the LiteLLM child and retain only bounded, secret-redacted diagnostics."""
+
+    def __init__(
+        self, child: subprocess.Popen[bytes], *, secrets: tuple[str, ...]
+    ) -> None:
+        self.child = child
+        self._secrets = tuple(secret for secret in secrets if secret)
+        self._diagnostic_text = ""
+        self._diagnostic_lock = threading.Lock()
+        self._reader = threading.Thread(target=self._capture, daemon=True)
+        self._reader.start()
+
+    def _capture(self) -> None:
+        if self.child.stdout is None:
+            return
+        while chunk := self.child.stdout.readline():
+            text = chunk.decode("utf-8", errors="replace")
+            for secret in self._secrets:
+                text = text.replace(secret, "[REDACTED]")
+            with self._diagnostic_lock:
+                self._diagnostic_text = (self._diagnostic_text + text)[-16_384:]
+
+    def diagnostics(self) -> str:
+        with self._diagnostic_lock:
+            return self._diagnostic_text
+
+    def is_running(self) -> bool:
+        return self.child.poll() is None
+
+    def wait_until_ready(
+        self,
+        *,
+        readiness_probe: Callable[[], bool],
+        timeout_seconds: float,
+        poll_seconds: float = 0.1,
+    ) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            status = self.child.poll()
+            if status is not None:
+                self._reader.join(timeout=1)
+                raise RuntimeError(
+                    f"LiteLLM child exited before readiness with status {status}"
+                )
+            if readiness_probe():
+                return
+            time.sleep(poll_seconds)
+        raise RuntimeError("LiteLLM child readiness timed out")
+
+    def terminate(self) -> None:
+        if self.child.poll() is None:
+            self.child.terminate()
+            try:
+                self.child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.child.kill()
+                self.child.wait(timeout=5)
+        self._reader.join(timeout=1)
 
 
 def _b64encode(value: bytes) -> str:
@@ -179,11 +242,20 @@ def _verify_budget_assertion(
 class DurableBudgetLedger:
     """SQLite-backed nonce and token reservations that survive gateway restart."""
 
-    def __init__(self, path: Path, *, maximum_records: int = 10_000) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        maximum_records: int = 10_000,
+        run_retention_seconds: int = RUN_TOMBSTONE_RETENTION_SECONDS,
+    ) -> None:
         if maximum_records < 100:
             raise ValueError("budget ledger bound is too small")
+        if run_retention_seconds < 24 * 60 * 60:
+            raise ValueError("run tombstone retention is too short")
         self.path = path
         self.maximum_records = maximum_records
+        self.run_retention_seconds = run_retention_seconds
         path.parent.mkdir(parents=True, exist_ok=True)
         if os.name != "nt":
             os.chmod(path.parent, 0o700)
@@ -195,13 +267,24 @@ class DurableBudgetLedger:
                     model_alias TEXT NOT NULL,
                     token_ceiling INTEGER NOT NULL,
                     tokens_reserved INTEGER NOT NULL,
-                    expires_at INTEGER NOT NULL
+                    expires_at INTEGER NOT NULL,
+                    retain_until INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS nonces (
                     nonce TEXT PRIMARY KEY,
                     expires_at INTEGER NOT NULL
                 );
                 """
+            )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "retain_until" not in columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN retain_until INTEGER")
+            connection.execute(
+                "UPDATE runs SET retain_until = expires_at + ? "
+                "WHERE retain_until IS NULL",
+                (self.run_retention_seconds,),
             )
         if os.name != "nt":
             os.chmod(path, 0o600)
@@ -221,7 +304,7 @@ class DurableBudgetLedger:
         try:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("DELETE FROM nonces WHERE expires_at <= ?", (current,))
-            connection.execute("DELETE FROM runs WHERE expires_at <= ?", (current,))
+            connection.execute("DELETE FROM runs WHERE retain_until <= ?", (current,))
             count = connection.execute("SELECT COUNT(*) FROM nonces").fetchone()[0]
             if count >= self.maximum_records:
                 raise PolicyError("budget ledger capacity is exhausted")
@@ -233,24 +316,33 @@ class DurableBudgetLedger:
             except sqlite3.IntegrityError as error:
                 raise PolicyError("budget assertion was replayed") from error
             run = connection.execute(
-                "SELECT model_alias, token_ceiling, tokens_reserved FROM runs "
+                "SELECT model_alias, token_ceiling, tokens_reserved, expires_at "
+                "FROM runs "
                 "WHERE run_id = ?",
                 (assertion.run_id,),
             ).fetchone()
             if run is None:
+                run_count = connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+                if run_count >= self.maximum_records:
+                    raise PolicyError("budget ledger capacity is exhausted")
                 used = 0
                 connection.execute(
-                    "INSERT INTO runs VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO runs "
+                    "(run_id, model_alias, token_ceiling, tokens_reserved, "
+                    "expires_at, retain_until) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         assertion.run_id,
                         assertion.model_alias,
                         assertion.token_ceiling,
                         0,
                         assertion.expires_at,
+                        current + self.run_retention_seconds,
                     ),
                 )
             else:
-                model_alias, token_ceiling, used = run
+                model_alias, token_ceiling, used, run_expires_at = run
+                if current >= run_expires_at:
+                    raise PolicyError("run ID is retired")
                 if (
                     model_alias != assertion.model_alias
                     or token_ceiling != assertion.token_ceiling
@@ -490,6 +582,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path != "/health/liveliness":
             self._json(404, {"error": {"code": "route_not_found"}})
             return
+        if not self.server.supervisor.is_running():  # type: ignore[attr-defined]
+            self._json(503, {"status": "unavailable"})
+            return
         try:
             with urllib.request.urlopen(
                 f"{self.server.upstream}/health/liveliness",
@@ -504,6 +599,9 @@ class _Handler(BaseHTTPRequestHandler):
         server = self.server
         if self.path != INFERENCE_PATH:
             self._json(404, {"error": {"code": "route_not_found"}})
+            return
+        if not server.supervisor.is_running():  # type: ignore[attr-defined]
+            self._json(503, provider_neutral_error(status=503))
             return
         authorization = self.headers.get("Authorization", "")
         if not hmac.compare_digest(authorization, f"Bearer {server.client_token}"):  # type: ignore[attr-defined]
@@ -572,6 +670,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def _start_litellm(environment: dict[str, str]) -> subprocess.Popen[bytes]:
+    child_environment = environment.copy()
+    child_environment["PYTHONUNBUFFERED"] = "1"
     return subprocess.Popen(
         [
             "litellm",
@@ -582,11 +682,28 @@ def _start_litellm(environment: dict[str, str]) -> subprocess.Popen[bytes]:
             "--port",
             "4001",
         ],
-        env=environment,
+        env=child_environment,
         stdin=subprocess.DEVNULL,
-        stdout=sys.stdout,
-        stderr=sys.stderr,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     )
+
+
+def _litellm_ready() -> bool:
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:4001/health/liveliness", timeout=1
+        ) as response:
+            return response.status == 200
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def _report_child_failure(supervisor: LiteLLMSupervisor, error: Exception) -> None:
+    print(str(error), file=sys.stderr)
+    diagnostics = supervisor.diagnostics().strip()
+    if diagnostics:
+        print(diagnostics, file=sys.stderr)
 
 
 def main() -> int:
@@ -607,6 +724,26 @@ def main() -> int:
     environment["LITELLM_UPSTREAM_API_KEY"] = provider_key.decode("utf-8")
     environment["LITELLM_MASTER_KEY"] = master_key.decode("utf-8")
     child = _start_litellm(environment)
+    supervisor = LiteLLMSupervisor(
+        child,
+        secrets=(
+            provider_key.decode("utf-8"),
+            master_key.decode("utf-8"),
+            client_token.decode("utf-8"),
+            assertion_key.decode("utf-8"),
+        ),
+    )
+    try:
+        supervisor.wait_until_ready(
+            readiness_probe=_litellm_ready,
+            timeout_seconds=float(
+                environment.get("LITELLM_STARTUP_TIMEOUT_SECONDS", "120")
+            ),
+        )
+    except Exception as error:
+        supervisor.terminate()
+        _report_child_failure(supervisor, error)
+        return 1
     server = ThreadingHTTPServer(("0.0.0.0", 4000), _Handler)
     server.policy = GatewayPolicy(  # type: ignore[attr-defined]
         alias=environment.get("LITELLM_MODEL_ALIAS", "civicloop-default"),
@@ -622,20 +759,38 @@ def main() -> int:
     server.client_token = client_token.decode("utf-8")  # type: ignore[attr-defined]
     server.litellm_master_key = master_key.decode("utf-8")  # type: ignore[attr-defined]
     server.upstream = "http://127.0.0.1:4001"  # type: ignore[attr-defined]
+    server.supervisor = supervisor  # type: ignore[attr-defined]
+    stopping = threading.Event()
+    child_exit_status: list[int] = []
 
     def stop(_signum: int, _frame: object) -> None:
+        stopping.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
+    def watch_child() -> None:
+        status = child.wait()
+        if not stopping.is_set():
+            child_exit_status.append(status)
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
     signal.signal(signal.SIGTERM, stop)
+    monitor = threading.Thread(target=watch_child, daemon=True)
+    monitor.start()
     try:
         server.serve_forever(poll_interval=0.25)
     finally:
-        child.terminate()
-        try:
-            child.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            child.kill()
+        stopping.set()
+        supervisor.terminate()
+        monitor.join(timeout=1)
         server.server_close()
+    if child_exit_status:
+        _report_child_failure(
+            supervisor,
+            RuntimeError(
+                f"LiteLLM child exited while serving with status {child_exit_status[0]}"
+            ),
+        )
+        return 1
     return 0
 
 
