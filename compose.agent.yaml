@@ -93,6 +93,7 @@ services:
       LITELLM_UPSTREAM_BASE_URL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_BASE_URL:-https://api.openai.com/v1}
       LITELLM_REQUEST_MAX_TOKENS: "2000"
       LITELLM_REQUEST_TIMEOUT_SECONDS: "60"
+      LITELLM_STARTUP_TIMEOUT_SECONDS: "180"
       CIVICLOOP_OPERATIONS_SHA: ${CIVICLOOP_OPERATIONS_SHA:?Set exact private operations SHA}
       LITELLM_INDEX_DIGEST: sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
       LITELLM_PLATFORM_DIGEST: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
@@ -123,10 +124,11 @@ services:
       interval: 10s
       timeout: 3s
       retries: 18
+      start_period: 180s
     restart: unless-stopped
     pids_limit: 128
     cpus: "0.50"
-    mem_limit: 512m
+    mem_limit: 1g
     logging:
       options: {max-size: 10m, max-file: "3"}
 

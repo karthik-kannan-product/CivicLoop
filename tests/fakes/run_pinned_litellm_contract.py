@@ -32,6 +32,9 @@ OPERATIONS_SHA = "a" * 40
 CLIENT_TOKEN = "test-gateway-token"
 MASTER_KEY = "sk-test-master-not-real-000000000000"
 ASSERTION_KEY = b"test-budget-assertion-key-32-bytes-minimum"
+STARTUP_TIMEOUT_SECONDS = 180
+STARTUP_DEADLINE_GRACE_SECONDS = 30
+STARTUP_POLL_SECONDS = 0.25
 
 
 def _run(*arguments: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -49,10 +52,17 @@ def _free_port() -> int:
         return listener.getsockname()[1]
 
 
-def _post(port: int, body: dict[str, object], nonce: str) -> tuple[int, dict[str, object]]:
+def _post(
+    port: int,
+    body: dict[str, object],
+    nonce: str,
+    *,
+    timeout_seconds: int = 15,
+    run_id: str = "runtime-contract-run",
+) -> tuple[int, dict[str, object]]:
     assertion = issue_budget_assertion(
         key=ASSERTION_KEY,
-        run_id="runtime-contract-run",
+        run_id=run_id,
         model_alias="civicloop-default",
         token_ceiling=512,
         expires_at=datetime.now(UTC) + timedelta(minutes=2),
@@ -69,7 +79,7 @@ def _post(port: int, body: dict[str, object], nonce: str) -> tuple[int, dict[str
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as error:
         return error.code, json.loads(error.read())
@@ -148,7 +158,7 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         "--pids-limit",
         "128",
         "--memory",
-        "512m",
+        "1g",
         "--cpus",
         "0.50",
         "--tmpfs",
@@ -178,9 +188,9 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         "-e",
         "LITELLM_REQUEST_MAX_TOKENS=2000",
         "-e",
-        "LITELLM_REQUEST_TIMEOUT_SECONDS=1",
+        "LITELLM_REQUEST_TIMEOUT_SECONDS=60",
         "-e",
-        "LITELLM_STARTUP_TIMEOUT_SECONDS=90",
+        f"LITELLM_STARTUP_TIMEOUT_SECONDS={STARTUP_TIMEOUT_SECONDS}",
         "-e",
         f"CIVICLOOP_OPERATIONS_SHA={OPERATIONS_SHA}",
         "-e",
@@ -197,7 +207,12 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         "/app/gateway.py",
     )
     assert result.stdout.strip()
-    for _ in range(400):
+    deadline = (
+        time.monotonic()
+        + STARTUP_TIMEOUT_SECONDS
+        + STARTUP_DEADLINE_GRACE_SECONDS
+    )
+    while time.monotonic() < deadline:
         port_result = _run("port", container, "4000/tcp", check=False)
         if port_result.returncode == 0 and port_result.stdout.strip():
             port = int(port_result.stdout.strip().rsplit(":", 1)[1])
@@ -214,7 +229,7 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
         )
         if state.returncode != 0 or state.stdout.strip() in {"exited", "dead"}:
             break
-        time.sleep(0.25)
+        time.sleep(STARTUP_POLL_SECONDS)
     log_result = _run("logs", container, check=False)
     logs = (log_result.stdout + log_result.stderr)[-4000:]
     state_text = _run(
@@ -223,6 +238,34 @@ def _start(container: str, handoff: str, ledger: str, fake_port: int, prefix: st
     raise AssertionError(
         f"pinned LiteLLM container did not become ready: {state_text}\n{logs}"
     )
+
+
+def _direct_litellm_diagnostic(container: str, body: dict[str, object]) -> str:
+    code = (
+        "import json,sys,urllib.error,urllib.request;"
+        "body=json.loads(sys.argv[1]);"
+        "request=urllib.request.Request("
+        "'http://127.0.0.1:4001/v1/chat/completions',"
+        "data=json.dumps(body).encode(),"
+        "headers={'Authorization':'Bearer '+sys.argv[2],"
+        "'Content-Type':'application/json'},method='POST');"
+        "\ntry:\n"
+        " response=urllib.request.urlopen(request,timeout=15);"
+        " print(response.status,response.read().decode())\n"
+        "except urllib.error.HTTPError as error:\n"
+        " print(error.code,error.read().decode())\n"
+    )
+    result = _run(
+        "exec",
+        container,
+        "python",
+        "-c",
+        code,
+        json.dumps(body),
+        MASTER_KEY,
+        check=False,
+    )
+    return (result.stdout + result.stderr)[-4000:]
 
 
 def main() -> int:
@@ -244,6 +287,7 @@ def main() -> int:
                 "PORT_FILE": str(port_file),
                 "CAPTURE_FILE": str(capture_file),
                 "MODE_FILE": str(mode_file),
+                "FAKE_PROVIDER_TIMEOUT_SECONDS": "65",
             }
         )
         fake = subprocess.Popen(
@@ -272,7 +316,24 @@ def main() -> int:
                 "max_tokens": 32,
             }
             status, response = _post(port, body, "runtime-compatible-0001")
-            assert status == 200 and response["fixture_mode"] == "compatible"
+            if status != 200:
+                direct_diagnostic = _direct_litellm_diagnostic(first, body)
+                log_result = _run("logs", first, check=False)
+                captured = (
+                    capture_file.read_text(encoding="utf-8")
+                    if capture_file.exists()
+                    else "<fake provider was not reached>"
+                )
+                raise AssertionError(
+                    "compatible request failed: "
+                    f"status={status} response={response} capture={captured}\n"
+                    f"direct LiteLLM response:\n{direct_diagnostic}\n"
+                    f"container logs:\n{(log_result.stdout + log_result.stderr)[-4000:]}"
+                )
+            assert status == 200 and response["fixture_mode"] == "compatible", (
+                status,
+                response,
+            )
             print("compatible request passed", flush=True)
             captured = json.loads(capture_file.read_text(encoding="utf-8"))
             assert captured["model"] == "test-model"
@@ -293,7 +354,12 @@ def main() -> int:
             assert status in {502, 503}
             assert "provider-specific" not in json.dumps(response)
             mode_file.write_text("timeout", encoding="utf-8")
-            status, response = _post(port, body, "runtime-timeout-000003")
+            status, response = _post(
+                port,
+                body,
+                "runtime-timeout-000003",
+                timeout_seconds=75,
+            )
             assert status == 503 and response["error"]["code"] == "model_provider_unavailable"
             print("route, redacted error, and timeout passed", flush=True)
 
@@ -304,8 +370,20 @@ def main() -> int:
             containers.append(second)
             port = _start(second, handoff, ledger, fake_port, "recorded")
             print("pinned runtime ready with recorded config", flush=True)
-            status, response = _post(port, body, "runtime-recorded-00004")
-            assert status == 200 and response["fixture_mode"] == "recorded-openai"
+            status, response = _post(
+                port,
+                body,
+                "runtime-recorded-00004",
+                run_id="runtime-contract-recorded-run",
+            )
+            if status != 200:
+                direct_diagnostic = _direct_litellm_diagnostic(second, body)
+                raise AssertionError(
+                    "recorded-provider request failed: "
+                    f"status={status} response={response}\n"
+                    f"direct LiteLLM response:\n{direct_diagnostic}"
+                )
+            assert response["fixture_mode"] == "recorded-openai", response
             print("configuration-only provider switch passed", flush=True)
         finally:
             fake.terminate()

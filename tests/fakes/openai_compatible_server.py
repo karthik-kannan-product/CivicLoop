@@ -56,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
         if capture_file:
             Path(capture_file).write_text(json.dumps(request), encoding="utf-8")
         if mode == "timeout":
-            time.sleep(5)
+            time.sleep(float(os.environ.get("FAKE_PROVIDER_TIMEOUT_SECONDS", "5")))
         if mode == "error":
             self.send_response(503)
             payload = b'{"error":{"message":"provider-specific failure"}}'

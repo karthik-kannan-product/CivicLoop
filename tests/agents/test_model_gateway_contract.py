@@ -401,6 +401,9 @@ def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() ->
     assert service["user"] == "65534:65534"
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
+    assert service["cpus"] == "0.50"
+    assert service["mem_limit"] == "1g"
+    assert service["environment"]["LITELLM_STARTUP_TIMEOUT_SECONDS"] == "180"
     mounts = {item["target"]: item for item in service["volumes"]}
     assert mounts["/run/model-gateway"]["read_only"] is True
     assert mounts["/var/lib/civicloop-model-gateway"]["read_only"] is False
@@ -433,6 +436,6 @@ def test_exact_pinned_litellm_runtime_contract() -> None:
         check=False,
         capture_output=True,
         text=True,
-        timeout=240,
+        timeout=480,
     )
     assert result.returncode == 0, result.stdout + result.stderr
