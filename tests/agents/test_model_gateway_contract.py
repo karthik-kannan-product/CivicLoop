@@ -47,6 +47,24 @@ def _body(**updates: object) -> dict[str, object]:
     return body
 
 
+def _tool(name: str = "get_event_revision") -> dict[str, object]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": "Read one bounded CivicLoop event revision.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string", "maxLength": 128},
+                },
+                "required": ["event_id"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _assertion(*, nonce: str, ceiling: int = 128, run_id: str = "run-123") -> str:
     nonce = f"{nonce}-0000000000000000"
     return issue_budget_assertion(
@@ -154,12 +172,10 @@ def gateway_port(
         ("deployment", "other"),
         ("routing_strategy", "attacker"),
         ("session_id", "other-session"),
-        ("tools", [{"type": "function"}]),
-        ("tool_choice", "required"),
         ("max_completion_tokens", 32),
         ("metadata", {"tags": ["forged"]}),
         ("user", "forged-user"),
-        ("stream", True),
+        ("parallel_tool_calls", False),
     ],
 )
 def test_request_schema_rejects_every_override_and_alternate_token_field(
@@ -174,6 +190,249 @@ def test_request_schema_rejects_every_override_and_alternate_token_field(
             ledger=DurableBudgetLedger(tmp_path / "ledger.sqlite3"),
             now=NOW,
         )
+
+
+def test_hermes_non_streaming_tool_round_trip_is_reconstructed(
+    tmp_path: Path,
+) -> None:
+    ledger = DurableBudgetLedger(tmp_path / "tool-ledger.sqlite3")
+    policy = GatewayPolicy("civicloop-default", 2000, 60)
+    first = prepare_request(
+        _body(tools=[_tool()], tool_choice="auto", stream=False),
+        budget_assertion=_assertion(
+            nonce="tool-first", ceiling=128, run_id="tool-round-trip"
+        ),
+        assertion_key=ASSERTION_KEY,
+        policy=policy,
+        ledger=ledger,
+        now=NOW,
+    )
+    assert first["tools"] == [_tool()]
+    assert first["tool_choice"] == "auto"
+    assert "stream" not in first
+
+    second = prepare_request(
+        _body(
+            tools=[_tool()],
+            messages=[
+                {"role": "user", "content": "Read event evt-123."},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_evt_123",
+                            "type": "function",
+                            "function": {
+                                "name": "get_event_revision",
+                                "arguments": '{"event_id":"evt-123"}',
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_evt_123",
+                    "content": '{"revision":7}',
+                },
+            ],
+            stream=False,
+        ),
+        budget_assertion=_assertion(
+            nonce="tool-second", ceiling=128, run_id="tool-round-trip"
+        ),
+        assertion_key=ASSERTION_KEY,
+        policy=policy,
+        ledger=ledger,
+        now=NOW,
+    )
+    assert second["messages"][1] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_evt_123",
+                "type": "function",
+                "function": {
+                    "name": "get_event_revision",
+                    "arguments": '{"event_id":"evt-123"}',
+                },
+            }
+        ],
+    }
+    assert second["messages"][2] == {
+        "role": "tool",
+        "tool_call_id": "call_evt_123",
+        "content": '{"revision":7}',
+    }
+
+
+@pytest.mark.parametrize(
+    ("updates", "match"),
+    [
+        ({"stream": True}, "stream"),
+        ({"stream": "false"}, "stream"),
+        ({"tools": [_tool(), _tool()]}, "unique"),
+        ({"tools": [_tool(f"tool_{index}") for index in range(9)]}, "tools"),
+        ({"tools": [{**_tool(), "provider": "forged"}]}, "tool fields"),
+        (
+            {
+                "tools": [_tool()],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": "undeclared_tool"},
+                },
+            },
+            "tool choice",
+        ),
+        (
+            {"messages": [{"role": "assistant", "content": None}]},
+            "assistant content",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read event."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "duplicate_call",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "duplicate_call",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+            "unique",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read event."},
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call_missing",
+                        "content": "{}",
+                    },
+                ],
+            },
+            "prior tool call",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read event."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_without_result",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            "exactly one result",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read event."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_bad_args",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "not-json",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            },
+            "arguments",
+        ),
+    ],
+)
+def test_hermes_tool_schema_rejects_unsafe_shapes(
+    tmp_path: Path, updates: dict[str, object], match: str
+) -> None:
+    with pytest.raises(PolicyError, match=match):
+        prepare_request(
+            _body(**updates),
+            budget_assertion=_assertion(nonce=f"unsafe-{match.replace(' ', '-')}") ,
+            assertion_key=ASSERTION_KEY,
+            policy=GatewayPolicy("civicloop-default", 2000, 60),
+            ledger=DurableBudgetLedger(tmp_path / "unsafe-ledger.sqlite3"),
+            now=NOW,
+        )
+
+
+def test_tool_schema_depth_size_and_arguments_are_bounded(tmp_path: Path) -> None:
+    too_deep: dict[str, object] = {"type": "string"}
+    for index in range(10):
+        too_deep = {f"level_{index}": too_deep}
+    cases = [
+        _body(tools=[{**_tool(), "function": {**_tool()["function"], "parameters": too_deep}}]),
+        _body(
+            tools=[_tool()],
+            messages=[
+                {"role": "user", "content": "Read event."},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_large_args",
+                            "type": "function",
+                            "function": {
+                                "name": "get_event_revision",
+                                "arguments": json.dumps({"value": "x" * 20_000}),
+                            },
+                        }
+                    ],
+                },
+            ],
+        ),
+    ]
+    for index, body in enumerate(cases):
+        with pytest.raises(PolicyError):
+            prepare_request(
+                body,
+                budget_assertion=_assertion(nonce=f"bounded-{index}"),
+                assertion_key=ASSERTION_KEY,
+                policy=GatewayPolicy("civicloop-default", 2000, 60),
+                ledger=DurableBudgetLedger(tmp_path / f"bounded-{index}.sqlite3"),
+                now=NOW,
+            )
 
 
 def test_strict_request_reaches_downstream_with_only_allowlisted_fields(

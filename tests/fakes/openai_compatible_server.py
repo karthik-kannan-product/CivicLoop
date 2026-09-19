@@ -12,6 +12,59 @@ from pathlib import Path
 def compatible_response(request: Mapping[str, object], mode: str) -> dict[str, object]:
     if not isinstance(request.get("model"), str):
         return {"error": {"message": "unknown model"}}
+    messages = request.get("messages")
+    has_tool_result = isinstance(messages, list) and any(
+        isinstance(message, dict) and message.get("role") == "tool"
+        for message in messages
+    )
+    if mode == "tool-loop" and not has_tool_result:
+        return {
+            "id": "chatcmpl-civicloop-tool-call",
+            "object": "chat.completion",
+            "created": 1_788_739_200,
+            "model": "configured-upstream",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_event_revision_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": '{"event_id":"evt-123"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
+            "fixture_mode": mode,
+        }
+    if mode == "tool-loop":
+        return {
+            "id": "chatcmpl-civicloop-tool-final",
+            "object": "chat.completion",
+            "created": 1_788_739_201,
+            "model": "configured-upstream",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Event evt-123 is at revision 7.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 9, "total_tokens": 29},
+            "fixture_mode": mode,
+        }
     return {
         "id": "chatcmpl-civicloop-fixture",
         "object": "chat.completion",
@@ -55,6 +108,10 @@ class Handler(BaseHTTPRequestHandler):
         capture_file = os.environ.get("CAPTURE_FILE")
         if capture_file:
             Path(capture_file).write_text(json.dumps(request), encoding="utf-8")
+        capture_sequence_file = os.environ.get("CAPTURE_SEQUENCE_FILE")
+        if capture_sequence_file:
+            with Path(capture_sequence_file).open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(request, separators=(",", ":")) + "\n")
         if mode == "timeout":
             time.sleep(float(os.environ.get("FAKE_PROVIDER_TIMEOUT_SECONDS", "5")))
         if mode == "error":

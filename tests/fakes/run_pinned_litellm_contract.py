@@ -279,6 +279,7 @@ def main() -> int:
         root = Path(directory)
         port_file = root / "fake-port"
         capture_file = root / "capture.json"
+        capture_sequence_file = root / "capture-sequence.jsonl"
         mode_file = root / "mode"
         mode_file.write_text("compatible", encoding="utf-8")
         environment = os.environ.copy()
@@ -286,6 +287,7 @@ def main() -> int:
             {
                 "PORT_FILE": str(port_file),
                 "CAPTURE_FILE": str(capture_file),
+                "CAPTURE_SEQUENCE_FILE": str(capture_sequence_file),
                 "MODE_FILE": str(mode_file),
                 "FAKE_PROVIDER_TIMEOUT_SECONDS": "65",
             }
@@ -339,6 +341,140 @@ def main() -> int:
             assert captured["model"] == "test-model"
             assert set(captured) <= {"model", "messages", "max_tokens"}
 
+            mode_file.write_text("timeout", encoding="utf-8")
+            status, response = _post(
+                port,
+                body,
+                "runtime-timeout-000003",
+                timeout_seconds=75,
+            )
+            assert status == 503 and response["error"]["code"] == "model_provider_unavailable", (
+                status,
+                response,
+            )
+            print("production-equivalent timeout passed", flush=True)
+
+            mode_file.write_text("tool-loop", encoding="utf-8")
+            capture_sequence_file.unlink(missing_ok=True)
+            tool = {
+                "type": "function",
+                "function": {
+                    "name": "get_event_revision",
+                    "description": "Read one bounded CivicLoop event revision.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "event_id": {"type": "string", "maxLength": 128}
+                        },
+                        "required": ["event_id"],
+                        "additionalProperties": False,
+                    },
+                },
+            }
+            first_tool_body = {
+                "model": "civicloop-default",
+                "messages": [
+                    {"role": "user", "content": "Read event evt-123."}
+                ],
+                "max_tokens": 32,
+                "tools": [tool],
+                "tool_choice": "auto",
+                "stream": False,
+            }
+            status, tool_response = _post(
+                port,
+                first_tool_body,
+                "runtime-tool-first-00005",
+                run_id="runtime-contract-tool-run",
+            )
+            assert status == 200 and tool_response["fixture_mode"] == "tool-loop", (
+                status,
+                tool_response,
+            )
+            raw_assistant_message = tool_response["choices"][0]["message"]
+            assistant_message = {
+                "role": raw_assistant_message["role"],
+                "content": raw_assistant_message.get("content"),
+                "tool_calls": raw_assistant_message["tool_calls"],
+            }
+            second_tool_body = {
+                "model": "civicloop-default",
+                "messages": [
+                    {"role": "user", "content": "Read event evt-123."},
+                    assistant_message,
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call_event_revision_1",
+                        "content": '{"revision":7}',
+                    },
+                ],
+                "max_tokens": 32,
+                "tools": [tool],
+                "stream": False,
+            }
+            status, final_response = _post(
+                port,
+                second_tool_body,
+                "runtime-tool-second-0006",
+                run_id="runtime-contract-tool-run",
+            )
+            final_message = final_response["choices"][0]["message"]
+            assert status == 200 and {
+                "role": final_message["role"],
+                "content": final_message["content"],
+            } == {
+                "role": "assistant",
+                "content": "Event evt-123 is at revision 7.",
+            }, (status, final_response, second_tool_body)
+            captured_tool_requests = [
+                json.loads(line)
+                for line in capture_sequence_file.read_text(encoding="utf-8").splitlines()
+            ]
+            assert len(captured_tool_requests) == 2
+            allowed = {"model", "messages", "max_tokens", "tools", "tool_choice"}
+            forbidden = {
+                "api_base",
+                "base_url",
+                "api_key",
+                "custom_llm_provider",
+                "deployment",
+                "routing_strategy",
+                "session_id",
+                "metadata",
+                "user",
+                "parallel_tool_calls",
+                "stream",
+            }
+            for forwarded in captured_tool_requests:
+                assert set(forwarded) <= allowed
+                assert not set(forwarded) & forbidden
+                assert forwarded["model"] == "test-model"
+                serialized = json.dumps(forwarded)
+                assert CLIENT_TOKEN not in serialized
+                assert MASTER_KEY not in serialized
+                assert "sk-test-provider-not-real" not in serialized
+            assert captured_tool_requests[0]["tools"] == [tool]
+            assert captured_tool_requests[0]["tool_choice"] == "auto"
+            forwarded_assistant, forwarded_tool_result = captured_tool_requests[1][
+                "messages"
+            ][-2:]
+            assert {
+                "role": forwarded_assistant["role"],
+                "content": forwarded_assistant.get("content"),
+                "tool_calls": forwarded_assistant["tool_calls"],
+            } == assistant_message
+            assert {
+                "role": forwarded_tool_result["role"],
+                "tool_call_id": forwarded_tool_result["tool_call_id"],
+                "content": forwarded_tool_result["content"],
+            } == {
+                "role": "tool",
+                "tool_call_id": "call_event_revision_1",
+                "content": '{"revision":7}',
+            }
+            print("bounded non-streaming tool round trip passed", flush=True)
+            mode_file.write_text("compatible", encoding="utf-8")
+
             request = urllib.request.Request(
                 f"http://127.0.0.1:{port}/v1/models", data=b"{}", method="POST"
             )
@@ -353,15 +489,7 @@ def main() -> int:
             status, response = _post(port, body, "runtime-error-00000002")
             assert status in {502, 503}
             assert "provider-specific" not in json.dumps(response)
-            mode_file.write_text("timeout", encoding="utf-8")
-            status, response = _post(
-                port,
-                body,
-                "runtime-timeout-000003",
-                timeout_seconds=75,
-            )
-            assert status == 503 and response["error"]["code"] == "model_provider_unavailable"
-            print("route, redacted error, and timeout passed", flush=True)
+            print("route and redacted provider error passed", flush=True)
 
             _run("rm", "-f", first)
             containers.remove(first)

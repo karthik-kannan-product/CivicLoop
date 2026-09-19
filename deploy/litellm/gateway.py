@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import signal
@@ -26,6 +27,17 @@ RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
 NONCE_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{15,127}")
 DIGEST_PATTERN = re.compile(r"sha256:[a-f0-9]{64}")
 SHA_PATTERN = re.compile(r"[a-f0-9]{40}")
+TOOL_NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}")
+TOOL_CALL_ID_PATTERN = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+SCHEMA_KEY_PATTERN = re.compile(r"[A-Za-z0-9_$.-]{1,128}")
+MAX_TOOLS = 8
+MAX_TOOL_CALLS = 16
+MAX_TOOL_SCHEMA_BYTES = 16_384
+MAX_TOOL_ARGUMENT_BYTES = 16_384
+MAX_TOOL_PAYLOAD_BYTES = 65_536
+MAX_MESSAGE_PAYLOAD_BYTES = 196_608
+MAX_SCHEMA_DEPTH = 8
+MAX_SCHEMA_KEYS = 256
 ALLOWED_REQUEST_FIELDS = frozenset(
     {
         "model",
@@ -36,6 +48,9 @@ ALLOWED_REQUEST_FIELDS = frozenset(
         "stop",
         "seed",
         "response_format",
+        "tools",
+        "tool_choice",
+        "stream",
     }
 )
 ASSERTION_FIELDS = frozenset(
@@ -378,24 +393,244 @@ def _bounded_number(value: object, *, label: str, minimum: float, maximum: float
     return normalized
 
 
-def _messages(value: object) -> list[dict[str, str]]:
+def _bounded_string(
+    value: object, *, label: str, maximum: int, nullable: bool = False
+) -> str | None:
+    if nullable and value is None:
+        return None
+    if not isinstance(value, str) or len(value.encode("utf-8")) > maximum:
+        raise PolicyError(f"{label} is invalid")
+    return value
+
+
+def _bounded_json_value(
+    value: object, *, depth: int, key_count: list[int]
+) -> object:
+    if depth > MAX_SCHEMA_DEPTH:
+        raise PolicyError("tool schema depth is invalid")
+    if value is None or isinstance(value, bool | str | int):
+        if isinstance(value, str) and len(value.encode("utf-8")) > 4096:
+            raise PolicyError("tool schema string is invalid")
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise PolicyError("tool schema number is invalid")
+        return value
+    if isinstance(value, list):
+        if len(value) > 128:
+            raise PolicyError("tool schema list is invalid")
+        return [
+            _bounded_json_value(item, depth=depth + 1, key_count=key_count)
+            for item in value
+        ]
+    if isinstance(value, dict):
+        result: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or SCHEMA_KEY_PATTERN.fullmatch(key) is None:
+                raise PolicyError("tool schema key is invalid")
+            key_count[0] += 1
+            if key_count[0] > MAX_SCHEMA_KEYS:
+                raise PolicyError("tool schema has too many keys")
+            result[key] = _bounded_json_value(
+                item, depth=depth + 1, key_count=key_count
+            )
+        return result
+    raise PolicyError("tool schema value is invalid")
+
+
+def _tool_schema(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise PolicyError("tool schema is invalid")
+    result = _bounded_json_value(value, depth=1, key_count=[0])
+    if not isinstance(result, dict) or result.get("type") != "object":
+        raise PolicyError("tool schema root is invalid")
+    try:
+        encoded = json.dumps(
+            result, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise PolicyError("tool schema is invalid") from error
+    if len(encoded) > MAX_TOOL_SCHEMA_BYTES:
+        raise PolicyError("tool schema is too large")
+    return result
+
+
+def _tools(value: object) -> tuple[list[dict[str, object]], set[str]]:
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_TOOLS:
+        raise PolicyError("tools are invalid")
+    result: list[dict[str, object]] = []
+    names: set[str] = set()
+    for tool in value:
+        if not isinstance(tool, dict) or set(tool) != {"type", "function"}:
+            raise PolicyError("tool fields are invalid")
+        if tool.get("type") != "function":
+            raise PolicyError("tool type is invalid")
+        function = tool.get("function")
+        if not isinstance(function, dict) or not {"name", "parameters"} <= set(
+            function
+        ) or set(function) - {"name", "description", "parameters"}:
+            raise PolicyError("tool function fields are invalid")
+        name = function.get("name")
+        if not isinstance(name, str) or TOOL_NAME_PATTERN.fullmatch(name) is None:
+            raise PolicyError("tool name is invalid")
+        if name in names:
+            raise PolicyError("tool names must be unique")
+        names.add(name)
+        rebuilt_function: dict[str, object] = {
+            "name": name,
+            "parameters": _tool_schema(function.get("parameters")),
+        }
+        if "description" in function:
+            rebuilt_function["description"] = _bounded_string(
+                function["description"], label="tool description", maximum=4096
+            )
+        result.append({"type": "function", "function": rebuilt_function})
+    if len(
+        json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ) > MAX_TOOL_PAYLOAD_BYTES:
+        raise PolicyError("tool payload is too large")
+    return result, names
+
+
+def _tool_choice(value: object, *, names: set[str]) -> str | dict[str, object]:
+    if isinstance(value, str):
+        if value not in {"auto", "none", "required"}:
+            raise PolicyError("tool choice is invalid")
+        return value
+    if not isinstance(value, dict) or set(value) != {"type", "function"}:
+        raise PolicyError("tool choice is invalid")
+    function = value.get("function")
+    if (
+        value.get("type") != "function"
+        or not isinstance(function, dict)
+        or set(function) != {"name"}
+        or function.get("name") not in names
+    ):
+        raise PolicyError("tool choice is invalid")
+    return {"type": "function", "function": {"name": function["name"]}}
+
+
+def _tool_call(
+    value: object, *, declared_tools: set[str], seen_call_ids: set[str]
+) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != {"id", "type", "function"}:
+        raise PolicyError("tool call fields are invalid")
+    call_id = value.get("id")
+    if (
+        not isinstance(call_id, str)
+        or TOOL_CALL_ID_PATTERN.fullmatch(call_id) is None
+    ):
+        raise PolicyError("tool call ID is invalid")
+    if call_id in seen_call_ids:
+        raise PolicyError("tool call IDs must be unique")
+    if value.get("type") != "function":
+        raise PolicyError("tool call type is invalid")
+    function = value.get("function")
+    if not isinstance(function, dict) or set(function) != {"name", "arguments"}:
+        raise PolicyError("tool call function fields are invalid")
+    name = function.get("name")
+    if name not in declared_tools:
+        raise PolicyError("tool call references an undeclared tool")
+    arguments = function.get("arguments")
+    if (
+        not isinstance(arguments, str)
+        or len(arguments.encode("utf-8")) > MAX_TOOL_ARGUMENT_BYTES
+    ):
+        raise PolicyError("tool call arguments are invalid")
+    try:
+        decoded_arguments = json.loads(arguments)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise PolicyError("tool call arguments are invalid") from error
+    if not isinstance(decoded_arguments, dict):
+        raise PolicyError("tool call arguments are invalid")
+    rebuilt_arguments = json.dumps(
+        decoded_arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    )
+    seen_call_ids.add(call_id)
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": rebuilt_arguments},
+    }
+
+
+def _messages(
+    value: object, *, declared_tools: set[str]
+) -> list[dict[str, object]]:
     if not isinstance(value, list) or not 1 <= len(value) <= 64:
         raise PolicyError("messages are invalid")
-    result = []
-    total = 0
+    result: list[dict[str, object]] = []
+    seen_call_ids: set[str] = set()
+    resolved_call_ids: set[str] = set()
     for message in value:
-        if not isinstance(message, dict) or set(message) != {"role", "content"}:
+        if not isinstance(message, dict):
             raise PolicyError("message fields are invalid")
         role = message.get("role")
-        content = message.get("content")
-        if role not in {"system", "user", "assistant"}:
+        if role in {"system", "user"}:
+            if set(message) != {"role", "content"}:
+                raise PolicyError("message fields are invalid")
+            content = _bounded_string(
+                message.get("content"), label="message content", maximum=32_768
+            )
+            result.append({"role": role, "content": content})
+            continue
+        if role == "assistant":
+            if set(message) - {"role", "content", "tool_calls"}:
+                raise PolicyError("message fields are invalid")
+            calls = message.get("tool_calls")
+            if calls is not None and (
+                not isinstance(calls, list) or not 1 <= len(calls) <= MAX_TOOL_CALLS
+            ):
+                raise PolicyError("assistant tool calls are invalid")
+            content = _bounded_string(
+                message.get("content"),
+                label="assistant content",
+                maximum=32_768,
+                nullable=True,
+            )
+            if content is None and not calls:
+                raise PolicyError("assistant content is invalid")
+            rebuilt: dict[str, object] = {"role": "assistant", "content": content}
+            if calls:
+                rebuilt["tool_calls"] = [
+                    _tool_call(
+                        call,
+                        declared_tools=declared_tools,
+                        seen_call_ids=seen_call_ids,
+                    )
+                    for call in calls
+                ]
+            result.append(rebuilt)
+            continue
+        if role == "tool":
+            if set(message) != {"role", "tool_call_id", "content"}:
+                raise PolicyError("message fields are invalid")
+            call_id = message.get("tool_call_id")
+            if not isinstance(call_id, str) or call_id not in seen_call_ids:
+                raise PolicyError("tool result must reference a prior tool call")
+            if call_id in resolved_call_ids:
+                raise PolicyError("tool call result must be unique")
+            resolved_call_ids.add(call_id)
+            result.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": _bounded_string(
+                        message.get("content"),
+                        label="tool result content",
+                        maximum=32_768,
+                    ),
+                }
+            )
+            continue
+        else:
             raise PolicyError("message role is invalid")
-        if not isinstance(content, str) or len(content) > 32_768:
-            raise PolicyError("message content is invalid")
-        total += len(content)
-        if total > 131_072:
-            raise PolicyError("message content is too large")
-        result.append({"role": role, "content": content})
+    if seen_call_ids != resolved_call_ids:
+        raise PolicyError("every tool call must have exactly one result")
+    if len(
+        json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ) > MAX_MESSAGE_PAYLOAD_BYTES:
+        raise PolicyError("message payload is too large")
     return result
 
 
@@ -405,15 +640,27 @@ def _sanitize_request(body: Mapping[str, object], policy: GatewayPolicy) -> dict
         raise PolicyError(f"unsupported request field: {sorted(unknown)[0]}")
     if body.get("model") != policy.alias:
         raise PolicyError("only the configured model alias is allowed")
+    tools: list[dict[str, object]] | None = None
+    tool_names: set[str] = set()
+    if "tools" in body:
+        tools, tool_names = _tools(body["tools"])
     sanitized: dict[str, object] = {
         "model": policy.alias,
-        "messages": _messages(body.get("messages")),
+        "messages": _messages(body.get("messages"), declared_tools=tool_names),
         "max_tokens": _positive_integer(
             body.get("max_tokens"),
             label="request token limit",
             maximum=policy.max_tokens,
         ),
     }
+    if tools is not None:
+        sanitized["tools"] = tools
+    if "tool_choice" in body:
+        if tools is None:
+            raise PolicyError("tool choice requires declared tools")
+        sanitized["tool_choice"] = _tool_choice(body["tool_choice"], names=tool_names)
+    if "stream" in body and body["stream"] is not False:
+        raise PolicyError("stream must be false")
     if "temperature" in body:
         sanitized["temperature"] = _bounded_number(
             body["temperature"], label="temperature", minimum=0, maximum=2
