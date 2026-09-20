@@ -38,6 +38,10 @@ MAX_TOOL_PAYLOAD_BYTES = 65_536
 MAX_MESSAGE_PAYLOAD_BYTES = 196_608
 MAX_SCHEMA_DEPTH = 8
 MAX_SCHEMA_KEYS = 256
+MAX_REQUEST_DEPTH = 16
+MAX_REQUEST_CONTAINERS = 512
+MAX_TOOL_ARGUMENT_DEPTH = 8
+MAX_TOOL_ARGUMENT_CONTAINERS = 128
 ALLOWED_REQUEST_FIELDS = frozenset(
     {
         "model",
@@ -438,6 +442,42 @@ def _bounded_json_value(
     raise PolicyError("tool schema value is invalid")
 
 
+def _validate_json_structure(
+    value: object,
+    *,
+    depth: int,
+    containers: list[int],
+    maximum_depth: int,
+    maximum_containers: int,
+) -> None:
+    if depth > maximum_depth:
+        raise PolicyError("JSON depth is invalid")
+    if isinstance(value, dict):
+        containers[0] += 1
+        if containers[0] > maximum_containers:
+            raise PolicyError("JSON container count is invalid")
+        for item in value.values():
+            _validate_json_structure(
+                item,
+                depth=depth + 1,
+                containers=containers,
+                maximum_depth=maximum_depth,
+                maximum_containers=maximum_containers,
+            )
+    elif isinstance(value, list):
+        containers[0] += 1
+        if containers[0] > maximum_containers:
+            raise PolicyError("JSON container count is invalid")
+        for item in value:
+            _validate_json_structure(
+                item,
+                depth=depth + 1,
+                containers=containers,
+                maximum_depth=maximum_depth,
+                maximum_containers=maximum_containers,
+            )
+
+
 def _tool_schema(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         raise PolicyError("tool schema is invalid")
@@ -539,7 +579,14 @@ def _tool_call(
         raise PolicyError("tool call arguments are invalid")
     try:
         decoded_arguments = json.loads(arguments)
-    except (UnicodeError, json.JSONDecodeError) as error:
+        _validate_json_structure(
+            decoded_arguments,
+            depth=0,
+            containers=[0],
+            maximum_depth=MAX_TOOL_ARGUMENT_DEPTH,
+            maximum_containers=MAX_TOOL_ARGUMENT_CONTAINERS,
+        )
+    except (UnicodeError, json.JSONDecodeError, RecursionError) as error:
         raise PolicyError("tool call arguments are invalid") from error
     if not isinstance(decoded_arguments, dict):
         raise PolicyError("tool call arguments are invalid")
@@ -562,10 +609,13 @@ def _messages(
     result: list[dict[str, object]] = []
     seen_call_ids: set[str] = set()
     resolved_call_ids: set[str] = set()
+    pending_call_ids: list[str] = []
     for message in value:
         if not isinstance(message, dict):
             raise PolicyError("message fields are invalid")
         role = message.get("role")
+        if pending_call_ids and role != "tool":
+            raise PolicyError("tool results must be contiguous and ordered")
         if role in {"system", "user"}:
             if set(message) != {"role", "content"}:
                 raise PolicyError("message fields are invalid")
@@ -592,7 +642,7 @@ def _messages(
                 raise PolicyError("assistant content is invalid")
             rebuilt: dict[str, object] = {"role": "assistant", "content": content}
             if calls:
-                rebuilt["tool_calls"] = [
+                rebuilt_calls = [
                     _tool_call(
                         call,
                         declared_tools=declared_tools,
@@ -600,6 +650,8 @@ def _messages(
                     )
                     for call in calls
                 ]
+                rebuilt["tool_calls"] = rebuilt_calls
+                pending_call_ids = [str(call["id"]) for call in rebuilt_calls]
             result.append(rebuilt)
             continue
         if role == "tool":
@@ -608,9 +660,12 @@ def _messages(
             call_id = message.get("tool_call_id")
             if not isinstance(call_id, str) or call_id not in seen_call_ids:
                 raise PolicyError("tool result must reference a prior tool call")
+            if not pending_call_ids or call_id != pending_call_ids[0]:
+                raise PolicyError("tool results must be contiguous and ordered")
             if call_id in resolved_call_ids:
                 raise PolicyError("tool call result must be unique")
             resolved_call_ids.add(call_id)
+            pending_call_ids.pop(0)
             result.append(
                 {
                     "role": "tool",
@@ -731,6 +786,20 @@ def provider_neutral_error(*, status: int, detail: str = "") -> dict[str, object
             "retryable": retryable,
         }
     }
+
+
+def _contains_known_secret(value: object, secrets: tuple[str, ...]) -> bool:
+    if isinstance(value, str):
+        return any(secret in value for secret in secrets)
+    if isinstance(value, list):
+        return any(_contains_known_secret(item, secrets) for item in value)
+    if isinstance(value, dict):
+        return any(
+            _contains_known_secret(key, secrets)
+            or _contains_known_secret(item, secrets)
+            for key, item in value.items()
+        )
+    return False
 
 
 def _read_private_value(path_value: str, label: str) -> bytes:
@@ -861,6 +930,13 @@ class _Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size))
             if not isinstance(body, dict):
                 raise PolicyError("request body is invalid")
+            _validate_json_structure(
+                body,
+                depth=0,
+                containers=[0],
+                maximum_depth=MAX_REQUEST_DEPTH,
+                maximum_containers=MAX_REQUEST_CONTAINERS,
+            )
             prepared = prepare_request(
                 body,
                 budget_assertion=self.headers.get("X-CivicLoop-Budget-Assertion", ""),
@@ -869,7 +945,7 @@ class _Handler(BaseHTTPRequestHandler):
                 ledger=server.ledger,  # type: ignore[attr-defined]
                 now=server.now(),  # type: ignore[attr-defined]
             )
-        except (json.JSONDecodeError, PolicyError, ValueError):
+        except (json.JSONDecodeError, PolicyError, RecursionError, ValueError):
             self._json(
                 400,
                 {
@@ -904,13 +980,25 @@ class _Handler(BaseHTTPRequestHandler):
                     parsed = json.loads(payload)
                     if not isinstance(parsed, dict):
                         raise ValueError("invalid response")
+                    _validate_json_structure(
+                        parsed,
+                        depth=0,
+                        containers=[0],
+                        maximum_depth=MAX_REQUEST_DEPTH,
+                        maximum_containers=MAX_REQUEST_CONTAINERS,
+                    )
+                    response_secrets = server.response_secrets  # type: ignore[attr-defined]
+                    if any(secret.encode("utf-8") in payload for secret in response_secrets):
+                        raise ValueError("response contains a known secret")
+                    if _contains_known_secret(parsed, response_secrets):
+                        raise ValueError("response contains a known secret")
                     self._json(200, parsed)
             except urllib.error.HTTPError as error:
                 self._json(
                     502 if error.code < 500 else 503,
                     provider_neutral_error(status=error.code),
                 )
-            except (OSError, ValueError, urllib.error.URLError):
+            except (OSError, PolicyError, RecursionError, ValueError, urllib.error.URLError):
                 self._json(503, provider_neutral_error(status=503))
         finally:
             server.inference_slot.release()  # type: ignore[attr-defined]
@@ -1005,6 +1093,12 @@ def main() -> int:
     server.inference_slot = threading.BoundedSemaphore(1)  # type: ignore[attr-defined]
     server.client_token = client_token.decode("utf-8")  # type: ignore[attr-defined]
     server.litellm_master_key = master_key.decode("utf-8")  # type: ignore[attr-defined]
+    server.response_secrets = (  # type: ignore[attr-defined]
+        provider_key.decode("utf-8"),
+        master_key.decode("utf-8"),
+        client_token.decode("utf-8"),
+        assertion_key.decode("utf-8"),
+    )
     server.upstream = "http://127.0.0.1:4001"  # type: ignore[attr-defined]
     server.supervisor = supervisor  # type: ignore[attr-defined]
     stopping = threading.Event()

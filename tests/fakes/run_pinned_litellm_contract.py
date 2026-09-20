@@ -31,6 +31,7 @@ PLATFORM_DIGEST = "sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0
 OPERATIONS_SHA = "a" * 40
 CLIENT_TOKEN = "test-gateway-token"
 MASTER_KEY = "sk-test-master-not-real-000000000000"
+PROVIDER_KEY = "sk-test-provider-not-real-0000000000"
 ASSERTION_KEY = b"test-budget-assertion-key-32-bytes-minimum"
 STARTUP_TIMEOUT_SECONDS = 180
 STARTUP_DEADLINE_GRACE_SECONDS = 30
@@ -87,7 +88,7 @@ def _post(
 
 def _seed(handoff_volume: str, ledger_volume: str) -> None:
     values = {
-        "provider-credential": b"sk-test-provider-not-real-0000000000",
+        "provider-credential": PROVIDER_KEY.encode(),
         "litellm-master-key": MASTER_KEY.encode(),
         "gateway-token": CLIENT_TOKEN.encode(),
         "budget-assertion-key": ASSERTION_KEY,
@@ -473,6 +474,21 @@ def main() -> int:
                 "content": '{"revision":7}',
             }
             print("bounded non-streaming tool round trip passed", flush=True)
+
+            mode_file.write_text("echo-credential", encoding="utf-8")
+            status, response = _post(
+                port,
+                body,
+                "runtime-secret-echo-0007",
+                run_id="runtime-contract-secret-echo-run",
+            )
+            serialized_response = json.dumps(response)
+            assert status == 503 and response["error"]["code"] == (
+                "model_provider_unavailable"
+            ), (status, response)
+            assert PROVIDER_KEY not in serialized_response
+            assert "Bearer" not in serialized_response
+            print("successful provider credential echo failed closed", flush=True)
             mode_file.write_text("compatible", encoding="utf-8")
 
             request = urllib.request.Request(

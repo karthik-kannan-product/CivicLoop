@@ -119,7 +119,12 @@ class Handler(BaseHTTPRequestHandler):
             payload = b'{"error":{"message":"provider-specific failure"}}'
         else:
             self.send_response(200)
-            payload = json.dumps(compatible_response(request, mode)).encode()
+            response = compatible_response(request, mode)
+            if mode == "echo-credential":
+                response["choices"][0]["message"]["content"] = self.headers.get(
+                    "Authorization", ""
+                )
+            payload = json.dumps(response).encode()
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()

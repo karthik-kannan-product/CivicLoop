@@ -150,6 +150,12 @@ def gateway_port(
     server.inference_slot = threading.BoundedSemaphore(1)  # type: ignore[attr-defined]
     server.client_token = "gateway-test-token"  # type: ignore[attr-defined]
     server.litellm_master_key = "internal-test-key"  # type: ignore[attr-defined]
+    server.response_secrets = (  # type: ignore[attr-defined]
+        "provider-test-key",
+        "internal-test-key",
+        "gateway-test-token",
+        ASSERTION_KEY.decode("utf-8"),
+    )
     server.upstream = f"http://127.0.0.1:{provider_port}"  # type: ignore[attr-defined]
     server.supervisor = SimpleNamespace(is_running=lambda: True)  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -380,6 +386,95 @@ def test_hermes_non_streaming_tool_round_trip_is_reconstructed(
             },
             "arguments",
         ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read event."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_interleaved",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    },
+                    {"role": "user", "content": "Interrupt the tool result."},
+                ],
+            },
+            "contiguous and ordered",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read two events."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_first",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "call_second",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "call_second", "content": "{}"},
+                    {"role": "tool", "tool_call_id": "call_first", "content": "{}"},
+                ],
+            },
+            "contiguous and ordered",
+        ),
+        (
+            {
+                "tools": [_tool()],
+                "messages": [
+                    {"role": "user", "content": "Read two events."},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_resolved",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "call_unresolved",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_event_revision",
+                                    "arguments": "{}",
+                                },
+                            },
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "call_resolved", "content": "{}"},
+                ],
+            },
+            "exactly one result",
+        ),
     ],
 )
 def test_hermes_tool_schema_rejects_unsafe_shapes(
@@ -400,6 +495,9 @@ def test_tool_schema_depth_size_and_arguments_are_bounded(tmp_path: Path) -> Non
     too_deep: dict[str, object] = {"type": "string"}
     for index in range(10):
         too_deep = {f"level_{index}": too_deep}
+    deeply_nested_arguments: dict[str, object] = {"value": "bounded"}
+    for index in range(10):
+        deeply_nested_arguments = {f"level_{index}": deeply_nested_arguments}
     cases = [
         _body(tools=[{**_tool(), "function": {**_tool()["function"], "parameters": too_deep}}]),
         _body(
@@ -422,6 +520,26 @@ def test_tool_schema_depth_size_and_arguments_are_bounded(tmp_path: Path) -> Non
                 },
             ],
         ),
+        _body(
+            tools=[_tool()],
+            messages=[
+                {"role": "user", "content": "Read event."},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_deep_args",
+                            "type": "function",
+                            "function": {
+                                "name": "get_event_revision",
+                                "arguments": json.dumps(deeply_nested_arguments),
+                            },
+                        }
+                    ],
+                },
+            ],
+        ),
     ]
     for index, body in enumerate(cases):
         with pytest.raises(PolicyError):
@@ -433,6 +551,19 @@ def test_tool_schema_depth_size_and_arguments_are_bounded(tmp_path: Path) -> Non
                 ledger=DurableBudgetLedger(tmp_path / f"bounded-{index}.sqlite3"),
                 now=NOW,
             )
+
+
+def test_request_body_depth_is_bounded_before_sanitization(gateway_port: int) -> None:
+    deeply_nested: dict[str, object] = {"value": "bounded"}
+    for index in range(18):
+        deeply_nested = {f"level_{index}": deeply_nested}
+    status, response = _post(
+        gateway_port,
+        _body(metadata=deeply_nested),
+        assertion=_assertion(nonce="deep-request-body"),
+    )
+    assert status == 400
+    assert response["error"]["code"] == "invalid_model_request"
 
 
 def test_strict_request_reaches_downstream_with_only_allowlisted_fields(
