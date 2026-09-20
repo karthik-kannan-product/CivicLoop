@@ -110,6 +110,7 @@ function jsonResponse(value: object) {
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState({}, "", "/");
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -118,6 +119,7 @@ afterEach(() => {
 test("logs out of the authenticated demo workspace", async () => {
   vi.stubEnv("VITEST", "");
   vi.stubEnv("VITE_STATIC_DEMO", "false");
+  window.history.replaceState({}, "", "/sandbox");
   const user = userEvent.setup();
   const authenticatedState = { ...baseState, deployment_mode: "server" };
   const responses = [

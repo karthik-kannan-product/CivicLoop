@@ -828,3 +828,206 @@ h3 {
 @media (max-width: 56rem) {
   .event-start__manual { grid-template-columns: 1fr; }
 }
+
+.public-page {
+  min-height: 100vh;
+}
+
+.public-nav,
+.public-footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto;
+  max-width: 72rem;
+  padding: 1.25rem clamp(1rem, 4vw, 3rem);
+}
+
+.public-nav nav {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+}
+
+.public-brand {
+  color: var(--brand);
+  font-size: 1.1rem;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.public-link {
+  color: var(--brand-bright);
+  font-weight: 750;
+}
+
+.public-hero,
+.public-section {
+  margin: 0 auto;
+  max-width: 72rem;
+  padding: clamp(3rem, 8vw, 7rem) clamp(1rem, 4vw, 3rem);
+}
+
+.public-hero h1 {
+  font-size: clamp(2.75rem, 8vw, 6.25rem);
+  max-width: 14ch;
+}
+
+.public-hero__lede {
+  color: var(--muted);
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  max-width: 48rem;
+}
+
+.public-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.public-cta {
+  display: inline-flex;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.public-cta--secondary {
+  border-color: var(--brand-bright);
+  color: var(--brand);
+}
+
+.public-section {
+  border-top: 1px solid var(--border);
+}
+
+.public-section > h2 {
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  max-width: 24ch;
+}
+
+.public-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  padding: 0;
+}
+
+.public-card,
+.public-steps li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+}
+
+.public-card p,
+.public-steps span {
+  color: var(--muted);
+  display: block;
+  margin: 0.5rem 0 0;
+}
+
+.public-status {
+  color: var(--brand-bright);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.public-invitation {
+  background: var(--brand);
+  color: white;
+  max-width: none;
+  padding-left: max(1rem, calc((100vw - 66rem) / 2));
+  padding-right: max(1rem, calc((100vw - 66rem) / 2));
+}
+
+.public-invitation p {
+  color: #c5d9d3;
+  max-width: 44rem;
+}
+
+.public-invitation .public-link {
+  color: white;
+}
+
+.public-footer {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.gateway-page,
+.not-found-page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.gateway-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  max-width: 64rem;
+  padding: clamp(1.5rem, 5vw, 3.5rem);
+  width: 100%;
+}
+
+.gateway-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 2rem 0;
+}
+
+.gateway-card {
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+}
+
+.public-link:focus-visible,
+.public-brand:focus-visible,
+.public-cta:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+@media (max-width: 48rem) {
+  .public-grid,
+  .gateway-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .public-nav,
+  .public-footer,
+  .public-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .public-nav nav {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .public-actions .button {
+    text-align: center;
+    width: 100%;
+  }
+
+  .public-footer {
+    gap: 0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .public-page *,
+  .gateway-page * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
