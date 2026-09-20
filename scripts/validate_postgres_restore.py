@@ -313,8 +313,23 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _capture(host: str, connection_args: dict[str, object]) -> InvariantSet:
-    with psycopg.connect(host=host, autocommit=True, **connection_args) as connection:
+def _capture(
+    host: str,
+    *,
+    port: int,
+    database: str,
+    username: str,
+    password: str,
+) -> InvariantSet:
+    with psycopg.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=username,
+        password=password,
+        connect_timeout=10,
+        autocommit=True,
+    ) as connection:
         with read_only_snapshot(connection):
             return capture_invariants(connection)
 
@@ -335,15 +350,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Required PostgreSQL connection environment is incomplete.", file=sys.stderr)
         return 2
 
-    connection_args: dict[str, object] = {
-        "port": args.port,
-        "dbname": args.database,
-        "user": args.username,
-        "password": password,
-        "connect_timeout": 10,
-    }
     try:
-        source = _capture(args.source_host, connection_args)
+        source = _capture(
+            args.source_host,
+            port=args.port,
+            database=args.database,
+            username=args.username,
+            password=password,
+        )
         source_digest = invariant_digest(source)
         if args.expected_digest and source_digest != args.expected_digest:
             print(f"Source invariant digest mismatch: {source_digest}", file=sys.stderr)
@@ -351,7 +365,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.source_only:
             print(source_digest)
             return 0
-        restored = _capture(args.restored_host, connection_args)
+        restored = _capture(
+            args.restored_host,
+            port=args.port,
+            database=args.database,
+            username=args.username,
+            password=password,
+        )
     except (psycopg.Error, RuntimeError) as exc:
         print(f"PostgreSQL invariant validation failed: {type(exc).__name__}", file=sys.stderr)
         return 1
