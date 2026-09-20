@@ -6,17 +6,17 @@ CivicLoop is a public library of small, forkable agentic loops that nonprofit te
 
 The long-term CivicLoop vision is broader: reusable loops for membership lifecycle, sponsor entitlements, event operations, campaign communications, reporting, and agent observability. The repository is intentionally starting narrow so each loop can be inspected, tested, and adapted responsibly.
 
-## Live Demo
+## Live CivicLoop
 
-LaunchLoop is published with GitHub Pages:
+- **Product and roadmap:** https://civicloop.karthikkannan.ca/
+- **Authenticated synthetic sandbox:** https://civicloop.karthikkannan.ca/sandbox
+- **Login gateway:** https://civicloop.karthikkannan.ca/login
+- **Browser-local fallback:** https://karthik-kannan-product.github.io/CivicLoop/
 
-https://karthik-kannan-product.github.io/CivicLoop/
-
-The public demo uses browser-local synthetic state so it can run safely on
-GitHub Pages. Refreshes preserve the journey in that browser, and **Reset demo**
-restores the seeded incomplete New York event. The Compose application uses
-Django and PostgreSQL for durable workflow, revision, approval, audit, and
-sandbox-receipt records.
+The self-hosted sandbox is the canonical demonstration. It uses synthetic
+operator and approver identities with durable PostgreSQL workflow, revision,
+approval, audit, evaluation, and sandbox-receipt records. GitHub Pages remains
+a safe browser-local fallback and does not expose server accounts.
 
 ## First Loop: LaunchLoop
 
@@ -177,36 +177,36 @@ uv run python scripts/validate_api_contracts.py
 
 See `docs/api-contracts.md` for contributor rules and authentication details.
 
-## Next PRD Milestone
+## Current state and roadmap
 
-The observable-agent foundation release gate is complete: exact-commit CI,
-production deployment, a synthetic four-eyes journey, bounded Eventbrite and
-OpenAI smokes, Phoenix degradation/recovery, disposable backup restoration,
-rollback readiness, resource headroom, and sanitized log review have passed.
-Python 3.14 is now the supported application and build runtime. Runtime micro
-releases remain pinned and advance through the same full CI and production
-promotion gate; prerelease Python versions are not used.
+### Live
 
-The synthetic, durable-control-plane, and observable-deterministic gates are
-implemented: 15 event scenarios, 16 deterministic executable cases, 100
-labeled examples, durable run/budget/evaluation records, redacted
-OpenTelemetry/OpenInference tracing, and an optional authenticated Phoenix
-profile with 14-day retention. A fixed, schema-bound OpenAI judge now evaluates
-only explicitly synthetic packages through one budget-reserved attempt and
-shows safe advisory trace, rubric, label, usage, cost, and failure status in
-review. Phoenix and the judge are not required for deterministic readiness.
-Phoenix activation remains protected, and every judge call requires an explicit
-administrator action.
+The observable-agent foundation is deployed through an exact-commit CI and
+protected production promotion gate on Python 3.14. It includes a synthetic
+four-eyes journey, 15 event scenarios, 16 deterministic executable cases, 100
+labeled examples, durable workflow and evaluation records, redacted tracing,
+an optional protected Phoenix profile, and a fixed schema-bound synthetic-only
+judge. Authorized users can manually start a run or safely import bounded
+Eventbrite read state. External writes remain disabled.
 
-The live-read pilot is implemented: an authorized human can initiate manually
-or select safely imported Eventbrite state while all external mutation remains
-disabled. Imports retain sanitized, revision-aware provenance and explicitly
-handle zero, one, many, stale, unavailable, draft, and live event states. The
-judge deliberately refuses Eventbrite and manual-event packages; no live event
-content is disclosed to the model in this increment. Hermes remains synthetic
-and internal-only until its later gate, and Iterable draft
-operations remain disabled. See the
-[architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence).
+### In development
+
+The self-hosted Hermes live-draft path is being built behind the existing
+approval and audit boundary. Its LiteLLM gateway source contract is complete
+but is not activated in production; the next increment is a narrow private
+Hermes adapter for synthetic draft generation.
+
+### Planned
+
+The next external operations are approval-bound Eventbrite unpublished drafts
+and Iterable unsent drafts, followed by reusable membership, sponsor,
+engagement, and reporting loops. Publishing, sending, scheduling, pricing,
+discount, segment, and export actions remain prohibited until they receive
+their own explicit safety gates.
+
+Read the [architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence),
+the [broader vision](docs/civicloop-vision.md), or inspect the source and tests
+in this repository.
 
 ## Run LaunchLoop Locally
 
