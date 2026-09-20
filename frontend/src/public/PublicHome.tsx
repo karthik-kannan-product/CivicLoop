@@ -120,6 +120,11 @@ export function PublicHome() {
               </span>
             </li>
           </ol>
+          <p className="public-safety-note">
+            Evaluation stays synthetic-only. Publishing, sending, scheduling,
+            ticket-economics changes, segment creation, and constituent export
+            remain prohibited.
+          </p>
         </section>
 
         <section className="public-section" aria-labelledby="difference-title">

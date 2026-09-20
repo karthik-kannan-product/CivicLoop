@@ -205,8 +205,9 @@ discount, segment, and export actions remain prohibited until they receive
 their own explicit safety gates.
 
 Read the [architecture delivery sequence](docs/2026-07-30-civicloop-v1-architecture-design.md#20-scope-and-delivery-sequence),
-the [broader vision](docs/civicloop-vision.md), or inspect the source and tests
-in this repository.
+the [broader vision](docs/civicloop-vision.md), and the
+[observability guide](docs/observability.md), or inspect the source and tests in
+this repository.
 
 ## Run LaunchLoop Locally
 

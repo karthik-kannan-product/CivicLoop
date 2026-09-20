@@ -81,6 +81,12 @@ test("homepage offers contact, sandbox, and transparent development paths", () =
   expect(screen.getByText("Live")).toBeInTheDocument();
   expect(screen.getByText("In development")).toBeInTheDocument();
   expect(screen.getByText("Planned")).toBeInTheDocument();
+  expect(
+    screen.getByText(/Evaluation stays synthetic-only/),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/Publishing, sending, scheduling, ticket-economics changes/),
+  ).toBeInTheDocument();
 });
 
 test("login gateway separates sandbox and owner identities", () => {

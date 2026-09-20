@@ -929,6 +929,12 @@ h3 {
   margin: 0.5rem 0 0;
 }
 
+.public-safety-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  max-width: 54rem;
+}
+
 .public-status {
   color: var(--brand-bright);
   font-size: 0.72rem;
