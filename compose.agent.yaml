@@ -4,7 +4,18 @@ x-litellm-image-lock:
   platform_manifest_digest: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
   activation_allowed: false
 
+x-hermes-image-lock:
+  release: v2026.9.11
+  source_commit: 939e45c91d751fadd94dcd1b873ac3cb44846213
+  index_digest: sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+  activation_allowed: false
+
 services:
+  worker:
+    image: civicloop:local
+    command: ["worker"]
+    networks: [default, agent-control]
+
   model-gateway-init:
     image: ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
     platform: linux/amd64
@@ -75,7 +86,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    networks: [agent-control, provider-egress]
+    networks: [hermes-runtime, provider-egress]
     depends_on:
       model-gateway-init:
         condition: service_completed_successfully
@@ -132,10 +143,119 @@ services:
     logging:
       options: {max-size: 10m, max-file: "3"}
 
+  hermes:
+    image: docker.io/nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+    platform: linux/amd64
+    profiles: [agent]
+    command: ["gateway", "run"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [hermes-runtime]
+    depends_on:
+      litellm:
+        condition: service_healthy
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_UID: "10000"
+      HERMES_GID: "10000"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: "8642"
+      API_SERVER_MODEL_NAME: civicloop-default
+      HERMES_DISABLE_LAZY_INSTALLS: "1"
+      HERMES_SAFE_MODE: "0"
+    volumes:
+      - type: bind
+        source: ./deploy/hermes/config.yaml
+        target: /opt/data/config.yaml
+        read_only: true
+      - type: volume
+        source: hermes-state
+        target: /opt/data
+    secrets:
+      - source: civicloop-hermes-env
+        target: /opt/data/.env
+        uid: "10000"
+        gid: "10000"
+        mode: 0400
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=10000,gid=10000,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8642/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+    pids_limit: 256
+    cpus: "1.00"
+    mem_limit: 1g
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  hermes-adapter:
+    build:
+      context: ${CIVICLOOP_BUILD_CONTEXT:-.}
+    profiles: [agent]
+    entrypoint: ["python", "/app/hermes-adapter.py"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [agent-control, hermes-runtime]
+    depends_on:
+      hermes:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      HERMES_UPSTREAM_URL: http://hermes:8642
+      HERMES_POLL_INTERVAL_SECONDS: "0.5"
+      HERMES_ADAPTER_TOKEN_FILE: /run/secrets/civicloop-hermes-service-token
+      HERMES_UPSTREAM_TOKEN_FILE: /run/secrets/civicloop-hermes-upstream-token
+    volumes:
+      - type: bind
+        source: ./deploy/hermes/adapter.py
+        target: /app/hermes-adapter.py
+        read_only: true
+    secrets:
+      - source: civicloop-hermes-service-token
+        target: /run/secrets/civicloop-hermes-service-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: civicloop-hermes-upstream-token
+        target: /run/secrets/civicloop-hermes-upstream-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 128m
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
 networks:
   agent-control: {internal: true}
+  hermes-runtime: {internal: true}
   provider-egress: {}
 
 volumes:
   model-gateway-handoff: {}
   model-gateway-ledger: {}
+  hermes-state: {}
+
+secrets:
+  civicloop-hermes-env:
+    file: ${CIVICLOOP_HERMES_ENV_FILE:?Set protected Hermes environment file}
+  civicloop-hermes-service-token:
+    file: ${CIVICLOOP_HERMES_SERVICE_TOKEN_FILE:?Set CivicLoop-to-adapter token file}
+  civicloop-hermes-upstream-token:
+    file: ${CIVICLOOP_HERMES_UPSTREAM_TOKEN_FILE:?Set adapter-to-Hermes token file}

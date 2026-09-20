@@ -786,7 +786,8 @@ def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() ->
     assert service["depends_on"]["model-gateway-init"]["condition"] == (
         "service_completed_successfully"
     )
-    assert service["networks"] == ["agent-control", "provider-egress"]
+    assert service["networks"] == ["hermes-runtime", "provider-egress"]
+    assert compose["networks"]["hermes-runtime"]["internal"] is True
     assert "ports" not in service
     assert service["user"] == "65534:65534"
     assert service["read_only"] is True

@@ -1,0 +1,102 @@
+model:
+  default: civicloop-default
+  provider: custom
+  base_url: http://litellm:4000/v1
+  api_mode: chat_completions
+
+gateway:
+  api_server:
+    max_concurrent_runs: 1
+
+plugins:
+  enabled: []
+
+agent:
+  disabled_toolsets:
+    - web
+    - search
+    - x_search
+    - vision
+    - video
+    - image_gen
+    - video_gen
+    - computer_use
+    - terminal
+    - skills
+    - browser
+    - cronjob
+    - file
+    - tts
+    - todo
+    - memory
+    - context_engine
+    - session_search
+    - connections
+    - project
+    - bot_room
+    - desktop_ui
+    - clarify
+    - code_execution
+    - delegation
+    - homeassistant
+    - kanban
+    - discord
+    - discord_admin
+    - yuanbao
+    - feishu_doc
+    - feishu_drive
+    - spotify
+    - debugging
+    - safe
+    - coding
+    - hermes-acp
+    - hermes-api-server
+    - hermes-cli
+    - hermes-cron
+    - hermes-telegram
+    - hermes-discord
+    - hermes-whatsapp
+    - hermes-slack
+    - hermes-signal
+    - hermes-bluebubbles
+    - hermes-homeassistant
+    - hermes-email
+    - hermes-mattermost
+    - hermes-matrix
+    - hermes-dingtalk
+    - hermes-feishu
+    - hermes-weixin
+    - hermes-qqbot
+    - hermes-wecom
+    - hermes-wecom-callback
+    - hermes-yuanbao
+    - hermes-sms
+    - hermes-webhook
+    - hermes-gateway
+
+platform_toolsets:
+  api_server:
+    - civicloop
+
+mcp_servers:
+  civicloop:
+    url: http://mcp:8000/internal/v1/mcp
+    headers:
+      Authorization: Bearer ${CIVICLOOP_MCP_TOKEN}
+    enabled: true
+    timeout: 60
+    connect_timeout: 10
+    supports_parallel_tool_calls: false
+    trust: full
+    tools:
+      include:
+        - get_event_revision
+        - get_policy_context
+        - request_clarification
+        - propose_campaign_drafts
+        - validate_proposal
+        - request_eventbrite_draft
+        - request_iterable_drafts
+        - get_operation_status
+      resources: false
+      prompts: false
