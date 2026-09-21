@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -29,6 +31,68 @@ COMPOSE = ROOT / "compose.agent.yaml"
 BASE_COMPOSE = ROOT / "compose.yaml"
 CONFIG = ROOT / "deploy/hermes/config.yaml"
 TOOL_POLICY = ROOT / "deploy/hermes/tool-policy.yaml"
+
+
+def _render_merged_compose(
+    tmp_path: Path, *, include_identity_key_path: bool
+) -> subprocess.CompletedProcess[str]:
+    """Render unmodified Compose inputs with isolated, non-secret contract values."""
+    compose_dir = tmp_path / "compose"
+    compose_dir.mkdir()
+    base_compose = compose_dir / BASE_COMPOSE.name
+    agent_compose = compose_dir / COMPOSE.name
+    shutil.copyfile(BASE_COMPOSE, base_compose)
+    shutil.copyfile(COMPOSE, agent_compose)
+
+    source_path = str(compose_dir / "contract-source")
+    environment = {
+        **os.environ,
+        "POSTGRES_DB": "contract",
+        "POSTGRES_USER": "contract",
+        "POSTGRES_PASSWORD": "contract",
+        "COMPOSE_PROFILES": "agent",
+        "CIVICLOOP_OPERATIONS_SHA": "0" * 40,
+        "CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER_SHA256": "a" * 64,
+        "CIVICLOOP_MODEL_GATEWAY_TRUSTED_SIGNER": "contract-test",
+        "CIVICLOOP_MODEL_GATEWAY_TRUSTED_WORKFLOW": "contract-test",
+        "CIVICLOOP_MODEL_GATEWAY_APPROVAL_PATH": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_APPROVAL_SIGNATURE_PATH": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_BUDGET_ASSERTION_KEY_FILE": source_path,
+        "CIVICLOOP_HERMES_ENV_FILE": source_path,
+        "CIVICLOOP_HERMES_SERVICE_TOKEN_FILE": source_path,
+        "CIVICLOOP_HERMES_UPSTREAM_TOKEN_FILE": source_path,
+    }
+    if include_identity_key_path:
+        environment["CIVICLOOP_IDENTITY_KEY_HOST_PATH"] = source_path
+    else:
+        environment.pop("CIVICLOOP_IDENTITY_KEY_HOST_PATH", None)
+
+    (compose_dir / ".env").write_text(
+        "POSTGRES_DB=contract\nPOSTGRES_USER=contract\nPOSTGRES_PASSWORD=contract\n",
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(base_compose),
+            "-f",
+            str(agent_compose),
+            "config",
+            "--format",
+            "json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=environment,
+    )
 
 ALLOWED_TOOLS = [
     "mcp__civicloop__get_event_revision",
@@ -161,25 +225,14 @@ def test_exact_pinned_hermes_runtime_resolves_only_civicloop_tools() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_merged_compose_gives_only_worker_access_to_adapter_network() -> None:
-    result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "-f",
-            str(BASE_COMPOSE),
-            "-f",
-            str(COMPOSE),
-            "config",
-            "--no-interpolate",
-            "--format",
-            "json",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+def test_merged_compose_keeps_identity_key_path_required(tmp_path: Path) -> None:
+    result = _render_merged_compose(tmp_path, include_identity_key_path=False)
+    assert result.returncode != 0
+    assert "Set an absolute host identity-key path" in result.stderr
+
+
+def test_merged_compose_gives_only_worker_access_to_adapter_network(tmp_path: Path) -> None:
+    result = _render_merged_compose(tmp_path, include_identity_key_path=True)
     assert result.returncode == 0, result.stdout + result.stderr
     compose = json.loads(result.stdout)
     services = compose["services"]
@@ -188,8 +241,11 @@ def test_merged_compose_gives_only_worker_access_to_adapter_network() -> None:
         "agent-control",
         "hermes-runtime",
     }
-    assert "agent-control" not in services["web"]["networks"]
-    assert "agent-control" not in services["scheduler"]["networks"]
+    assert {
+        service_name
+        for service_name, service in services.items()
+        if "agent-control" in service.get("networks", {})
+    } == {"worker", "hermes-adapter"}
 
 
 def test_request_validation_is_exact_and_forces_model_alias() -> None:
