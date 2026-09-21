@@ -772,9 +772,13 @@ def prepare_request(
     return sanitized
 
 
+def _provider_failure_is_retryable(status: int) -> bool:
+    return status in {408, 429} or status >= 500
+
+
 def provider_neutral_error(*, status: int, detail: str = "") -> dict[str, object]:
     del detail
-    retryable = status == 429 or status >= 500
+    retryable = _provider_failure_is_retryable(status)
     return {
         "error": {
             "code": "model_provider_unavailable" if retryable else "model_request_rejected",
@@ -995,7 +999,7 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(200, parsed)
             except urllib.error.HTTPError as error:
                 self._json(
-                    502 if error.code < 500 else 503,
+                    503 if _provider_failure_is_retryable(error.code) else 502,
                     provider_neutral_error(status=error.code),
                 )
             except (OSError, PolicyError, RecursionError, ValueError, urllib.error.URLError):

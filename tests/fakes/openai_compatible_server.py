@@ -114,7 +114,10 @@ class Handler(BaseHTTPRequestHandler):
                 stream.write(json.dumps(request, separators=(",", ":")) + "\n")
         if mode == "timeout":
             time.sleep(float(os.environ.get("FAKE_PROVIDER_TIMEOUT_SECONDS", "5")))
-        if mode == "error":
+        if mode == "request-timeout":
+            self.send_response(408)
+            payload = b'{"error":{"message":"provider-specific timeout detail"}}'
+        elif mode == "error":
             self.send_response(503)
             payload = b'{"error":{"message":"provider-specific failure"}}'
         else:

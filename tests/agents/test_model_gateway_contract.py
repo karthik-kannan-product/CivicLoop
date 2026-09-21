@@ -102,15 +102,19 @@ def _post(
 
 
 @pytest.fixture
-def fake_provider(tmp_path: Path) -> tuple[int, Path, subprocess.Popen[str]]:
+def fake_provider(
+    tmp_path: Path,
+) -> tuple[int, Path, Path, subprocess.Popen[str]]:
     port_file = tmp_path / "provider-port"
     capture_file = tmp_path / "provider-capture.json"
+    mode_file = tmp_path / "provider-mode"
+    mode_file.write_text("compatible", encoding="utf-8")
     environment = os.environ.copy()
     environment.update(
         {
             "PORT_FILE": str(port_file),
             "CAPTURE_FILE": str(capture_file),
-            "FAKE_PROVIDER_MODE": "compatible",
+            "MODE_FILE": str(mode_file),
         }
     )
     process = subprocess.Popen(
@@ -123,7 +127,7 @@ def fake_provider(tmp_path: Path) -> tuple[int, Path, subprocess.Popen[str]]:
     try:
         for _ in range(100):
             if port_file.exists():
-                yield int(port_file.read_text()), capture_file, process
+                yield int(port_file.read_text()), capture_file, mode_file, process
                 break
             if process.poll() is not None:
                 raise AssertionError(process.stderr.read())
@@ -137,9 +141,9 @@ def fake_provider(tmp_path: Path) -> tuple[int, Path, subprocess.Popen[str]]:
 
 @pytest.fixture
 def gateway_port(
-    fake_provider: tuple[int, Path, subprocess.Popen[str]], tmp_path: Path
+    fake_provider: tuple[int, Path, Path, subprocess.Popen[str]], tmp_path: Path
 ) -> int:
-    provider_port, _, _ = fake_provider
+    provider_port, _, _, _ = fake_provider
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.policy = GatewayPolicy(  # type: ignore[attr-defined]
         alias="civicloop-default", max_tokens=2000, timeout_seconds=1
@@ -568,9 +572,9 @@ def test_request_body_depth_is_bounded_before_sanitization(gateway_port: int) ->
 
 def test_strict_request_reaches_downstream_with_only_allowlisted_fields(
     gateway_port: int,
-    fake_provider: tuple[int, Path, subprocess.Popen[str]],
+    fake_provider: tuple[int, Path, Path, subprocess.Popen[str]],
 ) -> None:
-    _, capture_file, _ = fake_provider
+    _, capture_file, _, _ = fake_provider
     status, response = _post(
         gateway_port,
         _body(stop=["END"], seed=7, response_format={"type": "json_object"}),
@@ -734,9 +738,9 @@ def test_assertion_is_bound_to_alias_expiry_and_nonce(tmp_path: Path) -> None:
 
 def test_http_bypass_is_rejected_before_downstream_capture(
     gateway_port: int,
-    fake_provider: tuple[int, Path, subprocess.Popen[str]],
+    fake_provider: tuple[int, Path, Path, subprocess.Popen[str]],
 ) -> None:
-    _, capture_file, _ = fake_provider
+    _, capture_file, _, _ = fake_provider
     status, response = _post(
         gateway_port,
         _body(api_base="http://attacker.invalid"),
@@ -770,6 +774,33 @@ def test_provider_errors_are_neutral_and_redacted() -> None:
     }
     assert "OpenAI" not in json.dumps(mapped)
     assert "provider-secret" not in json.dumps(mapped)
+
+    rejected = provider_neutral_error(status=400)
+    assert rejected["error"]["code"] == "model_request_rejected"
+    assert rejected["error"]["retryable"] is False
+
+
+def test_litellm_request_timeout_is_a_retryable_provider_failure(
+    gateway_port: int,
+    fake_provider: tuple[int, Path, Path, subprocess.Popen[str]],
+) -> None:
+    _, _, mode_file, _ = fake_provider
+    mode_file.write_text("request-timeout", encoding="utf-8")
+
+    status, response = _post(
+        gateway_port,
+        _body(),
+        assertion=_assertion(nonce="litellm-request-timeout"),
+    )
+
+    assert status == 503
+    assert response == {
+        "error": {
+            "code": "model_provider_unavailable",
+            "message": "The model service is temporarily unavailable.",
+            "retryable": True,
+        }
+    }
 
 
 def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() -> None:

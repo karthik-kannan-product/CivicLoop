@@ -343,17 +343,24 @@ def main() -> int:
             assert set(captured) <= {"model", "messages", "max_tokens"}
 
             mode_file.write_text("timeout", encoding="utf-8")
+            timeout_started = time.monotonic()
             status, response = _post(
                 port,
                 body,
                 "runtime-timeout-000003",
                 timeout_seconds=75,
             )
+            timeout_elapsed = time.monotonic() - timeout_started
             assert status == 503 and response["error"]["code"] == "model_provider_unavailable", (
                 status,
                 response,
+                f"elapsed_seconds={timeout_elapsed:.3f}",
             )
-            print("production-equivalent timeout passed", flush=True)
+            print(
+                "production-equivalent timeout passed "
+                f"status={status} elapsed_seconds={timeout_elapsed:.3f}",
+                flush=True,
+            )
 
             mode_file.write_text("tool-loop", encoding="utf-8")
             capture_sequence_file.unlink(missing_ok=True)
