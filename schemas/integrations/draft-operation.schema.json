@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:civicloop:schema:integrations:draft-operation:v1.0",
   "title": "Provider draft operation v1",
-  "$comment": "Consumers MUST reject unless revision_id equals approval.approved_revision_id, action_digest equals approval.approved_action_digest, and the submitting and approving actors are distinct.",
+  "$comment": "Pending requests have null approval and cannot execute. Before execution consumers MUST reject unless revision_id equals approval.approved_revision_id, action_digest equals approval.approved_action_digest, and the submitting and approving actors are distinct.",
   "x-civicloop-runtime-rules": [
     {
       "id": "civicloop.draft_operation.v1.revision_matches_approval",
@@ -48,7 +48,7 @@
     "schema_version": { "const": "1.0" },
     "operation_id": { "type": "string", "format": "uuid", "maxLength": 36 },
     "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
-    "revision_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
     "provider": { "enum": ["eventbrite", "iterable"] },
     "operation_kind": {
       "enum": [
@@ -64,7 +64,7 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
       "maxLength": 128
     },
-    "approval": { "$ref": "#/$defs/Approval" },
+    "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Approval" }] },
     "status": {
       "enum": ["pending", "approved", "executing", "reconciling", "succeeded", "failed", "cancelled"]
     },
@@ -90,9 +90,9 @@
       ],
       "properties": {
         "approval_id": { "type": "string", "format": "uuid", "maxLength": 36 },
-        "submitted_by_actor_id": { "type": "string", "format": "uuid", "maxLength": 36 },
-        "approved_by_actor_id": { "type": "string", "format": "uuid", "maxLength": 36 },
-        "approved_revision_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "submitted_by_actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+        "approved_by_actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+        "approved_revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
         "approved_action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "four_eyes_verified": { "const": true },
         "approved_at": { "type": "string", "format": "date-time", "maxLength": 40 }
@@ -130,6 +130,11 @@
     }
   },
   "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "pending" } } },
+      "then": { "properties": { "approval": { "type": "null" } } },
+      "else": { "properties": { "approval": { "$ref": "#/$defs/Approval" } } }
+    },
     {
       "if": { "properties": { "provider": { "const": "eventbrite" } } },
       "then": {

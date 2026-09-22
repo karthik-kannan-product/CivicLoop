@@ -18,7 +18,7 @@
     "schema_version": { "const": "1.0" },
     "run_id": { "type": "string", "format": "uuid", "maxLength": 36 },
     "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
-    "revision_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
     "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
     "proposal_references": {
       "type": "array",

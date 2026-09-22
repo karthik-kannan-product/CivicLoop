@@ -11,6 +11,47 @@ x-hermes-image-lock:
   activation_allowed: false
 
 services:
+  mcp:
+    # Public development uses the same local application image as compose.yaml.
+    # The private production overlay replaces both with a shared mandatory digest.
+    image: civicloop:local
+    profiles: [agent]
+    command: ["gunicorn", "civicloop.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "1", "--limit-request-line", "2048", "--limit-request-field_size", "1024"]
+    env_file: [.env]
+    environment:
+      DJANGO_SETTINGS_MODULE: agents.mcp_settings
+      CIVICLOOP_MCP_TOKEN_FILE: /run/secrets/civicloop-mcp-token
+      CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
+      CIVICLOOP_INTEGRATIONS_ENABLED: "false"
+      CIVICLOOP_IDENTITY_KEY_FILE: ""
+      CIVICLOOP_INTEGRATION_KEY_FILE: ""
+    networks: [default, hermes-runtime]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - source: civicloop-mcp-token
+        target: /run/secrets/civicloop-mcp-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700]
+    restart: unless-stopped
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-m", "agents.mcp_probe"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
   worker:
     image: civicloop:local
     command: ["worker"]
@@ -147,12 +188,14 @@ services:
     image: docker.io/nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
     platform: linux/amd64
     profiles: [agent]
-    command: ["gateway", "run"]
+    command: ["python", "/opt/civicloop/start-hermes.py"]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [hermes-runtime]
     depends_on:
+      mcp:
+        condition: service_healthy
       litellm:
         condition: service_healthy
     environment:
@@ -166,6 +209,10 @@ services:
       HERMES_SAFE_MODE: "0"
     volumes:
       - type: bind
+        source: ./deploy/hermes/start-hermes.py
+        target: /opt/civicloop/start-hermes.py
+        read_only: true
+      - type: bind
         source: ./deploy/hermes/config.yaml
         target: /opt/data/config.yaml
         read_only: true
@@ -173,6 +220,11 @@ services:
         source: hermes-state
         target: /opt/data
     secrets:
+      - source: civicloop-mcp-token
+        target: /run/secrets/civicloop-mcp-token
+        uid: "10000"
+        gid: "10000"
+        mode: 0400
       - source: civicloop-hermes-env
         target: /opt/data/.env
         uid: "10000"
@@ -253,6 +305,8 @@ volumes:
   hermes-state: {}
 
 secrets:
+  civicloop-mcp-token:
+    file: ${CIVICLOOP_HERMES_MCP_TOKEN_FILE:?Set distinct Hermes-to-MCP identity file}
   civicloop-hermes-env:
     file: ${CIVICLOOP_HERMES_ENV_FILE:?Set protected Hermes environment file}
   civicloop-hermes-service-token:

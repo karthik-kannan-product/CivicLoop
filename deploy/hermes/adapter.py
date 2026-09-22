@@ -84,8 +84,12 @@ def validate_run_request(body: object, *, policy: AdapterPolicy) -> dict[str, An
         raise PolicyError("request fields are invalid")
     if body.get("schema_version") != "1.0":
         raise PolicyError("schema version is invalid")
-    for field in ("workflow_id", "revision_id", "actor_id", "correlation_id"):
+    for field in ("workflow_id", "correlation_id"):
         _uuid(body.get(field), label=field.replace("_", " "))
+    _integer(body.get("revision_id"), label="revision id", minimum=1, maximum=2**63 - 1)
+    actor = body.get("actor_id")
+    if not isinstance(actor, str) or re.fullmatch(r"[A-Za-z0-9_-]{1,50}", actor) is None:
+        raise PolicyError("actor id is invalid")
     capability = body.get("capability_token")
     if not isinstance(capability, str) or CAPABILITY_TOKEN.fullmatch(capability) is None:
         raise PolicyError("capability token is invalid")

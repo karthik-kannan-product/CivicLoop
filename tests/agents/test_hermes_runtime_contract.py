@@ -65,6 +65,7 @@ def _render_merged_compose(
         "CIVICLOOP_HERMES_ENV_FILE": source_path,
         "CIVICLOOP_HERMES_SERVICE_TOKEN_FILE": source_path,
         "CIVICLOOP_HERMES_UPSTREAM_TOKEN_FILE": source_path,
+        "CIVICLOOP_HERMES_MCP_TOKEN_FILE": source_path,
     }
     if include_identity_key_path:
         environment["CIVICLOOP_IDENTITY_KEY_HOST_PATH"] = source_path
@@ -94,6 +95,7 @@ def _render_merged_compose(
         env=environment,
     )
 
+
 ALLOWED_TOOLS = [
     "mcp__civicloop__get_event_revision",
     "mcp__civicloop__get_policy_context",
@@ -110,8 +112,8 @@ def _request(**updates: object) -> dict[str, object]:
     body: dict[str, object] = {
         "schema_version": "1.0",
         "workflow_id": "3cb35fe9-872d-42ea-a36d-39c56433088b",
-        "revision_id": "fc02fa5f-d725-4b09-a2a9-176a61d04782",
-        "actor_id": "98b64dab-bfd2-4a75-8414-dc53c96b5c82",
+        "revision_id": 1,
+        "actor_id": "draft-operator",
         "correlation_id": "eb6324b2-a47d-4231-8147-6a87bb9988dd",
         "capability_token": "cap_" + "a" * 43,
         "model_alias": "civicloop-default",
@@ -203,7 +205,10 @@ def test_compose_is_digest_pinned_private_and_adapter_only() -> None:
     assert compose["networks"]["hermes-runtime"]["internal"] is True
     assert "provider-egress" not in hermes["networks"]
     assert services["litellm"]["networks"] == ["hermes-runtime", "provider-egress"]
-    assert [secret["source"] for secret in hermes["secrets"]] == ["civicloop-hermes-env"]
+    assert {secret["source"] for secret in hermes["secrets"]} == {
+        "civicloop-hermes-env",
+        "civicloop-mcp-token",
+    }
     assert {secret["source"] for secret in adapter["secrets"]} == {
         "civicloop-hermes-service-token",
         "civicloop-hermes-upstream-token",
@@ -263,6 +268,56 @@ def test_request_validation_is_exact_and_forces_model_alias() -> None:
             _request(budgets={**_request()["budgets"], "timeout_seconds": 601}),
             policy=_policy(),
         )
+
+
+def test_mcp_is_reachable_from_hermes_but_not_published(tmp_path: Path) -> None:
+    result = _render_merged_compose(tmp_path, include_identity_key_path=True)
+    assert result.returncode == 0, result.stderr
+    services = json.loads(result.stdout)["services"]
+    mcp = services["mcp"]
+    assert mcp["image"] == services["web"]["image"]
+    assert mcp["image"] == "civicloop:local"
+    assert all(
+        services[name]["image"] == mcp["image"] for name in ("worker", "scheduler", "migrate")
+    )
+    assert set(mcp["networks"]) == {"default", "hermes-runtime"}
+    assert set(services["hermes"]["networks"]) & set(mcp["networks"]) == {"hermes-runtime"}
+    assert not mcp.get("ports")
+    for name in ("web", "scheduler", "migrate"):
+        assert "hermes-runtime" not in services[name]["networks"]
+    assert mcp["environment"]["DJANGO_SETTINGS_MODULE"] == "agents.mcp_settings"
+    assert mcp["environment"]["CIVICLOOP_MCP_TOKEN_FILE"] == "/run/secrets/civicloop-mcp-token"
+    assert {secret["source"] for secret in mcp["secrets"]} == {"civicloop-mcp-token"}
+    assert mcp["read_only"] and mcp["cap_drop"] == ["ALL"]
+    assert services["hermes"]["depends_on"]["mcp"]["condition"] == "service_healthy"
+    assert mcp["healthcheck"]["test"] == ["CMD", "python", "-m", "agents.mcp_probe"]
+
+
+def test_hermes_loader_uses_only_the_distinct_mcp_identity(monkeypatch) -> None:
+    import io
+    import runpy
+
+    module = runpy.run_path(str(ROOT / "deploy/hermes/start-hermes.py"))
+    expected = "synthetic-mcp-service-identity-00000000"
+    monkeypatch.setattr(Path, "open", lambda *args, **kwargs: io.StringIO(expected))
+    calls = []
+    monkeypatch.setattr(os, "execvpe", lambda *args: calls.append(args))
+    module["main"]()
+    command, arguments, environment = calls[0]
+    assert command == "hermes" and arguments == ["hermes", "gateway", "run"]
+    assert environment["CIVICLOOP_MCP_TOKEN"] == expected
+    assert expected not in str(arguments)
+
+    monkeypatch.setattr(Path, "open", lambda *args, **kwargs: io.StringIO("invalid"))
+    with pytest.raises(SystemExit, match="MCP service identity unavailable"):
+        module["main"]()
+
+
+def test_hermes_launcher_parses_with_pinned_python_313_grammar() -> None:
+    import ast
+
+    launcher = ROOT / "deploy/hermes/start-hermes.py"
+    ast.parse(launcher.read_text(encoding="utf-8"), filename=str(launcher), feature_version=(3, 13))
 
 
 def test_upstream_request_is_fixed_and_contains_no_model_override_surface() -> None:

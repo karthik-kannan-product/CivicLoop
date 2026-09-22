@@ -1,7 +1,10 @@
+import json
 import uuid
 from collections.abc import Callable
 
 from django.http import HttpRequest, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.debug import sensitive_post_parameters
 from django.views.decorators.http import require_GET
 from identity.models import AdministratorSession
 from launchloop.models import DemoActor
@@ -197,3 +200,131 @@ run_detail = _read_view(_run_payload)
 run_steps = _read_view(_steps_payload)
 run_evaluations = _read_view(_evaluations_payload)
 run_usage = _read_view(_usage_payload)
+
+
+@csrf_exempt
+@sensitive_post_parameters()
+def mcp_endpoint(request: HttpRequest) -> JsonResponse:
+    """Stateless MCP JSON-RPC; only installed by the dedicated internal URLconf."""
+    from agents.capabilities import AuthorizationDenied
+    from agents.mcp import authenticate_service, dispatch_mcp_tool
+    from agents.tool_schemas import (
+        MAX_PAYLOAD_BYTES,
+        TOOL_SCHEMAS,
+        InvalidToolArguments,
+        bounded_json,
+    )
+
+    def response(payload, status=200):
+        return JsonResponse(payload, status=status, headers={"Cache-Control": "no-store"})
+
+    rpc_id = None
+    try:
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            raise AuthorizationDenied()
+        identity = authorization[7:]
+        authenticate_service(identity)
+        request.get_host()
+        if request.method != "POST":
+            return response({"error": "Method not allowed."}, 405)
+        # Service-to-service only; browsers cannot supply an accepted Origin.
+        if request.headers.get("Origin"):
+            raise AuthorizationDenied()
+        if request.content_type != "application/json":
+            raise InvalidToolArguments()
+        length = int(request.META.get("CONTENT_LENGTH") or "0")
+        if not 0 < length <= MAX_PAYLOAD_BYTES:
+            raise InvalidToolArguments()
+        raw = request.read(MAX_PAYLOAD_BYTES + 1)
+        if len(raw) > MAX_PAYLOAD_BYTES:
+            raise InvalidToolArguments()
+        body = json.loads(raw)
+        bounded_json(body)
+        if (
+            type(body) is not dict
+            or set(body) - {"jsonrpc", "id", "method", "params"}
+            or body.get("jsonrpc") != "2.0"
+        ):
+            raise InvalidToolArguments()
+        rpc_id = body.get("id")
+        if rpc_id is not None and not (
+            (type(rpc_id) is int and 0 <= rpc_id <= 2**53)
+            or (type(rpc_id) is str and 1 <= len(rpc_id) <= 128)
+        ):
+            raise InvalidToolArguments()
+        method = body.get("method")
+        params = body.get("params", {})
+        if type(params) is not dict:
+            raise InvalidToolArguments()
+        if method == "initialize":
+            result = {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "civicloop", "version": "1.0"},
+            }
+        elif method == "notifications/initialized":
+            return response({}, 202)
+        elif method == "ping":
+            result = {}
+        elif method == "tools/list":
+            if params:
+                raise InvalidToolArguments()
+            result = {
+                "tools": [
+                    {"name": name, "description": name.replace("_", " "), "inputSchema": schema}
+                    for name, schema in TOOL_SCHEMAS.items()
+                ]
+            }
+        elif method == "tools/call":
+            if set(params) != {"name", "arguments"}:
+                raise InvalidToolArguments()
+            result_body = dispatch_mcp_tool(
+                tool_name=params["name"],
+                arguments=params["arguments"],
+                service_identity=identity,
+                capability=request.headers.get("X-CivicLoop-Capability", ""),
+            )
+            result = {
+                "content": [{"type": "text", "text": json.dumps(result_body)}],
+                "structuredContent": result_body,
+                "isError": False,
+            }
+        else:
+            return response(
+                {
+                    "jsonrpc": "2.0",
+                    "id": rpc_id,
+                    "error": {"code": -32601, "message": "Method not found."},
+                }
+            )
+        return response({"jsonrpc": "2.0", "id": rpc_id, "result": result})
+    except AuthorizationDenied:
+        from launchloop.models import AuditEvent
+
+        AuditEvent.objects.create(
+            action="mcp.transport_denied",
+            target_type="mcp",
+            target_id="broker",
+            details={"reason": "authorization_failed"},
+        )
+        return response({"error": "Authorization failed."}, 401)
+    except InvalidToolArguments, ValueError, TypeError, RecursionError, UnicodeError:
+        return response(
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32602, "message": "Invalid tool arguments."},
+            },
+            400,
+        )
+    except Exception:
+        # No exception detail, body, or authorization headers may enter logs or traces.
+        return response(
+            {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {"code": -32603, "message": "Tool unavailable."},
+            },
+            503,
+        )

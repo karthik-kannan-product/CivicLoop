@@ -60,6 +60,7 @@ ALLOWED_RESOURCE_ATTRIBUTES = frozenset(
 ALLOWED_SPAN_NAMES = frozenset(
     {
         "civicloop.http.request",
+        "civicloop.mcp.tool",
         "civicloop.synthetic_smoke",
         "eventbrite.metadata_read",
         "launchloop.approval",
