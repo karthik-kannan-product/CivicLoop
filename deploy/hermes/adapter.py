@@ -4,15 +4,21 @@ import hmac
 import json
 import os
 import re
+import secrets
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from deploy.hermes.transport import TransportClient, TransportError, _opener, _validate_binding
+from deploy.hermes.transport_contracts import ScopeBinding
 
 RUN_PATH = "/internal/v1/hermes/runs"
 MAX_BODY_BYTES = 32_768
@@ -114,8 +120,7 @@ def build_upstream_request(
     body: dict[str, Any], *, allowed_tools: list[str] | tuple[str, ...]
 ) -> dict[str, str]:
     identifiers = {
-        key: body[key]
-        for key in ("workflow_id", "revision_id", "actor_id", "correlation_id")
+        key: body[key] for key in ("workflow_id", "revision_id", "actor_id", "correlation_id")
     }
     instructions = (
         "Operate only through these exact CivicLoop MCP tools: "
@@ -227,6 +232,7 @@ def _json_request(
     body: object | None = None,
     timeout: float,
     idempotency_key: str | None = None,
+    transport_scope: str | None = None,
 ) -> dict[str, Any]:
     data = None if body is None else json.dumps(body, separators=(",", ":")).encode()
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
@@ -234,9 +240,11 @@ def _json_request(
         headers["Content-Type"] = "application/json"
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
+    if transport_scope is not None:
+        headers["X-CivicLoop-Transport-Scope"] = transport_scope
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener().open(request, timeout=timeout) as response:
             raw = response.read(MAX_BODY_BYTES + 1)
     except (urllib.error.URLError, TimeoutError, OSError) as error:
         raise UpstreamError("Hermes dependency unavailable") from error
@@ -261,6 +269,8 @@ class HermesAdapter(ThreadingHTTPServer):
         upstream_token: str,
         policy: AdapterPolicy,
         allowed_tools: list[str] | tuple[str, ...],
+        transport_client: TransportClient | None = None,
+        binding_resolver: Callable[[dict[str, Any]], ScopeBinding] | None = None,
         **kwargs: Any,
     ) -> None:
         if len(service_token) < 16 or len(upstream_token) < 16:
@@ -271,6 +281,9 @@ class HermesAdapter(ThreadingHTTPServer):
         self.upstream_token = upstream_token
         self.policy = policy
         self.allowed_tools = tuple(allowed_tools)
+        self.transport_client = transport_client
+        self.binding_resolver = binding_resolver
+        self.transport_healthy = True
         self.run_lock = threading.Lock()
         super().__init__(*args, **kwargs)
 
@@ -287,7 +300,58 @@ class HermesAdapter(ThreadingHTTPServer):
         return health.get("status") in {"ok", "healthy", "ready"}
 
     def execute(self, body: dict[str, Any]) -> dict[str, Any]:
-        deadline = time.monotonic() + body["budgets"]["timeout_seconds"]
+        # The Task 8 worker supplies immutable revision/run authority. The launch
+        # request deliberately has neither revision_digest nor max_inferences.
+        if (
+            self.transport_client is None
+            or self.binding_resolver is None
+            or not self.transport_healthy
+        ):
+            raise UpstreamError("Hermes transport unavailable")
+        try:
+            binding = _validate_binding(self.binding_resolver(body), datetime.now(UTC))
+            expected = {
+                "run_id": map_upstream_result(body, {})["run_id"],
+                "workflow_id": uuid.UUID(body["workflow_id"]),
+                "revision_id": body["revision_id"],
+                "actor_id": body["actor_id"],
+                "capability": body["capability_token"],
+                "model_alias": body["model_alias"],
+                **{
+                    key: body["budgets"][key]
+                    for key in ("max_input_tokens", "max_output_tokens", "max_cost_microusd")
+                },
+            }
+            if any(getattr(binding, key) != value for key, value in expected.items()):
+                raise TransportError()
+            remaining = (binding.expires_at - datetime.now(UTC)).total_seconds()
+            if remaining > body["budgets"]["timeout_seconds"]:
+                raise TransportError()
+        except Exception:
+            raise UpstreamError("Hermes transport unavailable") from None
+        token = "scope_" + secrets.token_urlsafe(32)
+        try:
+            self.transport_client.register_scope(token=token, binding=binding)
+            return self._execute_scoped(body, transport_scope=token, timeout_seconds=remaining)
+        except Exception:
+            raise UpstreamError("Hermes transport unavailable") from None
+        finally:
+            # Even ambiguous registration failures require revocation. A failed
+            # revoke quarantines this adapter until restart; no new lease may run.
+            try:
+                self.transport_client.revoke_scope(token=token)
+            except Exception:
+                self.transport_healthy = False
+                raise UpstreamError("Hermes transport unavailable") from None
+
+    def _execute_scoped(
+        self,
+        body: dict[str, Any],
+        *,
+        transport_scope: str,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout_seconds
         created = _json_request(
             f"{self.policy.upstream_url.rstrip('/')}/v1/runs",
             token=self.upstream_token,
@@ -295,6 +359,7 @@ class HermesAdapter(ThreadingHTTPServer):
             body=build_upstream_request(body, allowed_tools=self.allowed_tools),
             timeout=min(10, max(0.1, deadline - time.monotonic())),
             idempotency_key=body["correlation_id"],
+            transport_scope=transport_scope,
         )
         upstream_run_id = created.get("run_id")
         if not isinstance(upstream_run_id, str) or not re.fullmatch(

@@ -483,6 +483,9 @@ def test_adapter_liveness_is_local_but_readiness_requires_hermes() -> None:
 
 
 def test_adapter_authenticates_and_rejects_a_second_concurrent_run() -> None:
+    from tests.agents.test_hermes_adapter import Client, trusted_binding
+
+    transport = Client()
     _FakeHermesHandler.created = 0
     upstream = ThreadingHTTPServer(("127.0.0.1", 0), _FakeHermesHandler)
     upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
@@ -500,7 +503,10 @@ def test_adapter_authenticates_and_rejects_a_second_concurrent_run() -> None:
         upstream_token="upstream-test-token-32-bytes-long",
         policy=policy,
         allowed_tools=ALLOWED_TOOLS,
+        transport_client=transport,
+        binding_resolver=trusted_binding,
     )
+    transport.lock = adapter.run_lock
     thread = threading.Thread(target=adapter.serve_forever, daemon=True)
     thread.start()
     try:
