@@ -42,6 +42,19 @@ def test_run_events_are_append_only_and_sequence_unique() -> None:
 
 
 @pytest.mark.django_db
+def test_run_event_sequence_zero_is_rejected() -> None:
+    run = create_run()
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AgentRunEvent.objects.create(
+            run=run,
+            sequence=0,
+            event_type="queued",
+            outcome="accepted",
+            detail_digest="a" * 64,
+        )
+
+
+@pytest.mark.django_db
 def test_binding_is_immutable_and_digests_canonical_revision() -> None:
     run = create_run()
     actor = run.event_revision.author

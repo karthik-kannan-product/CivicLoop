@@ -126,7 +126,11 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("run", "sequence"), name="agents_run_event_sequence"
-                    )
+                    ),
+                    models.CheckConstraint(
+                        condition=models.Q(("sequence__gte", 1)),
+                        name="agents_run_event_sequence_positive",
+                    ),
                 ],
             },
         ),

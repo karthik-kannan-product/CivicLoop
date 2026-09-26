@@ -339,7 +339,10 @@ class AgentRunEvent(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=("run", "sequence"), name="agents_run_event_sequence")
+            models.UniqueConstraint(fields=("run", "sequence"), name="agents_run_event_sequence"),
+            models.CheckConstraint(
+                condition=Q(sequence__gte=1), name="agents_run_event_sequence_positive"
+            ),
         ]
 
     def __str__(self) -> str:
