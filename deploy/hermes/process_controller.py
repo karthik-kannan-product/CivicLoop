@@ -9,13 +9,12 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-import urllib.error
-import urllib.request
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,8 +23,8 @@ from typing import Any
 
 import yaml
 
-from deploy.hermes.run_bridge import RunBridge
-from deploy.hermes.transport import TransportClient, _opener
+from deploy.hermes.run_bridge import RunBridge, _BoundedHTTP
+from deploy.hermes.transport import TransportClient
 from deploy.hermes.transport_contracts import scope_digest
 
 _ROOT = Path(__file__).resolve().parent
@@ -56,6 +55,7 @@ class _OwnedRun:
     deadline: float = 0
     url: str = ""
     api_key: str = field(default="", repr=False)
+    api_io: _BoundedHTTP = field(default_factory=_BoundedHTTP, repr=False)
 
 
 def _local_port() -> int:
@@ -79,25 +79,27 @@ def _create_home() -> Path:
 
 
 def _cleanup_home(path: Path) -> None:
-    root = Path(tempfile.gettempdir()).resolve()
-    resolved = path.resolve()
-    if resolved.parent != root or not resolved.name.startswith("civicloop-hermes-run-"):
+    root = Path(tempfile.gettempdir()).absolute()
+    target = path.absolute()
+    if (
+        target.parent != root
+        or re.fullmatch(r"civicloop-hermes-run-[0-9a-f]{32}", target.name) is None
+        or not stat.S_ISDIR(target.lstat().st_mode)
+        or target.is_symlink()
+        or (hasattr(target, "is_junction") and target.is_junction())
+    ):
         raise ControllerUnavailable()
-    shutil.rmtree(resolved)
+    shutil.rmtree(target)
 
 
-def _ready(child: Any, url: str) -> bool:
-    if child is not None and child.poll() is not None:
-        return False
+def _port_occupied(port: int, deadline: float) -> bool:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ControllerUnavailable()
     try:
-        with _opener().open(url + "/health", timeout=0.2) as response:
-            raw = response.read(1025)
-            return (
-                response.status == 200
-                and len(raw) <= 1024
-                and json.loads(raw).get("status") in {"ok", "healthy", "ready"}
-            )
-    except (OSError, urllib.error.URLError, ValueError):
+        with socket.create_connection(("127.0.0.1", port), timeout=min(0.1, remaining)):
+            return True
+    except OSError:
         return False
 
 
@@ -150,7 +152,7 @@ class ProcessController:
         shim_base_url: str = "http://127.0.0.1:1",
         shim_token: str | None = None,
         child_factory: Callable[..., Any] = subprocess.Popen,
-        readiness_probe: Callable[[Any, str], bool] = _ready,
+        readiness_probe: Callable[[Any, str], bool] | None = None,
         port_factory: Callable[[], int] = _local_port,
         transport_client: TransportClient | None = None,
         readiness_timeout: float = 5,
@@ -176,7 +178,9 @@ class ProcessController:
         self._history: dict[str, tuple[str, str, ControllerRun]] = {}
         self._quarantine_hold: list[_OwnedRun] = []
 
-    def admit(self, request: dict[str, object], *, scope_token: str) -> ControllerRun:
+    def admit(
+        self, request: dict[str, object], *, scope_token: str, deadline: float | None = None
+    ) -> ControllerRun:
         try:
             run_id = request.get("run_id")
             if run_id is None:
@@ -204,7 +208,9 @@ class ProcessController:
             ):
                 raise ControllerUnavailable()
             try:
-                owned = self._start_owned_run(run_id, request, scope_token, request_digest, digest)
+                owned = self._start_owned_run(
+                    run_id, request, scope_token, request_digest, digest, deadline
+                )
             except Exception:
                 raise ControllerUnavailable() from None
             self._active = owned
@@ -213,14 +219,22 @@ class ProcessController:
             return result
 
     def _start_owned_run(
-        self, run_id: str, request: dict[str, object], token: str, request_digest: str, digest: str
+        self,
+        run_id: str,
+        request: dict[str, object],
+        token: str,
+        request_digest: str,
+        digest: str,
+        scope_deadline: float | None,
     ) -> _OwnedRun:
         timeout = request.get("timeout_seconds")
         if timeout is None and isinstance(request.get("budgets"), dict):
             timeout = request["budgets"].get("timeout_seconds")
         if type(timeout) is not int or not 0 < timeout <= 600:
             raise ControllerUnavailable()
-        deadline = time.monotonic() + timeout
+        deadline = min(time.monotonic() + timeout, scope_deadline or float("inf"))
+        if deadline <= time.monotonic():
+            raise ControllerUnavailable()
         bridge = RunBridge(
             scope_token=token,
             shim_base_url=self.shim_base_url,
@@ -240,7 +254,9 @@ class ProcessController:
             if type(port) is not int or not 1 <= port <= 65535:
                 raise ControllerUnavailable()
             url = f"http://127.0.0.1:{port}"
-            if _ready(None, url):
+            if _port_occupied(port, deadline):
+                raise ControllerUnavailable()
+            if time.monotonic() >= deadline:
                 raise ControllerUnavailable()
             api_key = secrets.token_urlsafe(32)
             owned.url = url
@@ -258,7 +274,15 @@ class ProcessController:
             while time.monotonic() < ready_by:
                 if owned.child.poll() is not None:
                     raise ControllerUnavailable()
-                if self.readiness_probe(owned.child, url):
+                if self.readiness_probe is None:
+                    try:
+                        health = self._child_json(owned, "/health", method="GET")
+                        ready = health.get("status") in {"ok", "healthy", "ready"}
+                    except ControllerUnavailable:
+                        ready = False
+                else:
+                    ready = self.readiness_probe(owned.child, url)
+                if ready and time.monotonic() < deadline:
                     return owned
                 time.sleep(min(0.02, max(0, ready_by - time.monotonic())))
             raise ControllerUnavailable()
@@ -270,6 +294,7 @@ class ProcessController:
 
     def _retire(self, owned: _OwnedRun) -> bool:
         safe = True
+        owned.api_io.close_admissions()
         if owned.bridge is not None:
             try:
                 owned.bridge.close_admissions()
@@ -289,9 +314,10 @@ class ProcessController:
         if owned.bridge is not None:
             try:
                 safe = owned.bridge.drain(self.drain_timeout) and safe
-                owned.bridge.close()
+                safe = owned.bridge.close() and safe
             except Exception:
                 safe = False
+        safe = owned.api_io.drain(self.drain_timeout) and safe
         if self.transport_client is not None:
             try:
                 self.transport_client.revoke_scope(token=owned.scope_token)
@@ -300,9 +326,39 @@ class ProcessController:
         if safe and owned.home is not None:
             try:
                 _cleanup_home(owned.home)
-            except OSError:
+            except Exception:
                 safe = False
         return safe
+
+    @staticmethod
+    def _child_json(
+        owned: _OwnedRun,
+        path: str,
+        *,
+        method: str,
+        body: object | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        raw = None if body is None else json.dumps(body, separators=(",", ":")).encode()
+        headers = {"Authorization": f"Bearer {owned.api_key}", "Accept": "application/json"}
+        if raw is not None:
+            headers["Content-Type"] = "application/json"
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+        try:
+            status, content = owned.api_io.request(
+                url=owned.url + path,
+                method=method,
+                raw=raw,
+                headers=headers,
+                deadline=min(owned.deadline, time.monotonic() + 10),
+            )
+            parsed = json.loads(content)
+            if status not in {200, 202} or not isinstance(parsed, dict):
+                raise ControllerUnavailable()
+            return parsed
+        except Exception:
+            raise ControllerUnavailable() from None
 
     def status(self, run_id: str) -> ControllerRun:
         with self._lock:
@@ -363,29 +419,29 @@ class ProcessController:
             if not safe:
                 raise ControllerUnavailable()
 
-    def execute(self, body: dict[str, object], *, scope_token: str) -> dict[str, object]:
+    def execute(
+        self, body: dict[str, object], *, scope_token: str, deadline: float | None = None
+    ) -> dict[str, object]:
         """Run the existing adapter protocol against this run's child only."""
         from deploy.hermes.adapter import (
             ALLOWED_TOOLS,
             TERMINAL_STATUSES,
-            _json_request,
             build_upstream_request,
             map_upstream_result,
         )
 
-        admitted = self.admit(body, scope_token=scope_token)
+        admitted = self.admit(body, scope_token=scope_token, deadline=deadline)
         with self._lock:
             owned = self._active
             if owned is None or owned.run_id != admitted.run_id:
                 raise ControllerUnavailable()
-            url, key, deadline = owned.url, owned.api_key, owned.deadline
+            deadline = owned.deadline
         try:
-            created = _json_request(
-                url + "/v1/runs",
-                token=key,
+            created = self._child_json(
+                owned,
+                "/v1/runs",
                 method="POST",
                 body=build_upstream_request(body, allowed_tools=ALLOWED_TOOLS),
-                timeout=min(10, max(0.1, deadline - time.monotonic())),
                 idempotency_key=str(body["correlation_id"]),
             )
             upstream_id = created.get("run_id")
@@ -396,11 +452,10 @@ class ProcessController:
             while time.monotonic() < deadline:
                 if self.status(admitted.run_id).status != "running":
                     raise ControllerUnavailable()
-                result = _json_request(
-                    url + "/v1/runs/" + upstream_id,
-                    token=key,
+                result = self._child_json(
+                    owned,
+                    "/v1/runs/" + upstream_id,
                     method="GET",
-                    timeout=min(10, max(0.1, deadline - time.monotonic())),
                 )
                 if result.get("status") in TERMINAL_STATUSES:
                     mapped = map_upstream_result(body, result)

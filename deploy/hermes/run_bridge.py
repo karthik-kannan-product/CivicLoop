@@ -9,15 +9,23 @@ import hmac
 import json
 import re
 import secrets
+import socket
 import threading
 import time
 import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 from urllib.parse import urlsplit
 
-from deploy.hermes.transport import MAX_BODY_BYTES, SCOPE_HEADER, _contains_authority, _opener
+from deploy.hermes.transport import (
+    MAX_BODY_BYTES,
+    SCOPE_HEADER,
+    _contains_authority,
+    _DeadlineHTTPConnection,
+    _DeadlineHTTPSConnection,
+    _DeadlineIO,
+)
 
 _SCOPE = re.compile(r"scope_[A-Za-z0-9_-]{43}")
 _ROUTES = frozenset({"/mcp", "/v1/chat/completions"})
@@ -28,8 +36,109 @@ class BridgeRejected(RuntimeError):
         super().__init__("Hermes bridge request rejected")
 
 
+class _BoundedHTTP:
+    """One cancellable physical request at a time; late workers block reuse."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._flights: set[_DeadlineIO] = set()
+        self._closed = False
+
+    def request(
+        self,
+        *,
+        url: str,
+        method: str,
+        raw: bytes | None,
+        headers: dict[str, str],
+        deadline: float,
+    ) -> tuple[int, bytes]:
+        io = _DeadlineIO(deadline)
+        with self._condition:
+            if self._closed or self._flights or time.monotonic() >= deadline:
+                raise BridgeRejected()
+            self._flights.add(io)
+        done = threading.Event()
+        result: list[tuple[int, bytes]] = []
+
+        def perform() -> None:
+            connection = None
+            try:
+                parsed = urlsplit(url)
+                connection_type = (
+                    _DeadlineHTTPSConnection
+                    if parsed.scheme == "https"
+                    else _DeadlineHTTPConnection
+                )
+                connection = connection_type(
+                    parsed.hostname, parsed.port, timeout=io.remaining(), io=io
+                )
+                connection.request(method, parsed.path or "/", body=raw, headers=headers)
+                with connection.getresponse() as response:
+                    content = response.read(MAX_BODY_BYTES + 1)
+                    io.remaining()
+                    result.append((response.status, content))
+            except Exception:
+                pass  # Never retain or expose dependency bodies or errors.
+            finally:
+                if connection is not None:
+                    connection.close()
+                with self._condition:
+                    self._flights.discard(io)
+                    self._condition.notify_all()
+                done.set()
+
+        try:
+            threading.Thread(target=perform, daemon=True).start()
+        except Exception:
+            with self._condition:
+                self._flights.discard(io)
+                self._condition.notify_all()
+            raise BridgeRejected() from None
+        try:
+            if not done.wait(max(0, deadline - time.monotonic())) or not result:
+                raise BridgeRejected()
+            io.remaining()
+            return result[0]
+        finally:
+            io.cancel()
+
+    def close_admissions(self) -> None:
+        with self._condition:
+            self._closed = True
+            flights = tuple(self._flights)
+        for io in flights:
+            io.cancel()
+
+    def drain(self, timeout: float) -> bool:
+        end = time.monotonic() + max(0, timeout)
+        with self._condition:
+            while self._flights:
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+            return True
+
+
 class _BridgeServer(ThreadingHTTPServer):
     daemon_threads = True
+
+    def process_request(self, request: socket.socket, client_address: Any) -> None:
+        if not self.bridge._accept_socket(request):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.bridge._release_socket(request)
+            raise
+
+    def process_request_thread(self, request: socket.socket, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.bridge._release_socket(request)
 
     def handle_error(self, request: object, client_address: object) -> None:
         # BaseHTTPServer otherwise prints request-bearing tracebacks.
@@ -68,8 +177,9 @@ class RunBridge:
     _condition: threading.Condition = field(init=False, repr=False)
     _server: ThreadingHTTPServer | None = field(init=False, default=None, repr=False)
     _thread: threading.Thread | None = field(init=False, default=None, repr=False)
-    _active: int = field(init=False, default=0, repr=False)
     _closed: bool = field(init=False, default=False, repr=False)
+    _accepted: dict[socket.socket, threading.Timer] = field(init=False, repr=False)
+    _io: _BoundedHTTP = field(init=False, repr=False)
 
     def __setattr__(self, name: str, value: object) -> None:
         if name in {
@@ -103,6 +213,8 @@ class RunBridge:
         ):
             raise ValueError("Hermes bridge configuration is invalid")
         self._condition = threading.Condition()
+        self._accepted = {}
+        self._io = _BoundedHTTP()
 
     @property
     def base_url(self) -> str:
@@ -118,9 +230,38 @@ class RunBridge:
                 server = _BridgeServer(("127.0.0.1", 0), _Handler)
                 server.bridge = self
                 self._server = server
-                self._thread = threading.Thread(target=server.serve_forever, daemon=True)
+                self._thread = threading.Thread(
+                    target=lambda: server.serve_forever(poll_interval=0.01), daemon=True
+                )
                 self._thread.start()
             return self.base_url
+
+    def _accept_socket(self, sock: socket.socket) -> bool:
+        with self._condition:
+            remaining = self.deadline - time.monotonic()
+            if self._closed or remaining <= 0 or len(self._accepted) >= 16:
+                return False
+            timer = threading.Timer(remaining, self._abort_socket, args=(sock,))
+            timer.daemon = True
+            self._accepted[sock] = timer
+            sock.settimeout(remaining)
+            timer.start()
+            return True
+
+    @staticmethod
+    def _abort_socket(sock: socket.socket) -> None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        sock.close()
+
+    def _release_socket(self, sock: socket.socket) -> None:
+        with self._condition:
+            timer = self._accepted.pop(sock, None)
+            if timer is not None:
+                timer.cancel()
+            self._condition.notify_all()
 
     def forward(
         self, path: str, raw: bytes, *, caller_headers: dict[str, str] | None = None
@@ -146,7 +287,6 @@ class RunBridge:
         with self._condition:
             if self._closed or time.monotonic() >= self.deadline:
                 raise BridgeRejected()
-            self._active += 1
         try:
             headers = {
                 "Content-Type": "application/json",
@@ -154,19 +294,15 @@ class RunBridge:
                 SCOPE_HEADER: self.scope_token,
                 "Authorization": f"Bearer {self.shim_token}",
             }
-            request = urllib.request.Request(
-                self.shim_base_url.rstrip("/") + path,
-                data=raw,
-                headers=headers,
+            status, result = self._io.request(
+                url=self.shim_base_url.rstrip("/") + path,
                 method="POST",
+                raw=raw,
+                headers=headers,
+                deadline=min(self.deadline, time.monotonic() + 10),
             )
-            timeout = min(10, self.deadline - time.monotonic())
-            if timeout <= 0:
+            if status not in ({200, 202} if path == "/mcp" else {200}):
                 raise BridgeRejected()
-            with _opener().open(request, timeout=timeout) as response:
-                if response.status not in ({200, 202} if path == "/mcp" else {200}):
-                    raise BridgeRejected()
-                result = response.read(MAX_BODY_BYTES + 1)
             parsed = _json(result)
             if _contains_authority(parsed, authorities):
                 raise BridgeRejected()
@@ -175,32 +311,34 @@ class RunBridge:
             return result
         except (OSError, ValueError, urllib.error.URLError):
             raise BridgeRejected() from None
-        finally:
-            with self._condition:
-                self._active -= 1
-                self._condition.notify_all()
 
     def close_admissions(self) -> None:
         with self._condition:
             self._closed = True
+            sockets = tuple(self._accepted)
+        self._io.close_admissions()
+        for sock in sockets:
+            self._abort_socket(sock)
 
     def drain(self, timeout: float) -> bool:
         end = time.monotonic() + max(0, timeout)
         with self._condition:
-            while self._active:
+            while self._accepted:
                 remaining = end - time.monotonic()
                 if remaining <= 0:
                     return False
                 self._condition.wait(remaining)
-            return True
+        return self._io.drain(max(0, end - time.monotonic()))
 
-    def close(self) -> None:
+    def close(self) -> bool:
         self.close_admissions()
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
             if self._thread is not None:
                 self._thread.join(timeout=2)
+                return not self._thread.is_alive() and self.drain(0)
+        return self.drain(0)
 
 
 class _Handler(BaseHTTPRequestHandler):

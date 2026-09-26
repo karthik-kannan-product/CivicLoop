@@ -334,13 +334,16 @@ class HermesAdapter(ThreadingHTTPServer):
             remaining = (binding.expires_at - datetime.now(UTC)).total_seconds()
             if remaining > body["budgets"]["timeout_seconds"]:
                 raise TransportError()
+            lease_deadline = time.monotonic() + remaining
         except Exception:
             raise UpstreamError("Hermes transport unavailable") from None
         token = "scope_" + secrets.token_urlsafe(32)
         try:
             self.transport_client.register_scope(token=token, binding=binding)
             if self.process_controller is not None:
-                return self.process_controller.execute(body, scope_token=token)
+                return self.process_controller.execute(
+                    body, scope_token=token, deadline=lease_deadline
+                )
             return self._execute_scoped(body, transport_scope=token, timeout_seconds=remaining)
         except Exception:
             raise UpstreamError("Hermes transport unavailable") from None

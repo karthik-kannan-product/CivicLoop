@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -140,8 +141,8 @@ def test_adapter_uses_one_run_controller_when_configured():
         def __init__(self):
             self.calls = []
 
-        def execute(self, body, *, scope_token):
-            self.calls.append((body, scope_token))
+        def execute(self, body, *, scope_token, deadline):
+            self.calls.append((body, scope_token, deadline))
             return adapter.map_upstream_result(body, {"status": "failed"})
 
     client = Client()
@@ -154,6 +155,34 @@ def test_adapter_uses_one_run_controller_when_configured():
         assert result["status"] == "failed"
         assert len(controller.calls) == 1
         assert controller.calls[0][1] == client.events[0][1]
+        assert controller.calls[0][2] > time.monotonic()
         assert client.events[-1] == ("revoke", controller.calls[0][1])
+    finally:
+        server.server_close()
+
+
+def test_binding_expiry_deadline_reaches_controller():
+    class Controller:
+        quarantined = False
+        deadline = None
+
+        def execute(self, body, *, scope_token, deadline):
+            self.deadline = deadline
+            return adapter.map_upstream_result(body, {"status": "failed"})
+
+    controller = Controller()
+    client = Client()
+    server = make_adapter(
+        client,
+        resolver=lambda body: replace(
+            trusted_binding(body), expires_at=datetime.now(UTC) + timedelta(seconds=0.2)
+        ),
+    )
+    server.process_controller = controller
+    started = time.monotonic()
+    try:
+        with server.run_lock:
+            server.execute(_request())
+        assert started < controller.deadline <= started + 0.22
     finally:
         server.server_close()

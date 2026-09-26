@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+import secrets
+import shutil
+import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
+import yaml
 
 from deploy.hermes.process_controller import ControllerUnavailable, ProcessController
 from tests.agents.test_hermes_runtime_contract import _request as valid_request
@@ -263,3 +269,137 @@ def test_child_bootstrap_uses_only_fixed_hermes_command(monkeypatch):
     monkeypatch.setattr(run_child.os, "execvpe", lambda *args: calls.append(args))
     run_child.main()
     assert calls[0][:2] == ("hermes", ["hermes", "gateway", "run"])
+
+
+def test_partial_body_handler_cannot_survive_into_run_b():
+    class Exiting(FakeChild):
+        def terminate(self):
+            self.exit_code = 0
+
+    bridges = []
+
+    def factory(argv, **kwargs):
+        config = yaml.safe_load((Path(kwargs["cwd"]) / "config.yaml").read_text())
+        bridges.append(config["mcp_servers"]["civicloop"]["url"])
+        return Exiting()
+
+    controller = ProcessController(child_factory=factory, readiness_probe=lambda *a: True)
+    controller.admit(_request("run-a"), scope_token=_scope("a"))
+    port = int(bridges[0].split(":")[2].split("/")[0])
+    with socket.create_connection(("127.0.0.1", port)) as client:
+        client.sendall(
+            b"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:"
+            + str(port).encode()
+            + b"\r\nContent-Length: 100\r\n\r\n{"
+        )
+        bridge = controller._active.bridge
+        until = time.monotonic() + 1
+        while bridge.drain(0) and time.monotonic() < until:
+            time.sleep(0.001)
+        assert bridge.drain(0) is False
+        controller.stop("run-a")
+        if bridge.drain(0):
+            controller.admit(_request("run-b"), scope_token=_scope("b"))
+        else:
+            assert controller.quarantined
+            with pytest.raises(ControllerUnavailable):
+                controller.admit(_request("run-b"), scope_token=_scope("b"))
+
+
+def test_replaced_home_on_startup_failure_quarantines_without_external_delete(
+    monkeypatch,
+):
+    from deploy.hermes import process_controller
+
+    external = Path.cwd() / ".superpowers" / ("external-" + secrets.token_hex(8))
+    external.mkdir()
+    sentinel = external / "keep"
+    sentinel.write_text("unchanged")
+    replaced = []
+
+    def replace(home, bridge):
+        home.rmdir()
+        home.symlink_to(external, target_is_directory=True)
+        replaced.append(home)
+        raise RuntimeError("startup failed")
+
+    monkeypatch.setattr(process_controller, "_write_config", replace)
+    controller = ProcessController(child_factory=lambda *a, **k: FakeChild())
+    try:
+        with pytest.raises(ControllerUnavailable):
+            controller.admit(_request("run-a"), scope_token=_scope("a"))
+        assert sentinel.read_text() == "unchanged"
+        assert controller.quarantined
+        with pytest.raises(ControllerUnavailable):
+            controller.admit(_request("run-b"), scope_token=_scope("b"))
+    finally:
+        for home in replaced:
+            home.unlink()
+        shutil.rmtree(external)
+
+
+def test_trickled_child_status_cannot_outlive_scope_deadline():
+    server = None
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            self.rfile.read(int(self.headers["Content-Length"]))
+            raw = b'{"run_id":"run_test"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):  # noqa: N802
+            raw = b'{"status":"running"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            try:
+                for byte in raw:
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                    time.sleep(0.02)
+            except OSError:
+                pass
+
+    class Exiting(FakeChild):
+        def terminate(self):
+            self.exit_code = 0
+
+    def factory(argv, **kwargs):
+        nonlocal server
+        server = ThreadingHTTPServer(("127.0.0.1", int(kwargs["env"]["API_SERVER_PORT"])), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return Exiting()
+
+    controller = ProcessController(child_factory=factory, readiness_probe=lambda *a: True)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ControllerUnavailable):
+            controller.execute(
+                valid_request(),
+                scope_token=_scope("a"),
+                deadline=started + 0.12,
+            )
+        assert time.monotonic() - started < 0.35
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+
+
+def test_near_expired_scope_caps_readiness_below_body_timeout():
+    controller = ProcessController(
+        child_factory=lambda *a, **k: FakeChild(),
+        readiness_probe=lambda *a: (time.sleep(0.04) or True),
+    )
+    start = time.monotonic()
+    with pytest.raises(ControllerUnavailable):
+        controller.admit(
+            _request("run-a"), scope_token=_scope("a"), deadline=start + 0.02
+        )
+    assert time.monotonic() - start < 0.3
