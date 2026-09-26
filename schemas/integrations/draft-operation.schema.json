@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:draft-operation:v1.0",
+  "title": "Provider draft operation v1",
+  "$comment": "Pending requests have null approval and cannot execute. Before execution consumers MUST reject unless revision_id equals approval.approved_revision_id, action_digest equals approval.approved_action_digest, and the submitting and approving actors are distinct.",
+  "x-civicloop-runtime-rules": [
+    {
+      "id": "civicloop.draft_operation.v1.revision_matches_approval",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless revision_id equals approval.approved_revision_id."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.action_digest_matches_approval",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless action_digest equals approval.approved_action_digest."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.approval_precedes_execution",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject an execution attempt unless approval.approved_at is earlier than the first execution attempt."
+    },
+    {
+      "id": "civicloop.draft_operation.v1.distinct_operator_approver",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless approval.submitted_by_actor_id and approval.approved_by_actor_id identify distinct actors."
+    }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "workflow_id",
+    "revision_id",
+    "provider",
+    "operation_kind",
+    "action_digest",
+    "idempotency_key",
+    "approval",
+    "status",
+    "receipt"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "operation_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "provider": { "enum": ["eventbrite", "iterable"] },
+    "operation_kind": {
+      "enum": [
+        "create_eventbrite_draft",
+        "update_eventbrite_draft",
+        "create_iterable_email_draft",
+        "create_iterable_reminder_draft"
+      ]
+    },
+    "action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "idempotency_key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$",
+      "maxLength": 128
+    },
+    "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Approval" }] },
+    "status": {
+      "enum": ["pending", "approved", "executing", "reconciling", "succeeded", "failed", "cancelled"]
+    },
+    "receipt": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/Receipt" }
+      ]
+    }
+  },
+  "$defs": {
+    "Approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approval_id",
+        "submitted_by_actor_id",
+        "approved_by_actor_id",
+        "approved_revision_id",
+        "approved_action_digest",
+        "four_eyes_verified",
+        "approved_at"
+      ],
+      "properties": {
+        "approval_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "submitted_by_actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+        "approved_by_actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+        "approved_revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "approved_action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "four_eyes_verified": { "const": true },
+        "approved_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+      }
+    },
+    "Receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_type",
+        "provider_request_id",
+        "provider_resource_id",
+        "reconciliation_status",
+        "recorded_at"
+      ],
+      "properties": {
+        "receipt_type": { "enum": ["eventbrite_draft", "iterable_draft"] },
+        "provider_request_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "provider_resource_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "reconciliation_status": { "enum": ["confirmed", "ambiguous", "not_found"] },
+        "recorded_at": { "type": "string", "format": "date-time", "maxLength": 40 }
+      }
+    },
+    "EventbriteReceipt": {
+      "allOf": [
+        { "$ref": "#/$defs/Receipt" },
+        { "properties": { "receipt_type": { "const": "eventbrite_draft" } } }
+      ]
+    },
+    "IterableReceipt": {
+      "allOf": [
+        { "$ref": "#/$defs/Receipt" },
+        { "properties": { "receipt_type": { "const": "iterable_draft" } } }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "pending" } } },
+      "then": { "properties": { "approval": { "type": "null" } } },
+      "else": { "properties": { "approval": { "$ref": "#/$defs/Approval" } } }
+    },
+    {
+      "if": { "properties": { "provider": { "const": "eventbrite" } } },
+      "then": {
+        "properties": {
+          "operation_kind": { "enum": ["create_eventbrite_draft", "update_eventbrite_draft"] },
+          "receipt": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/EventbriteReceipt" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "provider": { "const": "iterable" } } },
+      "then": {
+        "properties": {
+          "operation_kind": {
+            "enum": ["create_iterable_email_draft", "create_iterable_reminder_draft"]
+          },
+          "receipt": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/IterableReceipt" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } } },
+      "then": { "properties": { "receipt": { "$ref": "#/$defs/Receipt" } } }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["pending", "approved"] } } },
+      "then": { "properties": { "receipt": { "type": "null" } } }
+    }
+  ]
+}

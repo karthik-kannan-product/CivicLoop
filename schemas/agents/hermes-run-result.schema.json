@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:hermes-run-result:v1.0",
+  "title": "Hermes run result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "workflow_id",
+    "revision_id",
+    "status",
+    "proposal_references",
+    "usage",
+    "failure_category"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+    "proposal_references": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/ProposalReference" }
+    },
+    "usage": { "$ref": "#/$defs/Usage" },
+    "failure_category": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "budget_exhausted",
+        "cancelled",
+        "capability_rejected",
+        "dependency_unavailable",
+        "invalid_output",
+        "provider_unavailable",
+        "timeout"
+      ]
+    }
+  },
+  "$defs": {
+    "ProposalReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposal_id", "schema_id", "proposal_digest"],
+      "properties": {
+        "proposal_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+        "schema_id": { "type": "string", "pattern": "^urn:civicloop:schema:", "maxLength": 160 },
+        "proposal_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "Usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_tokens", "output_tokens", "cost_microusd"],
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "output_tokens": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "cost_microusd": { "type": "integer", "minimum": 0, "maximum": 1000000000 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "succeeded" } } },
+      "then": {
+        "properties": {
+          "proposal_references": { "minItems": 1 },
+          "failure_category": { "const": null }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "failed" } } },
+      "then": {
+        "properties": {
+          "proposal_references": { "maxItems": 0 },
+          "failure_category": {
+            "enum": [
+              "budget_exhausted",
+              "capability_rejected",
+              "dependency_unavailable",
+              "invalid_output",
+              "provider_unavailable",
+              "timeout"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "cancelled" } } },
+      "then": {
+        "properties": {
+          "proposal_references": { "maxItems": 0 },
+          "failure_category": { "const": "cancelled" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["queued", "running"] } } },
+      "then": {
+        "properties": {
+          "proposal_references": { "maxItems": 0 },
+          "failure_category": { "const": null }
+        }
+      }
+    }
+  ]
+}

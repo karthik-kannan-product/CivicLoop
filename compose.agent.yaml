@@ -1,0 +1,315 @@
+x-litellm-image-lock:
+  release: v1.100.1
+  index_digest: sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+  platform_manifest_digest: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
+  activation_allowed: false
+
+x-hermes-image-lock:
+  release: v2026.9.11
+  source_commit: 939e45c91d751fadd94dcd1b873ac3cb44846213
+  index_digest: sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+  activation_allowed: false
+
+services:
+  mcp:
+    # Public development uses the same local application image as compose.yaml.
+    # The private production overlay replaces both with a shared mandatory digest.
+    image: civicloop:local
+    profiles: [agent]
+    command: ["gunicorn", "civicloop.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "1", "--limit-request-line", "2048", "--limit-request-field_size", "1024"]
+    env_file: [.env]
+    environment:
+      DJANGO_SETTINGS_MODULE: agents.mcp_settings
+      CIVICLOOP_MCP_TOKEN_FILE: /run/secrets/civicloop-mcp-token
+      CIVICLOOP_ADMIN_IDENTITY_ENABLED: "false"
+      CIVICLOOP_INTEGRATIONS_ENABLED: "false"
+      CIVICLOOP_IDENTITY_KEY_FILE: ""
+      CIVICLOOP_INTEGRATION_KEY_FILE: ""
+    networks: [default, hermes-runtime]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    secrets:
+      - source: civicloop-mcp-token
+        target: /run/secrets/civicloop-mcp-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700]
+    restart: unless-stopped
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-m", "agents.mcp_probe"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  worker:
+    image: civicloop:local
+    command: ["worker"]
+    networks: [default, agent-control]
+
+  model-gateway-init:
+    image: ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+    platform: linux/amd64
+    profiles: [agent]
+    entrypoint: ["python", "/ops/scripts/model-gateway-ops-support.py"]
+    command:
+      - activate
+      - --lock
+      - /ops/image-lock.json
+      - --approval
+      - /source/model-gateway-approval.json
+      - --signature
+      - /source/model-gateway-approval.sig
+      - --verifier
+      - /source/model-gateway-approval-verifier
+      - --handoff
+      - /handoff
+      - --ledger
+      - /ledger
+      - --operations-sha
+      - ${CIVICLOOP_OPERATIONS_SHA:?Set exact private operations SHA}
+      - --verifier-sha256
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER_SHA256:?Set verifier SHA256}
+      - --trusted-signer
+      - ${CIVICLOOP_MODEL_GATEWAY_TRUSTED_SIGNER:?Set trusted signer}
+      - --trusted-workflow
+      - ${CIVICLOOP_MODEL_GATEWAY_TRUSTED_WORKFLOW:?Set trusted workflow}
+      - --provider-credential
+      - /source/provider-credential
+      - --master-key
+      - /source/litellm-master-key
+      - --gateway-token
+      - /source/gateway-token
+      - --budget-assertion-key
+      - /source/budget-assertion-key
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ${CIVICLOOP_MODEL_GATEWAY_OPS_DIR:-/opt/civicloop/ops}:/ops:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_PATH:?Set root-owned approval path}:/source/model-gateway-approval.json:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_SIGNATURE_PATH:?Set root-owned signature path}:/source/model-gateway-approval.sig:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER:?Set root-owned verifier path}:/source/model-gateway-approval-verifier:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE:?Set root-owned provider credential path}:/source/provider-credential:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE:?Set root-owned master-key path}:/source/litellm-master-key:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE:?Set root-owned gateway-token path}:/source/gateway-token:ro
+      - ${CIVICLOOP_MODEL_GATEWAY_BUDGET_ASSERTION_KEY_FILE:?Set root-owned budget-key path}:/source/budget-assertion-key:ro
+      - model-gateway-handoff:/handoff
+      - model-gateway-ledger:/ledger
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=0700
+    restart: "no"
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 128m
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  litellm:
+    image: ghcr.io/berriai/litellm-non_root:v1.100.1@sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+    platform: linux/amd64
+    profiles: [agent]
+    command: ["python", "/app/gateway.py"]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [hermes-runtime, provider-egress]
+    depends_on:
+      model-gateway-init:
+        condition: service_completed_successfully
+    environment:
+      DISABLE_ADMIN_UI: "True"
+      NO_DOCS: "True"
+      NO_REDOC: "True"
+      NO_OPENAPI: "True"
+      XDG_CACHE_HOME: /app/cache
+      PRISMA_BINARY_CACHE_DIR: /app/cache/prisma-python/binaries
+      LITELLM_MIGRATION_DIR: /app/migrations
+      LITELLM_CONFIG_FILE: /app/config.yaml
+      LITELLM_MODEL_ALIAS: civicloop-default
+      LITELLM_UPSTREAM_MODEL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_MODEL:-openai/gpt-4.1-mini}
+      LITELLM_UPSTREAM_BASE_URL: ${CIVICLOOP_MODEL_GATEWAY_UPSTREAM_BASE_URL:-https://api.openai.com/v1}
+      LITELLM_REQUEST_MAX_TOKENS: "2000"
+      LITELLM_REQUEST_TIMEOUT_SECONDS: "60"
+      LITELLM_STARTUP_TIMEOUT_SECONDS: "180"
+      CIVICLOOP_OPERATIONS_SHA: ${CIVICLOOP_OPERATIONS_SHA:?Set exact private operations SHA}
+      LITELLM_INDEX_DIGEST: sha256:c36f3b27a5a817329e0fcf9c4e3a7bf58b62a5a736ad5352f0a5771c1be58404
+      LITELLM_PLATFORM_DIGEST: sha256:833abd09590afee0119dd574212fb01294dcc7d940ad21fabc0bf0681a9f4aea
+      MODEL_GATEWAY_STARTUP_RECEIPT: /run/model-gateway/current/receipt.json
+      MODEL_GATEWAY_LEDGER_PATH: /var/lib/civicloop-model-gateway/ledger.sqlite3
+    volumes:
+      - type: bind
+        source: ./deploy/litellm/config.yaml
+        target: /app/config.yaml
+        read_only: true
+      - type: bind
+        source: ./deploy/litellm/gateway.py
+        target: /app/gateway.py
+        read_only: true
+      - type: volume
+        source: model-gateway-handoff
+        target: /run/model-gateway
+        read_only: true
+      - type: volume
+        source: model-gateway-ledger
+        target: /var/lib/civicloop-model-gateway
+        read_only: false
+    tmpfs:
+      - /app/cache:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
+      - /app/migrations:rw,noexec,nosuid,nodev,uid=65534,gid=65534,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 180s
+    restart: unless-stopped
+    pids_limit: 128
+    cpus: "0.50"
+    mem_limit: 1g
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  hermes:
+    image: docker.io/nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+    platform: linux/amd64
+    profiles: [agent]
+    command: ["python", "/opt/civicloop/start-hermes.py"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [hermes-runtime]
+    depends_on:
+      mcp:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_UID: "10000"
+      HERMES_GID: "10000"
+      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_PORT: "8642"
+      API_SERVER_MODEL_NAME: civicloop-default
+      HERMES_DISABLE_LAZY_INSTALLS: "1"
+      HERMES_SAFE_MODE: "0"
+    volumes:
+      - type: bind
+        source: ./deploy/hermes/start-hermes.py
+        target: /opt/civicloop/start-hermes.py
+        read_only: true
+      - type: bind
+        source: ./deploy/hermes/config.yaml
+        target: /opt/data/config.yaml
+        read_only: true
+      - type: volume
+        source: hermes-state
+        target: /opt/data
+    secrets:
+      - source: civicloop-mcp-token
+        target: /run/secrets/civicloop-mcp-token
+        uid: "10000"
+        gid: "10000"
+        mode: 0400
+      - source: civicloop-hermes-env
+        target: /opt/data/.env
+        uid: "10000"
+        gid: "10000"
+        mode: 0400
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=10000,gid=10000,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8642/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 18
+      start_period: 60s
+    restart: unless-stopped
+    pids_limit: 256
+    cpus: "1.00"
+    mem_limit: 1g
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+  hermes-adapter:
+    build:
+      context: ${CIVICLOOP_BUILD_CONTEXT:-.}
+    profiles: [agent]
+    entrypoint: ["python", "/app/hermes-adapter.py"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [agent-control, hermes-runtime]
+    depends_on:
+      hermes:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      HERMES_UPSTREAM_URL: http://hermes:8642
+      HERMES_POLL_INTERVAL_SECONDS: "0.5"
+      HERMES_ADAPTER_TOKEN_FILE: /run/secrets/civicloop-hermes-service-token
+      HERMES_UPSTREAM_TOKEN_FILE: /run/secrets/civicloop-hermes-upstream-token
+    volumes:
+      - type: bind
+        source: ./deploy/hermes/adapter.py
+        target: /app/hermes-adapter.py
+        read_only: true
+    secrets:
+      - source: civicloop-hermes-service-token
+        target: /run/secrets/civicloop-hermes-service-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: civicloop-hermes-upstream-token
+        target: /run/secrets/civicloop-hermes-upstream-token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/ready', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    pids_limit: 64
+    cpus: "0.25"
+    mem_limit: 128m
+    logging:
+      options: {max-size: 10m, max-file: "3"}
+
+networks:
+  agent-control: {internal: true}
+  hermes-runtime: {internal: true}
+  provider-egress: {}
+
+volumes:
+  model-gateway-handoff: {}
+  model-gateway-ledger: {}
+  hermes-state: {}
+
+secrets:
+  civicloop-mcp-token:
+    file: ${CIVICLOOP_HERMES_MCP_TOKEN_FILE:?Set distinct Hermes-to-MCP identity file}
+  civicloop-hermes-env:
+    file: ${CIVICLOOP_HERMES_ENV_FILE:?Set protected Hermes environment file}
+  civicloop-hermes-service-token:
+    file: ${CIVICLOOP_HERMES_SERVICE_TOKEN_FILE:?Set CivicLoop-to-adapter token file}
+  civicloop-hermes-upstream-token:
+    file: ${CIVICLOOP_HERMES_UPSTREAM_TOKEN_FILE:?Set adapter-to-Hermes token file}

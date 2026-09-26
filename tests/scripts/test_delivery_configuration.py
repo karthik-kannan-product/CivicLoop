@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -34,6 +36,8 @@ def test_web_container_is_only_published_on_loopback() -> None:
 
 def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics() -> None:
     workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    compose_job = yaml.safe_load(workflow)["jobs"]["compose"]
+    compose_steps = compose_job["steps"]
 
     dependencies = "docker compose up -d --wait --wait-timeout 120 db valkey"
     migrate = "docker compose up --no-deps --exit-code-from migrate migrate"
@@ -50,6 +54,20 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "CIVICLOOP_INTEGRATION_KEY_FILE: /tmp/civicloop-ci-integration-keyring.json" in workflow
     assert 'CIVICLOOP_INTEGRATIONS_ENABLED: "true"' in workflow
     assert "COMPOSE_FILE: compose.yaml:compose.integrations.yaml" in workflow
+    assert compose_job["env"]["PHOENIX_VOLUME_NAME"] == (
+        "civicloop-ci-${{ github.run_id }}-${{ github.run_attempt }}-phoenix-data"
+    )
+    create_volume_step = next(
+        index
+        for index, step in enumerate(compose_steps)
+        if step.get("run") == 'docker volume create "$PHOENIX_VOLUME_NAME"'
+    )
+    first_compose_step = next(
+        index
+        for index, step in enumerate(compose_steps)
+        if "docker compose " in step.get("run", "")
+    )
+    assert create_volume_step < first_compose_step
     assert "Create synthetic administrator integration key" in workflow
     assert "civicloop-compose-integration-keyring.json" in workflow
     assert "test_security_event_database.py" in workflow
@@ -62,8 +80,18 @@ def test_compose_ci_stages_dependencies_migration_and_runtime_with_diagnostics()
     assert "if: failure()" in workflow
     assert "docker compose ps -a" in workflow
     assert "docker compose logs" in workflow
-    assert "if: always()" in workflow
-    assert workflow.index("if: failure()") < workflow.rindex("if: always()")
+    cleanup_step = compose_steps[-1]
+    assert cleanup_step["if"] == "always()"
+    cleanup_lines = cleanup_step["run"].splitlines()
+    assert "cleanup_status=0" in cleanup_lines
+    assert (
+        "docker compose down -v --remove-orphans || cleanup_status=$?" in cleanup_lines
+    )
+    assert (
+        'docker volume rm "$PHOENIX_VOLUME_NAME" || cleanup_status=$?'
+        in cleanup_lines
+    )
+    assert cleanup_lines[-1] == 'exit "$cleanup_status"'
     assert "docker compose ps --services --status running" in workflow
     assert "grep -Fxq web" in workflow
     assert "grep -Fxq worker" in workflow

@@ -48,6 +48,10 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "DJ"]
 
+[tool.ruff.per-file-target-version]
+# The launcher executes inside the pinned Hermes image, not CivicLoop's Python 3.14.
+"deploy/hermes/start-hermes.py" = "py313"
+
 [tool.mypy]
 python_version = "3.14"
 check_untyped_defs = true

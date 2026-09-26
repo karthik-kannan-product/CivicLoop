@@ -50,16 +50,41 @@ ALLOWED_SPAN_ATTRIBUTES = frozenset(
         "civicloop.fixture_hash",
     }
 )
+ALLOWED_RESOURCE_ATTRIBUTES = frozenset(
+    {
+        "service.name",
+        "deployment.environment.name",
+    }
+)
+
+ALLOWED_SPAN_NAMES = frozenset(
+    {
+        "civicloop.http.request",
+        "civicloop.mcp.tool",
+        "civicloop.synthetic_smoke",
+        "eventbrite.metadata_read",
+        "launchloop.approval",
+        "launchloop.deterministic_lane",
+        "launchloop.evaluation",
+        "launchloop.evaluation_judge",
+        "launchloop.policy",
+        "launchloop.request",
+        "launchloop.sandbox_connector",
+        "launchloop.workflow",
+    }
+)
+SAFE_FALLBACK_SPAN_NAME = "civicloop.telemetry"
 
 _PROHIBITED_VALUE = re.compile(
     r"(?i)(bearer\s+|api[_ -]?key|password|recovery[_ -]?code|totp|session[_ -]?cookie|"
     r"authorization|private[_ -]?key|secret|sk-[a-z0-9_-]{6,})"
 )
+_SAFE_TOKEN_VALUE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:-]*")
 _TRUNCATION_MARKER = "...[truncated]"
 
 
 def _bounded_string(value: str, max_length: int) -> str:
-    if _PROHIBITED_VALUE.search(value):
+    if _PROHIBITED_VALUE.search(value) or not _SAFE_TOKEN_VALUE.fullmatch(value):
         return "[REDACTED]"
     if len(value) <= max_length:
         return value
@@ -98,3 +123,24 @@ def sanitize_span_attributes(
         if safe_value is not None:
             sanitized[key] = safe_value
     return sanitized
+
+
+def sanitize_resource_attributes(
+    attributes: Mapping[str, AttributeValue] | None,
+    *,
+    max_length: int,
+) -> dict[str, SafeAttributeValue]:
+    sanitized: dict[str, SafeAttributeValue] = {}
+    for key, value in (attributes or {}).items():
+        if key not in ALLOWED_RESOURCE_ATTRIBUTES:
+            continue
+        safe_value = _sanitize_value(value, max_length)
+        if safe_value is not None:
+            sanitized[key] = safe_value
+    return sanitized
+
+
+def sanitize_span_name(name: str) -> str:
+    if name in ALLOWED_SPAN_NAMES:
+        return name
+    return SAFE_FALLBACK_SPAN_NAME

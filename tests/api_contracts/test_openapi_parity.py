@@ -74,6 +74,8 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/admin/integrations/{provider}/test",
         "/api/v1/admin/integrations/{provider}/disable",
         "/api/v1/admin/integrations/{provider}/audit",
+        "/internal/v1/hermes/runs",
+        "/internal/v1/draft-operations",
     }
 
 

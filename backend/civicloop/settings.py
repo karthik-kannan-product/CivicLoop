@@ -146,6 +146,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "civicloop.urls"
+CIVICLOOP_MCP_TOKEN_FILE = os.getenv("CIVICLOOP_MCP_TOKEN_FILE", "")
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

@@ -107,10 +107,12 @@ jobs:
     env:
       COMPOSE_FILE: compose.yaml:compose.integrations.yaml:compose.observability.yaml
       COMPOSE_PROFILES: observability
+      PHOENIX_VOLUME_NAME: "civicloop-ci-${{ github.run_id }}-${{ github.run_attempt }}-phoenix-data"
     steps:
       # actions/checkout@v4
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - run: cp .env.example .env
+      - run: docker volume create "$PHOENIX_VOLUME_NAME"
       - run: |
           sed -i 's/replace-with-at-least-50-random-characters/ci-only-non-production-secret-for-compose-smoke/' .env
           sed -i 's/replace-with-a-unique-demo-password/civicloop-ci-only-demo-password/' .env
@@ -186,5 +188,8 @@ jobs:
           docker compose logs || true
       - if: always()
         run: |
-          docker compose down -v --remove-orphans
-          sudo rm -f /tmp/civicloop-compose-identity-keyring.json /tmp/civicloop-compose-integration-keyring.json /tmp/civicloop-compose-phoenix.env /tmp/civicloop-compose-phoenix-otlp-headers
+          cleanup_status=0
+          docker compose down -v --remove-orphans || cleanup_status=$?
+          docker volume rm "$PHOENIX_VOLUME_NAME" || cleanup_status=$?
+          sudo rm -f /tmp/civicloop-compose-identity-keyring.json /tmp/civicloop-compose-integration-keyring.json /tmp/civicloop-compose-phoenix.env /tmp/civicloop-compose-phoenix-otlp-headers || cleanup_status=$?
+          exit "$cleanup_status"
