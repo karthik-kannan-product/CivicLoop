@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 from django.core.exceptions import ValidationError
@@ -6,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from agents.redaction import validate_safe_summary
+from agents.tool_schemas import bounded_json
 
 
 class ImmutableVersionedModel(models.Model):
@@ -325,6 +327,57 @@ class AgentRun(models.Model):
             lifecycle_errors["failure_category"] = "Non-failed runs cannot have a failure category."
         if lifecycle_errors:
             raise ValidationError(lifecycle_errors)
+
+
+class AgentRunEvent(models.Model):
+    run = models.ForeignKey(AgentRun, related_name="events", on_delete=models.PROTECT)
+    sequence = models.PositiveSmallIntegerField()
+    event_type = models.CharField(max_length=32)
+    outcome = models.CharField(max_length=32)
+    detail_digest = models.CharField(max_length=64)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("run", "sequence"), name="agents_run_event_sequence")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id}: {self.sequence}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError("AgentRunEvent records are append-only.")
+        return super().save(*args, **kwargs)
+
+
+class HermesRunBinding(models.Model):
+    run = models.OneToOneField(AgentRun, related_name="hermes_binding", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    correlation_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    revision_digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return str(self.run_id)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError("HermesRunBinding records are immutable.")
+        self.revision_digest = hashlib.sha256(
+            bounded_json(self.run.event_revision.snapshot).encode()
+        ).hexdigest()
+        return super().save(*args, **kwargs)
+
+
+class AgentRunControl(models.Model):
+    run = models.OneToOneField(AgentRun, related_name="control", on_delete=models.PROTECT)
+    cancel_requested_at = models.DateTimeField(null=True)
+    admission_disabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return str(self.run_id)
 
 
 class WorkflowCapability(models.Model):

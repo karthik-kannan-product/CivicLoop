@@ -9,6 +9,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_ROOT = REPOSITORY_ROOT / "schemas"
 
 SCHEMAS = {
+    "hermes_start": "agents/hermes-start.schema.json",
+    "hermes_status": "agents/hermes-status.schema.json",
+    "pending_operation_page": "agents/pending-operation-page.schema.json",
     "hermes_run_request": "agents/hermes-run-request.schema.json",
     "hermes_run_result": "agents/hermes-run-result.schema.json",
     "hermes_transport_scope": "agents/hermes-transport-scope.schema.json",
@@ -46,6 +49,32 @@ def _validator(name: str) -> Draft202012Validator:
 
 def _valid_payloads() -> dict[str, dict[str, object]]:
     return {
+        "hermes_start": {
+            "schema_version": "1.0",
+            "run_id": "fa464cc0-5330-475c-bad4-06f79f1c16a4",
+            "status": "queued",
+        },
+        "hermes_status": {
+            "schema_version": "1.0",
+            "run_id": "fa464cc0-5330-475c-bad4-06f79f1c16a4",
+            "status": "running",
+            "failure_category": None,
+            "cancel_requested": False,
+            "proposal_count": 1,
+            "pending_operation_count": 0,
+        },
+        "pending_operation_page": {
+            "schema_version": "1.0",
+            "results": [
+                {
+                    "operation_id": "8914fc41-e10f-4812-ac63-da3ab33eed25",
+                    "provider": "eventbrite",
+                    "operation_kind": "create_eventbrite_draft",
+                    "status": "pending",
+                    "action_digest": "a" * 64,
+                }
+            ],
+        },
         "hermes_run_request": {
             "schema_version": "1.0",
             "workflow_id": "843a756b-b9a4-4fb7-89ee-05be3f38fc6d",
@@ -342,6 +371,55 @@ def test_result_and_operation_contracts_prohibit_raw_sensitive_content_fields() 
         schema_text = json.dumps(_load_schema(name)).lower()
         for field in forbidden:
             assert f'"{field}"' not in schema_text
+
+
+def test_new_production_responses_exclude_authority_and_execution_fields() -> None:
+    forbidden = {
+        "actor_id",
+        "capability_token",
+        "correlation_id",
+        "approval",
+        "receipt",
+        "execute_url",
+        "raw_model_text",
+        "provider_draft_body",
+    }
+    for name in ("hermes_start", "hermes_status", "pending_operation_page"):
+        schema_text = json.dumps(_load_schema(name)).lower()
+        for field in forbidden:
+            assert f'"{field}"' not in schema_text
+
+
+@pytest.mark.parametrize(
+    ("name", "changes"),
+    [
+        ("hermes_start", {"status": "running"}),
+        ("hermes_status", {"proposal_count": 21}),
+        ("hermes_status", {"pending_operation_count": -1}),
+        ("hermes_status", {"cancel_requested": "false"}),
+        ("pending_operation_page", {"results": [{}]}),
+    ],
+)
+def test_new_production_responses_reject_invalid_values(
+    name: str, changes: dict[str, object]
+) -> None:
+    payload = _valid_payloads()[name]
+    payload.update(changes)
+    with pytest.raises(ValidationError):
+        _validator(name).validate(payload)
+
+
+def test_pending_operation_schema_never_exposes_execution_fields() -> None:
+    payload = _valid_payloads()["pending_operation_page"]
+    validator = _validator("pending_operation_page")
+    validator.validate(payload)
+    operation = payload["results"][0]
+    for field in ("approval", "receipt", "execute_url"):
+        unsafe = deepcopy(payload)
+        unsafe["results"][0][field] = "forbidden"
+        with pytest.raises(ValidationError):
+            validator.validate(unsafe)
+    assert not {"approval", "receipt", "execute_url"} & operation.keys()
 
 
 def test_model_gateway_profile_is_provider_neutral() -> None:

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:pending-operation-page:v1.0",
+  "title": "Pending draft operation page v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "results"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "results": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "provider",
+          "operation_kind",
+          "status",
+          "action_digest"
+        ],
+        "properties": {
+          "operation_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+          "provider": { "enum": ["eventbrite", "iterable"] },
+          "operation_kind": {
+            "enum": [
+              "create_eventbrite_draft",
+              "create_iterable_email_draft",
+              "create_iterable_reminder_draft"
+            ]
+          },
+          "status": { "const": "pending" },
+          "action_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$", "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

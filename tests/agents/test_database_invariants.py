@@ -2,7 +2,13 @@ import uuid
 
 import pytest
 from agents.budgets import reserve_budget, settle_budget
-from agents.models import AgentRun, BudgetLedgerRecord
+from agents.models import (
+    AgentRun,
+    AgentRunControl,
+    AgentRunEvent,
+    BudgetLedgerRecord,
+    HermesRunBinding,
+)
 from django.core.cache import cache
 from django.db import DatabaseError, close_old_connections, connection, transaction
 from django.db.migrations.loader import MigrationLoader
@@ -16,6 +22,7 @@ def test_control_plane_invariant_migrations_are_present() -> None:
     loader = MigrationLoader(None, ignore_no_migrations=True)
 
     assert ("agents", "0002_database_invariants") in loader.disk_migrations
+    assert ("agents", "0006_hermes_run_state") in loader.disk_migrations
     assert ("evaluations", "0002_evaluation_results_append_only") in loader.disk_migrations
     assert AgentRun._meta.get_field("workflow").remote_field.on_delete.__name__ == "PROTECT"
     assert (
@@ -23,6 +30,8 @@ def test_control_plane_invariant_migrations_are_present() -> None:
         == "PROTECT"
     )
     assert EvaluationResult._meta.get_field("run").remote_field.on_delete.__name__ == "PROTECT"
+    for model in (AgentRunEvent, HermesRunBinding, AgentRunControl):
+        assert model._meta.get_field("run").remote_field.on_delete.__name__ == "PROTECT"
 
 
 @override_settings(

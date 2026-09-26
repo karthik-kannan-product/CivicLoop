@@ -41,6 +41,16 @@ sanitized categories; they never carry raw model or provider draft content.
 | Integrations | `integrations/workflow-capability.schema.json` | `urn:civicloop:schema:integrations:workflow-capability:v1.0` | Short-lived, audience-bound, tool-scoped, independently revocable authority |
 | Integrations | `integrations/draft-operation.schema.json` | `urn:civicloop:schema:integrations:draft-operation:v1.0` | Exact-digest, four-eyes, idempotent provider draft operation and typed receipt |
 
+The production Hermes pending-operation API publishes three additional closed
+responses. They expose run state and pending intent metadata only; draft bodies,
+approval, execution, and receipts are outside this API.
+
+| Area | Schema | Immutable `$id` | Purpose |
+| --- | --- | --- | --- |
+| Agents | `agents/hermes-start.schema.json` | `urn:civicloop:schema:agents:hermes-start:v1.0` | Queued run identifier after authorized start |
+| Agents | `agents/hermes-status.schema.json` | `urn:civicloop:schema:agents:hermes-status:v1.0` | Run status, cancellation state, and bounded counts |
+| Agents | `agents/pending-operation-page.schema.json` | `urn:civicloop:schema:agents:pending-operation-page:v1.0` | Up to 20 pending operation identifiers, kinds, and action digests |
+
 ## Compatibility
 
 A published `$id` is immutable. Any compatible minor revision is published as a
