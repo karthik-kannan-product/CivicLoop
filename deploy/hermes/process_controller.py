@@ -276,13 +276,15 @@ class ProcessController:
                     raise ControllerUnavailable()
                 if self.readiness_probe is None:
                     try:
-                        health = self._child_json(owned, "/health", method="GET")
+                        health = self._child_json(
+                            owned, "/health", method="GET", request_deadline=ready_by
+                        )
                         ready = health.get("status") in {"ok", "healthy", "ready"}
                     except ControllerUnavailable:
                         ready = False
                 else:
                     ready = self.readiness_probe(owned.child, url)
-                if ready and time.monotonic() < deadline:
+                if ready and time.monotonic() < ready_by:
                     return owned
                 time.sleep(min(0.02, max(0, ready_by - time.monotonic())))
             raise ControllerUnavailable()
@@ -338,6 +340,7 @@ class ProcessController:
         method: str,
         body: object | None = None,
         idempotency_key: str | None = None,
+        request_deadline: float | None = None,
     ) -> dict[str, Any]:
         raw = None if body is None else json.dumps(body, separators=(",", ":")).encode()
         headers = {"Authorization": f"Bearer {owned.api_key}", "Accept": "application/json"}
@@ -351,7 +354,11 @@ class ProcessController:
                 method=method,
                 raw=raw,
                 headers=headers,
-                deadline=min(owned.deadline, time.monotonic() + 10),
+                deadline=min(
+                    owned.deadline,
+                    time.monotonic() + 10,
+                    request_deadline if request_deadline is not None else float("inf"),
+                ),
             )
             parsed = json.loads(content)
             if status not in {200, 202} or not isinstance(parsed, dict):

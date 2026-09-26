@@ -280,16 +280,21 @@ def test_partial_body_handler_cannot_survive_into_run_b():
 
     def factory(argv, **kwargs):
         config = yaml.safe_load((Path(kwargs["cwd"]) / "config.yaml").read_text())
-        bridges.append(config["mcp_servers"]["civicloop"]["url"])
+        civicloop = config["mcp_servers"]["civicloop"]
+        bridges.append((civicloop["url"], civicloop["headers"]["Authorization"]))
         return Exiting()
 
     controller = ProcessController(child_factory=factory, readiness_probe=lambda *a: True)
     controller.admit(_request("run-a"), scope_token=_scope("a"))
-    port = int(bridges[0].split(":")[2].split("/")[0])
+    port = int(bridges[0][0].split(":")[2].split("/")[0])
+    bearer = bridges[0][1]
+    assert bearer.startswith("Bearer ")
     with socket.create_connection(("127.0.0.1", port)) as client:
         client.sendall(
             b"POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:"
             + str(port).encode()
+            + b"\r\nAuthorization: "
+            + bearer.encode()
             + b"\r\nContent-Length: 100\r\n\r\n{"
         )
         bridge = controller._active.bridge
@@ -297,6 +302,9 @@ def test_partial_body_handler_cannot_survive_into_run_b():
         while bridge.drain(0) and time.monotonic() < until:
             time.sleep(0.001)
         assert bridge.drain(0) is False
+        client.settimeout(0.05)
+        with pytest.raises(TimeoutError):
+            client.recv(1)
         controller.stop("run-a")
         if bridge.drain(0):
             controller.admit(_request("run-b"), scope_token=_scope("b"))
@@ -304,6 +312,46 @@ def test_partial_body_handler_cannot_survive_into_run_b():
             assert controller.quarantined
             with pytest.raises(ControllerUnavailable):
                 controller.admit(_request("run-b"), scope_token=_scope("b"))
+
+
+def test_real_health_after_readiness_cutoff_cannot_admit_child():
+    server = None
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            time.sleep(0.08)
+            raw = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            try:
+                self.wfile.write(raw)
+            except OSError:
+                pass
+
+    class Exiting(FakeChild):
+        def terminate(self):
+            self.exit_code = 0
+
+    def factory(argv, **kwargs):
+        nonlocal server
+        server = ThreadingHTTPServer(("127.0.0.1", int(kwargs["env"]["API_SERVER_PORT"])), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return Exiting()
+
+    controller = ProcessController(child_factory=factory, readiness_timeout=0.03)
+    started = time.monotonic()
+    try:
+        with pytest.raises(ControllerUnavailable):
+            controller.admit(_request("run-a"), scope_token=_scope("a"))
+        assert time.monotonic() - started < 0.2
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
 
 
 def test_replaced_home_on_startup_failure_quarantines_without_external_delete(
