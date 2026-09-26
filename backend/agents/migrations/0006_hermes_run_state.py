@@ -5,6 +5,39 @@ import uuid
 import django.db.models.deletion
 from django.db import migrations, models
 
+FUNCTION_SQL = """
+CREATE OR REPLACE FUNCTION agents_reject_hermes_evidence_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'Hermes run evidence is immutable.' USING ERRCODE = '55000';
+END;
+$$;
+"""
+
+EVIDENCE_TRIGGERS = {
+    "agents_run_event_immutable": "agents_agentrunevent",
+    "agents_hermes_binding_immutable": "agents_hermesrunbinding",
+}
+
+
+def create_evidence_triggers(apps, schema_editor) -> None:
+    if schema_editor.connection.vendor != "postgresql":
+        return
+    schema_editor.execute(FUNCTION_SQL)
+    for trigger, table in EVIDENCE_TRIGGERS.items():
+        schema_editor.execute(
+            f"""CREATE TRIGGER {trigger} BEFORE UPDATE OR DELETE ON {table}
+            FOR EACH ROW EXECUTE FUNCTION agents_reject_hermes_evidence_mutation();"""
+        )
+
+
+def drop_evidence_triggers(apps, schema_editor) -> None:
+    if schema_editor.connection.vendor != "postgresql":
+        return
+    for trigger, table in EVIDENCE_TRIGGERS.items():
+        schema_editor.execute(f"DROP TRIGGER IF EXISTS {trigger} ON {table};")
+    schema_editor.execute("DROP FUNCTION IF EXISTS agents_reject_hermes_evidence_mutation();")
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -97,4 +130,5 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
+        migrations.RunPython(create_evidence_triggers, reverse_code=drop_evidence_triggers),
     ]
