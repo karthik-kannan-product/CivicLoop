@@ -15,7 +15,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from deploy.hermes.process_controller import ProcessController
 
 from deploy.hermes.transport import TransportClient, TransportError, _opener, _validate_binding
 from deploy.hermes.transport_contracts import ScopeBinding
@@ -271,6 +274,7 @@ class HermesAdapter(ThreadingHTTPServer):
         allowed_tools: list[str] | tuple[str, ...],
         transport_client: TransportClient | None = None,
         binding_resolver: Callable[[dict[str, Any]], ScopeBinding] | None = None,
+        process_controller: ProcessController | None = None,
         **kwargs: Any,
     ) -> None:
         if len(service_token) < 16 or len(upstream_token) < 16:
@@ -283,11 +287,14 @@ class HermesAdapter(ThreadingHTTPServer):
         self.allowed_tools = tuple(allowed_tools)
         self.transport_client = transport_client
         self.binding_resolver = binding_resolver
+        self.process_controller = process_controller
         self.transport_healthy = True
         self.run_lock = threading.Lock()
         super().__init__(*args, **kwargs)
 
     def is_ready(self) -> bool:
+        if self.process_controller is not None:
+            return not self.process_controller.quarantined and self.transport_healthy
         try:
             health = _json_request(
                 f"{self.policy.upstream_url.rstrip('/')}/health",
@@ -332,6 +339,8 @@ class HermesAdapter(ThreadingHTTPServer):
         token = "scope_" + secrets.token_urlsafe(32)
         try:
             self.transport_client.register_scope(token=token, binding=binding)
+            if self.process_controller is not None:
+                return self.process_controller.execute(body, scope_token=token)
             return self._execute_scoped(body, transport_scope=token, timeout_seconds=remaining)
         except Exception:
             raise UpstreamError("Hermes transport unavailable") from None

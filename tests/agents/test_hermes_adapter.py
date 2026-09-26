@@ -133,3 +133,27 @@ def test_revocation_failure_quarantines_future_admission(monkeypatch):
         assert len(client.events) == 1
     finally:
         server.server_close()
+
+
+def test_adapter_uses_one_run_controller_when_configured():
+    class Controller:
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, body, *, scope_token):
+            self.calls.append((body, scope_token))
+            return adapter.map_upstream_result(body, {"status": "failed"})
+
+    client = Client()
+    controller = Controller()
+    server = make_adapter(client)
+    server.process_controller = controller
+    try:
+        with server.run_lock:
+            result = server.execute(_request())
+        assert result["status"] == "failed"
+        assert len(controller.calls) == 1
+        assert controller.calls[0][1] == client.events[0][1]
+        assert client.events[-1] == ("revoke", controller.calls[0][1])
+    finally:
+        server.server_close()
