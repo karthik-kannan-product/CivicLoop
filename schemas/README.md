@@ -35,6 +35,7 @@ sanitized categories; they never carry raw model or provider draft content.
 | Area | Schema | Immutable `$id` | Purpose |
 | --- | --- | --- | --- |
 | Agents | `agents/hermes-run-request.schema.json` | `urn:civicloop:schema:agents:hermes-run-request:v1.0` | Workflow-, revision-, actor-, capability-, route-, and budget-bound dispatch |
+| Agents | `agents/hermes-transport-scope.schema.json` | `urn:civicloop:schema:agents:hermes-transport-scope:v1.0` | Short-lived run-scoped transport authority and inference budgets |
 | Agents | `agents/hermes-run-result.schema.json` | `urn:civicloop:schema:agents:hermes-run-result:v1.0` | Validated proposal references, bounded usage, and sanitized terminal status |
 | Agents | `agents/model-gateway-profile.schema.json` | `urn:civicloop:schema:agents:model-gateway-profile:v1.0` | Provider-neutral alias, internal base URL, timeout, and budget policy |
 | Integrations | `integrations/workflow-capability.schema.json` | `urn:civicloop:schema:integrations:workflow-capability:v1.0` | Short-lived, audience-bound, tool-scoped, independently revocable authority |

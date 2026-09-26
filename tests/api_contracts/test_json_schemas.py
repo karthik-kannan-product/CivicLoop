@@ -11,6 +11,7 @@ SCHEMA_ROOT = REPOSITORY_ROOT / "schemas"
 SCHEMAS = {
     "hermes_run_request": "agents/hermes-run-request.schema.json",
     "hermes_run_result": "agents/hermes-run-result.schema.json",
+    "hermes_transport_scope": "agents/hermes-transport-scope.schema.json",
     "model_gateway_profile": "agents/model-gateway-profile.schema.json",
     "workflow_capability": "integrations/workflow-capability.schema.json",
     "draft_operation": "integrations/draft-operation.schema.json",
@@ -79,6 +80,20 @@ def _valid_payloads() -> dict[str, dict[str, object]]:
                 "cost_microusd": 12000,
             },
             "failure_category": None,
+        },
+        "hermes_transport_scope": {
+            "run_id": "run-123",
+            "workflow_id": "843a756b-b9a4-4fb7-89ee-05be3f38fc6d",
+            "revision_id": 1,
+            "revision_digest": "a" * 64,
+            "actor_id": "draft-operator",
+            "capability": "cap_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH",
+            "model_alias": "event-draft-primary",
+            "expires_at": "2026-09-26T12:10:00Z",
+            "max_inferences": 3,
+            "max_input_tokens": 16000,
+            "max_output_tokens": 4000,
+            "max_cost_microusd": 250000,
         },
         "model_gateway_profile": {
             "schema_version": "1.0",
@@ -159,6 +174,9 @@ def test_contract_accepts_complete_payload_and_rejects_unknown_properties(name: 
         ("hermes_run_request", "capability_token"),
         ("hermes_run_request", "model_alias"),
         ("hermes_run_request", "budgets"),
+        ("hermes_transport_scope", "capability"),
+        ("hermes_transport_scope", "revision_digest"),
+        ("hermes_transport_scope", "max_inferences"),
         ("workflow_capability", "workflow_id"),
         ("workflow_capability", "revision_id"),
         ("workflow_capability", "actor_id"),
@@ -211,6 +229,36 @@ def test_security_digests_are_lowercase_sha256(name: str) -> None:
     payload[digest_field] = "SHA256:not-an-exact-digest"
     with pytest.raises(ValidationError):
         _validator(name).validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("run_id", "run-123\n"),
+        ("revision_id", True),
+        ("revision_id", 0),
+        ("revision_digest", "A" * 64),
+        ("revision_digest", "a" * 64 + "\n"),
+        ("actor_id", "user@example.com"),
+        ("actor_id", "draft-operator\n"),
+        ("capability", "cap_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH\n"),
+        ("model_alias", "Invalid Model"),
+        ("model_alias", "event-draft-primary\n"),
+        ("expires_at", "2026-09-26T13:05:00+00:60"),
+        ("max_inferences", False),
+        ("max_inferences", 0),
+        ("max_input_tokens", 0),
+        ("max_output_tokens", 0),
+        ("max_cost_microusd", 0),
+    ],
+)
+def test_hermes_transport_scope_schema_rejects_invalid_fields(
+    field: str, invalid: object
+) -> None:
+    payload = _valid_payloads()["hermes_transport_scope"]
+    payload[field] = invalid
+    with pytest.raises(ValidationError):
+        _validator("hermes_transport_scope").validate(payload)
 
 
 def test_draft_operation_requires_exact_approved_digest_and_typed_success_receipt() -> None:

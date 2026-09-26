@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from deploy.litellm.assertions import issue_budget_assertion as issue_transport_assertion
 from deploy.litellm.gateway import (
     DurableBudgetLedger,
     GatewayPolicy,
@@ -34,6 +35,11 @@ CONFIG = ROOT / "deploy/litellm/config.yaml"
 FAKE_SERVER = ROOT / "tests/fakes/openai_compatible_server.py"
 ASSERTION_KEY = b"test-only-budget-assertion-key-32-bytes-minimum"
 NOW = datetime(2026, 9, 15, 12, tzinfo=UTC)
+ASSERTION_WIRE_VECTOR = (
+    "eyJleHBpcmVzX2F0IjoxNzg5NDczNzIwLCJtb2RlbF9hbGlhcyI6ImNpdmljbG9vcC1kZWZhdWx0Iiw"
+    "ibm9uY2UiOiJwYXJpdHktbm9uY2UtMDAwMDAwMDAwMDAwMDAwMCIsInJ1bl9pZCI6InJ1bi0xMjMiLC"
+    "J0b2tlbl9jZWlsaW5nIjoxMjgsInZlcnNpb24iOjF9.Mt3AKt_cwKc05fn1o1rCtoLfpH_TMsiQlpWCHFvWgeY"
+)
 
 
 def _body(**updates: object) -> dict[str, object]:
@@ -75,6 +81,42 @@ def _assertion(*, nonce: str, ceiling: int = 128, run_id: str = "run-123") -> st
         expires_at=NOW + timedelta(minutes=2),
         nonce=nonce,
     )
+
+
+def test_transport_assertion_preserves_v1_wire_and_gateway_accepts_distinct_nonces(
+    tmp_path: Path,
+) -> None:
+    first = issue_transport_assertion(
+        key=ASSERTION_KEY,
+        run_id="run-123",
+        model_alias="civicloop-default",
+        token_ceiling=128,
+        expires_at=NOW + timedelta(minutes=2),
+        nonce="parity-nonce-0000000000000000",
+    )
+    assert first == ASSERTION_WIRE_VECTOR
+    ledger = DurableBudgetLedger(tmp_path / "transport-parity.sqlite3")
+    policy = GatewayPolicy("civicloop-default", 2000, 60)
+    for assertion in (
+        first,
+        issue_transport_assertion(
+            key=ASSERTION_KEY,
+            run_id="run-123",
+            model_alias="civicloop-default",
+            token_ceiling=128,
+            expires_at=NOW + timedelta(minutes=2),
+            nonce="parity-nonce-0000000000000001",
+        ),
+    ):
+        prepared = prepare_request(
+            _body(max_tokens=32),
+            budget_assertion=assertion,
+            assertion_key=ASSERTION_KEY,
+            policy=policy,
+            ledger=ledger,
+            now=NOW,
+        )
+        assert prepared["max_tokens"] == 32
 
 
 def _post(
