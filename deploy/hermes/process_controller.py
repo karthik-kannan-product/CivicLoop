@@ -156,7 +156,7 @@ class ProcessController:
         readiness_probe: Callable[[Any, str], bool] | None = None,
         port_factory: Callable[[], int] = _local_port,
         transport_client: TransportClient | None = None,
-        readiness_timeout: float = 5,
+        readiness_timeout: float = 15,
         termination_timeout: float = 1,
         drain_timeout: float = 1,
         maximum_records: int = 10_000,

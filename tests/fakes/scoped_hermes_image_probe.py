@@ -125,7 +125,6 @@ def main():
     mcp = ThreadingHTTPServer(("127.0.0.1", 0), FakeMCP)
     threading.Thread(target=mcp.serve_forever, daemon=True).start()
     controller = ProcessController(
-        readiness_timeout=15,
         child_factory=factory,
         shim_base_url=f"http://127.0.0.1:{mcp.server_port}",
     )
