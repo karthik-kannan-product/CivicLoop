@@ -121,6 +121,7 @@ test.each([
   { role: "operator", administrator: false, hermes_enabled: true, shown: false, enabled: false },
   { role: "approver", administrator: false, hermes_enabled: true, shown: false, enabled: false },
 ])("Hermes generation is limited to the activated owner workspace: %j", async (session) => {
+  window.history.replaceState({}, "", "/sandbox");
   vi.stubEnv("VITEST", "");
   vi.stubEnv("VITE_STATIC_DEMO", "false");
   vi.stubGlobal("fetch", vi.fn().mockImplementation((path: string) => {
@@ -139,6 +140,7 @@ test.each([
 });
 
 test("deterministic sandbox has no Hermes generation or requests", async () => {
+  window.history.replaceState({}, "", "/sandbox");
   vi.stubEnv("VITEST", "true");
   vi.stubGlobal("fetch", vi.fn().mockImplementation(() => jsonResponse(baseState)));
   render(<App />);
