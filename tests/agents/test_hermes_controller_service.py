@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 import urllib.error
@@ -194,3 +195,36 @@ def test_duplicate_keys_and_oversized_body_are_rejected(service):
             urllib.request.urlopen(req, timeout=3)
         assert error.value.code == 400
     assert controller.calls == 0
+
+
+def test_expired_exact_replay_returns_retained_result(service):
+    server, controller, url = service
+    body = envelope()
+    body["expires_at"] = (datetime.now(UTC) + timedelta(seconds=0.15)).isoformat()
+    controller.release.set()
+    status, first = call(url, RUN_PATH, body)
+    assert status == 202
+    time.sleep(0.2)
+    status, replay = call(url, RUN_PATH, body)
+    assert status == 202
+    assert replay["run_id"] == first["run_id"]
+    assert controller.calls == 1
+    assert server.active is None
+
+
+def test_header_drip_hits_absolute_connection_deadline(service):
+    server, _, _ = service
+    with socket.create_connection(server.server_address, timeout=1) as client:
+        client.sendall(b"GET /health/live HTTP/1.1\r\nX-Drip: ")
+        for _ in range(8):
+            time.sleep(0.45)
+            try:
+                client.sendall(b"x")
+            except OSError:
+                break
+        try:
+            client.sendall(b"\r\n\r\n")
+            response = client.recv(1024)
+        except OSError:
+            response = b""
+        assert b"200" not in response

@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -59,7 +60,7 @@ def validate_envelope(body: dict[str, Any]) -> tuple[dict[str, Any], float]:
     if date.tzinfo is None:
         raise ValueError
     remaining = (date - datetime.now(UTC)).total_seconds()
-    if not 0 < remaining <= request["budgets"]["timeout_seconds"]:
+    if remaining > request["budgets"]["timeout_seconds"]:
         raise ValueError
     return request, time.monotonic() + remaining
 
@@ -83,7 +84,44 @@ class ControllerService(ThreadingHTTPServer):
         self.records: dict[str, Record] = {}
         self.active: str | None = None
         self.lock = threading.RLock()
+        self.handler_slots = threading.BoundedSemaphore(16)
+        self.handler_lock = threading.Lock()
+        self.handler_timers = {}
         super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.handler_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+
+        def expire():
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        timer = threading.Timer(3, expire)
+        timer.daemon = True
+        with self.handler_lock:
+            self.handler_timers[request] = timer
+        timer.start()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._release_handler(request)
+            raise
+
+    def _release_handler(self, request):
+        with self.handler_lock:
+            timer = self.handler_timers.pop(request)
+        timer.cancel()
+        self.handler_slots.release()
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_handler(request)
 
     def handle_error(self, request, client_address):
         pass  # Never emit request-bearing tracebacks.
@@ -108,6 +146,8 @@ class ControllerService(ThreadingHTTPServer):
                 if not hmac.compare_digest(prior.digest, digest):
                     raise AdmissionConflict
                 return run_id
+            if deadline <= time.monotonic():
+                raise ValueError
             if (
                 self.active is not None
                 or self.controller.quarantined
