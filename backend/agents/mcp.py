@@ -14,6 +14,7 @@ from observability.runtime import get_runtime
 
 from agents.capabilities import AUDIENCE, AuthorizationDenied, token_digest, verify_token
 from agents.models import DraftOperation, MCPInvocation, MCPSubmission, WorkflowCapability
+from agents.telemetry import mcp_trace_binding
 from agents.tool_schemas import (
     InvalidToolArguments,
     bounded_json,
@@ -62,15 +63,7 @@ def dispatch_mcp_tool(
             raise AuthorizationDenied()
         verify_token(capability)
         encoded = validate_tool_arguments(tool_name, arguments)
-        with get_runtime().start_span(
-            "civicloop.mcp.tool",
-            record_exception=False,
-            set_status_on_exception=False,
-            attributes={"openinference.span.kind": "TOOL", "civicloop.stage": tool_name},
-        ) as span:
-            result = _dispatch(tool_name, arguments, capability, encoded)
-            span.set_attribute("civicloop.outcome", "succeeded")
-            return result
+        return _dispatch(tool_name, arguments, capability, encoded)
     except AuthorizationDenied:
         # Persist outside the failed transaction; never retain untrusted identifiers or credentials.
         AuditEvent.objects.create(
@@ -130,6 +123,28 @@ def _dispatch(tool, arguments, token, encoded):
     if record.correlation_id is None:
         record.correlation_id = UUID(arguments["correlation_id"])
         record.save(update_fields=["correlation_id"])
+    context, attributes = mcp_trace_binding(record)
+    with get_runtime().start_span(
+        "civicloop.mcp.tool",
+        context=context,
+        record_exception=False,
+        set_status_on_exception=False,
+        attributes={
+            **attributes,
+            "openinference.span.kind": "TOOL",
+            "civicloop.stage": tool,
+        },
+    ) as span:
+        try:
+            result = _invoke(tool, arguments, record, workflow, encoded)
+        except Exception:
+            span.set_attribute("civicloop.outcome", "failed")
+            raise
+        span.set_attribute("civicloop.outcome", "succeeded")
+        return result
+
+
+def _invoke(tool, arguments, record, workflow, encoded):
     argument_digest = hashlib.sha256(encoded.encode()).hexdigest()
     idem = digest([str(record.id), arguments["idempotency_key"]])
     existing = MCPInvocation.objects.filter(

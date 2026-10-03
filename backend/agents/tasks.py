@@ -13,6 +13,8 @@ from django.utils import timezone
 from launchloop.engine import prepare_package
 from launchloop.models import AuditEvent, DemoActor, Workflow
 from launchloop.services import package_hash
+from observability.runtime import get_runtime
+from opentelemetry.context import Context
 
 from agents.budgets import (
     BudgetError,
@@ -41,6 +43,7 @@ from agents.models import (
     RoutingPolicy,
     WorkflowCapability,
 )
+from agents.telemetry import run_attributes, worker_traceparent
 from agents.tool_schemas import PROPOSAL, bounded_json, validate
 
 PROPOSAL_SCHEMA_ID = "urn:civicloop:schema:campaign-proposal:v1.0"
@@ -244,7 +247,8 @@ def queue_hermes_run(*, workflow_id: UUID, revision_id: int, actor_slug: str) ->
                 fixture_manifest_digest=FIXTURE_DIGEST,
                 privacy_mode="synthetic_full",
                 status="queued",
-                trace_id=uuid.uuid4().hex,
+                # All-zero is invalid OTel context, not a fabricated trace.
+                trace_id="0" * 32,
             )
             HermesRunBinding.objects.create(run=run, actor=actor, correlation_id=correlation_id)
             AgentRunControl.objects.create(run=run, lease_expires_at=lease)
@@ -480,6 +484,17 @@ def _validate_result(run, control, result):
 
 @shared_task(acks_late=True, reject_on_worker_lost=True)
 def execute_hermes_run(run_id: UUID) -> None:
+    with get_runtime().start_span(
+        "civicloop.hermes.worker",
+        context=Context(),
+        record_exception=False,
+        set_status_on_exception=False,
+        attributes={"openinference.span.kind": "CHAIN", "civicloop.stage": "worker"},
+    ) as span:
+        _execute_hermes_run(run_id, span)
+
+
+def _execute_hermes_run(run_id, span):
     from agents.hermes import HermesClient
 
     client = None
@@ -520,6 +535,7 @@ def execute_hermes_run(run_id: UUID) -> None:
             ):
                 raise WorkerFailure("dependency_unavailable")
             _check(run, control, workflow)
+            span.set_attributes(run_attributes(run))
             client = HermesClient.from_settings()
             remaining = max(1, int((control.lease_expires_at - timezone.now()).total_seconds()))
             token = issue_workflow_capability(
@@ -535,7 +551,13 @@ def execute_hermes_run(run_id: UUID) -> None:
             capability.correlation_id = run.hermes_binding.correlation_id
             capability.save(update_fields=["correlation_id"])
             control.capability = capability
-            control.save(update_fields=["capability", "updated_at"])
+            control.telemetry_traceparent = worker_traceparent(span)
+            control.save(update_fields=["capability", "telemetry_traceparent", "updated_at"])
+            run.trace_id = (
+                f"{span.get_span_context().trace_id:032x}"
+                if span.get_span_context().is_valid
+                else "0" * 32
+            )
             run.status = "running"
             run.started_at = timezone.now()
             run.save()
@@ -590,6 +612,7 @@ def execute_hermes_run(run_id: UUID) -> None:
             run.cost_microusd = settlement.settled_cost_microusd
             run.save()
             _event(run, "succeeded", "accepted")
+            span.set_attribute("civicloop.outcome", "succeeded")
             lane.active_run = None
             lane.save(update_fields=["active_run", "updated_at"])
     except AgentRun.DoesNotExist:
@@ -610,3 +633,5 @@ def execute_hermes_run(run_id: UUID) -> None:
             except Exception:
                 cleanup_ok = False
         _finish(run_id, category, billable=billable, cleanup_ok=cleanup_ok)
+        span.set_attribute("civicloop.outcome", "failed")
+        span.set_attribute("civicloop.failure_category", category)

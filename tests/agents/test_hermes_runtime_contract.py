@@ -449,6 +449,16 @@ def test_request_validation_is_exact_and_forces_model_alias() -> None:
         )
 
 
+def test_compose_tmpfs_mounts_are_absolute_and_mcp_options_stay_together() -> None:
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    for name, service in compose["services"].items():
+        for mount in service.get("tmpfs", []):
+            assert mount.split(":", 1)[0].startswith("/"), (name, mount)
+    assert compose["services"]["mcp"]["tmpfs"] == [
+        "/tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700"
+    ]
+
+
 def test_mcp_is_reachable_from_hermes_but_not_published(tmp_path: Path) -> None:
     result = _render_merged_compose(tmp_path, include_identity_key_path=True)
     assert result.returncode == 0, result.stderr

@@ -859,8 +859,13 @@ def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() ->
     assert service["depends_on"]["model-gateway-init"]["condition"] == (
         "service_completed_successfully"
     )
-    assert service["networks"] == ["hermes-runtime", "provider-egress"]
-    assert compose["networks"]["hermes-runtime"]["internal"] is True
+    assert service["networks"] == ["hermes-data", "provider-egress"]
+    assert compose["networks"]["hermes-data"]["internal"] is True
+    # Hermes must reach the gateway through the authenticated transport shim.
+    assert not set(service["networks"]) & set(compose["services"]["hermes"]["networks"])
+    assert set(service["networks"]) & set(
+        compose["services"]["hermes-transport"]["networks"]
+    ) == {"hermes-data"}
     assert "ports" not in service
     assert service["user"] == "65534:65534"
     assert service["read_only"] is True

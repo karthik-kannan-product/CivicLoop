@@ -5,6 +5,17 @@ model:
   api_mode: chat_completions
   streaming: false
 
+# Supported vendor custom-provider request overrides survive API agent creation.
+# The controller pins this endpoint to the same per-run loopback bridge as model.
+providers:
+  custom:
+    base_url: http://127.0.0.1:1/v1
+    default_model: civicloop-default
+    key_env: OPENAI_API_KEY
+    api_mode: chat_completions
+    extra_body:
+      max_tokens: 2000
+
 auxiliary:
   civicloop_nonstreaming: true
   transient_retries: 0
@@ -15,6 +26,8 @@ auxiliary:
     key_env: OPENAI_API_KEY
     api_mode: chat_completions
     fallback_chain: []
+    extra_body:
+      max_tokens: 2000
   title_generation:
     enabled: false
 

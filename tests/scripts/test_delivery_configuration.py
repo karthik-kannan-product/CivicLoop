@@ -1,8 +1,15 @@
+import tomllib
 from pathlib import Path
 
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_agent_yaml_loader_is_available_without_development_dependencies() -> None:
+    project = tomllib.loads((REPOSITORY_ROOT / "pyproject.toml").read_text())
+    production_requirements = project["project"]["dependencies"]
+    assert any(requirement.lower().startswith("pyyaml") for requirement in production_requirements)
 
 
 def test_ci_backend_uses_runner_postgres_and_valkey_services() -> None:

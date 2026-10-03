@@ -28,6 +28,8 @@ COPY backend/ /app/backend/
 COPY scripts/ /app/scripts/
 COPY openapi/ /app/openapi/
 COPY schemas/ /app/schemas/
+COPY deploy/hermes/ /app/runtime/deploy/hermes/
+COPY deploy/litellm/assertions.py /app/runtime/deploy/litellm/assertions.py
 COPY --from=frontend /build/frontend/dist /app/frontend/dist
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 RUN chmod 0555 /app/docker/entrypoint.sh \

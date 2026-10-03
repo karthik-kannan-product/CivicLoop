@@ -6,14 +6,7 @@ from collections.abc import Mapping, Sequence
 from opentelemetry.util.types import AttributeValue
 
 type SafeAttributeValue = (
-    str
-    | bool
-    | int
-    | float
-    | Sequence[str]
-    | Sequence[bool]
-    | Sequence[int]
-    | Sequence[float]
+    str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]
 )
 
 ALLOWED_SPAN_ATTRIBUTES = frozenset(
@@ -22,6 +15,7 @@ ALLOWED_SPAN_ATTRIBUTES = frozenset(
         "http.request.method",
         "http.response.status_code",
         "civicloop.run_id",
+        "civicloop.correlation_id",
         "civicloop.step_id",
         "civicloop.workflow_id",
         "civicloop.revision_id",
@@ -61,6 +55,7 @@ ALLOWED_SPAN_NAMES = frozenset(
     {
         "civicloop.http.request",
         "civicloop.mcp.tool",
+        "civicloop.hermes.worker",
         "civicloop.synthetic_smoke",
         "eventbrite.metadata_read",
         "launchloop.approval",

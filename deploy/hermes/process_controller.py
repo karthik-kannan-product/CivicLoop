@@ -129,6 +129,7 @@ def _write_config(home: Path, bridge: RunBridge) -> None:
     config = copy.deepcopy(yaml.safe_load(_CONFIG.read_text(encoding="utf-8")))
     config["model"]["base_url"] = bridge.base_url + "/v1"
     config["model"]["default"] = "civicloop-default"
+    config["providers"]["custom"]["base_url"] = bridge.base_url + "/v1"
     config["auxiliary"]["compression"]["base_url"] = bridge.base_url + "/v1"
     config["mcp_servers"]["civicloop"]["url"] = bridge.base_url + "/mcp"
     config["mcp_servers"]["civicloop"]["headers"] = {

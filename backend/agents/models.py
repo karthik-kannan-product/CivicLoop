@@ -386,6 +386,8 @@ class AgentRunControl(models.Model):
     capability = models.ForeignKey("WorkflowCapability", null=True, on_delete=models.PROTECT)
     lease_expires_at = models.DateTimeField(null=True)
     admission_disabled = models.BooleanField(default=False)
+    # Worker-owned observability context; never an admission or execution authority.
+    telemetry_traceparent = models.CharField(max_length=55, blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
