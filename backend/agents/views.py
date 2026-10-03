@@ -2,14 +2,23 @@ import json
 import uuid
 from collections.abc import Callable
 
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.debug import sensitive_post_parameters
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 from identity.models import AdministratorSession
-from launchloop.models import DemoActor
+from launchloop.models import DemoActor, Workflow
+from launchloop.pilot import owner_operator
 
-from agents.models import AgentRun, BudgetLedgerRecord, BudgetReservation
+from agents.models import (
+    AgentRun,
+    AgentRunControl,
+    BudgetLedgerRecord,
+    BudgetReservation,
+    DraftOperation,
+    MCPSubmission,
+)
 
 
 def _problem(request: HttpRequest, status: int, code: str, title: str, detail: str) -> JsonResponse:
@@ -78,6 +87,10 @@ def _run_or_problem(
             "Agent run not found",
             "The requested agent run does not exist.",
         )
+    if run.hermes_lane:
+        denied = _owner_authorized(request)
+        if denied is not None:
+            return None, denied
     return run, None
 
 
@@ -196,7 +209,243 @@ def _usage_payload(run: AgentRun) -> dict[str, object]:
     }
 
 
-run_detail = _read_view(_run_payload)
+def _owner_authorized(request: HttpRequest) -> JsonResponse | None:
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return _problem(
+            request,
+            401,
+            "authentication_required",
+            "Authentication required",
+            "Owner authentication is required.",
+        )
+    metadata = getattr(request, "administrator_session", None)
+    if not isinstance(metadata, AdministratorSession) or metadata.recovery_restricted:
+        return _problem(
+            request,
+            403,
+            "owner_required",
+            "Owner required",
+            "Full owner authentication is required.",
+        )
+    return None
+
+
+def _hermes_run_or_problem(request: HttpRequest, run_id: uuid.UUID):
+    denied = _owner_authorized(request)
+    if denied is not None:
+        return None, denied
+    run = AgentRun.objects.filter(pk=run_id, hermes_lane=True).first()
+    if run is None:
+        return None, _problem(
+            request,
+            404,
+            "agent_run_not_found",
+            "Agent run not found",
+            "The requested Hermes run does not exist.",
+        )
+    return run, None
+
+
+def _accepted_operations(run: AgentRun):
+    control = AgentRunControl.objects.filter(run=run).first()
+    operations = DraftOperation.objects.none()
+    if run.status == AgentRun.Status.SUCCEEDED and control and control.capability_id:
+        operations = DraftOperation.objects.filter(
+            proposal__capability_id=control.capability_id,
+            proposal__kind="proposal",
+            workflow_id=run.workflow_id,
+            revision_id=run.event_revision_id,
+            status="pending",
+            approval__isnull=True,
+            receipt__isnull=True,
+        ).order_by("created_at", "id")
+    return operations
+
+
+def _hermes_status(run: AgentRun) -> dict[str, object]:
+    control = AgentRunControl.objects.filter(run=run).first()
+    proposals = 0
+    if run.status == AgentRun.Status.SUCCEEDED and control and control.capability_id:
+        proposals = min(
+            20,
+            MCPSubmission.objects.filter(
+                capability_id=control.capability_id, kind="proposal"
+            ).count(),
+        )
+    return {
+        "schema_version": "1.0",
+        "run_id": str(run.id),
+        "status": run.status,
+        "failure_category": run.failure_category or None,
+        "cancel_requested": bool(control and control.cancel_requested_at),
+        "proposal_count": proposals,
+        "pending_operation_count": min(20, _accepted_operations(run).count()),
+    }
+
+
+@require_GET
+def run_detail(request: HttpRequest, run_id: uuid.UUID) -> JsonResponse:
+    run, error = _run_or_problem(request, run_id)
+    if error is not None:
+        return error
+    assert run is not None
+    if run.hermes_lane:
+        denied = _owner_authorized(request)
+        if denied is not None:
+            return denied
+        payload = _hermes_status(run)
+    else:
+        payload = _run_payload(run)
+    return JsonResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+def _small_body(request: HttpRequest, *, empty=False):
+    def unique_object(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise ValueError
+            result[name] = value
+        return result
+
+    length = int(request.META.get("CONTENT_LENGTH") or "0")
+    if not 0 <= length <= 1024:
+        raise ValueError
+    raw = request.read(1025)
+    if len(raw) > 1024:
+        raise ValueError
+    if empty and not raw:
+        return {}
+    if request.content_type != "application/json":
+        raise ValueError
+    return json.loads(raw, object_pairs_hook=unique_object)
+
+
+@require_POST
+@sensitive_post_parameters()
+def start_hermes(request: HttpRequest, workflow_id: uuid.UUID) -> JsonResponse:
+    from agents.tasks import HermesAdmissionDenied, HermesStartConflict, start_hermes_run
+
+    denied = _owner_authorized(request)
+    if denied is not None:
+        return denied
+    try:
+        body = _small_body(request)
+        key = uuid.UUID(request.headers.get("Idempotency-Key", ""))
+        if str(key) != request.headers.get("Idempotency-Key", "").lower():
+            raise ValueError
+        if (
+            type(body) is not dict
+            or set(body) != {"revision_id"}
+            or type(body["revision_id"]) is not int
+            or body["revision_id"] <= 0
+        ):
+            raise ValueError
+    except ValueError, TypeError, UnicodeError:
+        return _problem(
+            request,
+            400,
+            "invalid_request",
+            "Invalid request",
+            "A revision and UUID idempotency key are required.",
+        )
+    if not settings.CIVICLOOP_HERMES_ENABLED or not getattr(
+        settings, "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED", False
+    ):
+        return _problem(
+            request,
+            503,
+            "hermes_unavailable",
+            "Hermes unavailable",
+            "Hermes admission is disabled.",
+        )
+    if not Workflow.objects.filter(pk=workflow_id).exists():
+        return _problem(
+            request,
+            404,
+            "workflow_not_found",
+            "Workflow not found",
+            "The requested workflow does not exist.",
+        )
+    actor = owner_operator(request.administrator_session)
+    try:
+        run = start_hermes_run(
+            idempotency_key=key,
+            workflow_id=workflow_id,
+            revision_id=body["revision_id"],
+            actor_slug=actor.slug,
+        )
+    except HermesStartConflict:
+        return _problem(
+            request,
+            409,
+            "idempotency_conflict",
+            "Idempotency conflict",
+            "This start key is bound to a different request.",
+        )
+    except HermesAdmissionDenied:
+        return _problem(
+            request,
+            409,
+            "hermes_admission_denied",
+            "Hermes admission denied",
+            "This workflow cannot start a Hermes run now.",
+        )
+    return JsonResponse(
+        {"schema_version": "1.0", "run_id": str(run.id), "status": "queued"},
+        status=202,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_GET
+def pending_operations(request: HttpRequest, run_id: uuid.UUID) -> JsonResponse:
+    run, error = _hermes_run_or_problem(request, run_id)
+    if error is not None:
+        return error
+    assert run is not None
+    return JsonResponse(
+        {
+            "schema_version": "1.0",
+            "results": [
+                {
+                    "operation_id": str(item.id),
+                    "provider": item.provider,
+                    "operation_kind": item.operation_kind,
+                    "status": "pending",
+                    "action_digest": item.action_digest,
+                }
+                for item in _accepted_operations(run)[:20]
+            ],
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@require_POST
+@sensitive_post_parameters()
+def cancel_hermes(request: HttpRequest, run_id: uuid.UUID) -> JsonResponse:
+    from agents.tasks import cancel_hermes_run
+
+    run, error = _hermes_run_or_problem(request, run_id)
+    if error is not None:
+        return error
+    try:
+        if _small_body(request, empty=True) != {}:
+            raise ValueError
+    except ValueError, TypeError, UnicodeError:
+        return _problem(
+            request,
+            400,
+            "invalid_request",
+            "Invalid request",
+            "Cancellation accepts an empty request.",
+        )
+    run = cancel_hermes_run(run_id)
+    return JsonResponse(_hermes_status(run), status=202, headers={"Cache-Control": "no-store"})
+
+
 run_steps = _read_view(_steps_payload)
 run_evaluations = _read_view(_evaluations_payload)
 run_usage = _read_view(_usage_payload)

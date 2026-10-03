@@ -547,3 +547,23 @@ class HermesAdmissionLane(models.Model):
 
     def __str__(self):
         return "Hermes admission lane"
+
+
+class HermesStartReceipt(models.Model):
+    """Immutable request identity; retries never grant authority or create a second run."""
+
+    id = models.UUIDField(primary_key=True, editable=False)
+    owner = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    workflow = models.ForeignKey("launchloop.Workflow", on_delete=models.PROTECT)
+    revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
+    run = models.OneToOneField(AgentRun, related_name="start_receipt", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return str(self.run_id)
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValueError("HermesStartReceipt records are immutable.")
+        return super().save(*args, **kwargs)

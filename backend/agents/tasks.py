@@ -35,6 +35,7 @@ from agents.models import (
     DraftOperation,
     HermesAdmissionLane,
     HermesRunBinding,
+    HermesStartReceipt,
     MCPSubmission,
     ModelProfile,
     RoutingPolicy,
@@ -53,6 +54,63 @@ FIXTURE_DIGEST = "815d14762306d96bdc6449eb58a3e5739fb0ad95e08dc70b9025bd2cc8099d
 class HermesAdmissionDenied(Exception):
     def __init__(self):
         super().__init__("Hermes admission unavailable.")
+
+
+class HermesStartConflict(Exception):
+    def __init__(self):
+        super().__init__("Hermes start request conflicts with an existing receipt.")
+
+
+def start_hermes_run(
+    *,
+    idempotency_key: UUID,
+    workflow_id: UUID,
+    revision_id: int,
+    actor_slug: str,
+) -> AgentRun:
+    """Replay an owner-bound receipt or commit one receipt and one queued run."""
+    if (
+        type(idempotency_key) is not UUID
+        or type(workflow_id) is not UUID
+        or type(revision_id) is not int
+        or revision_id < 1
+        or type(actor_slug) is not str
+    ):
+        raise HermesAdmissionDenied()
+    try:
+        with transaction.atomic():
+            _lane()
+            actor = DemoActor.objects.select_related("user").filter(pk=actor_slug).first()
+            if actor is None or not _operator(actor):
+                raise HermesAdmissionDenied()
+            receipt = (
+                HermesStartReceipt.objects.select_related("run").filter(pk=idempotency_key).first()
+            )
+            if receipt is not None:
+                if (
+                    receipt.owner_id != actor.user_id
+                    or receipt.actor_id != actor.slug
+                    or receipt.workflow_id != workflow_id
+                    or receipt.revision_id != revision_id
+                ):
+                    raise HermesStartConflict()
+                return receipt.run
+            run = queue_hermes_run(
+                workflow_id=workflow_id,
+                revision_id=revision_id,
+                actor_slug=actor_slug,
+            )
+            HermesStartReceipt.objects.create(
+                id=idempotency_key,
+                owner_id=actor.user_id,
+                actor=actor,
+                workflow_id=workflow_id,
+                revision_id=revision_id,
+                run=run,
+            )
+            return run
+    except DatabaseError:
+        raise HermesAdmissionDenied() from None
 
 
 class WorkerFailure(Exception):
@@ -261,7 +319,9 @@ def cancel_hermes_run(run_id):
     if run.status not in ACTIVE:
         return run
     control = AgentRunControl.objects.select_for_update().get(run=run)
-    control.cancel_requested_at = control.cancel_requested_at or timezone.now()
+    if control.cancel_requested_at is not None:
+        return run
+    control.cancel_requested_at = timezone.now()
     control.save(update_fields=["cancel_requested_at", "updated_at"])
     try:
         with transaction.atomic():

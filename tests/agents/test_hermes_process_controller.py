@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import secrets
 import shutil
 import socket
 import threading
@@ -356,10 +355,11 @@ def test_real_health_after_readiness_cutoff_cannot_admit_child():
 
 def test_replaced_home_on_startup_failure_quarantines_without_external_delete(
     monkeypatch,
+    tmp_path,
 ):
     from deploy.hermes import process_controller
 
-    external = Path.cwd() / ".superpowers" / ("external-" + secrets.token_hex(8))
+    external = tmp_path / "external"
     external.mkdir()
     sentinel = external / "keep"
     sentinel.write_text("unchanged")

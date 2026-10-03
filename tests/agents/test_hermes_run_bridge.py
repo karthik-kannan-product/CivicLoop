@@ -24,6 +24,9 @@ def fake_shim():
         def do_POST(self):  # noqa: N802
             raw = self.rfile.read(int(self.headers["Content-Length"]))
             requests.append((self.path, dict(self.headers), raw))
+            server.request_started.set()
+            if not server.response_release.wait(timeout=5):
+                return
             time.sleep(server.delay)
             response = server.response
             self.send_response(server.status)
@@ -49,12 +52,16 @@ def fake_shim():
     server.delay = 0
     server.trickle_delay = 0
     server.requests = requests
+    server.request_started = threading.Event()
+    server.response_release = threading.Event()
+    server.response_release.set()
     server.url = f"http://127.0.0.1:{server.server_port}"
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         yield server
     finally:
+        server.response_release.set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
@@ -186,9 +193,22 @@ def test_bridge_http_rejects_alternate_host_and_caller_scope(fake_shim):
     bridge.close()
 
 
-def test_bridge_close_drains_in_flight_before_reuse(fake_shim):
+def test_bridge_close_drains_in_flight_before_reuse(fake_shim, monkeypatch):
+    from deploy.hermes import run_bridge
+
     bridge = _bridge(fake_shim)
-    fake_shim.delay = 0.1
+    fake_shim.response_release.clear()
+    worker_waiting = threading.Event()
+    getresponse = run_bridge._DeadlineHTTPConnection.getresponse
+
+    def blocked_getresponse(connection):
+        worker_waiting.set()
+        if not fake_shim.response_release.wait(timeout=5):
+            raise TimeoutError("test response release timed out")
+        return getresponse(connection)
+
+    # Hold the physical worker even if closing admissions aborts its socket.
+    monkeypatch.setattr(run_bridge._DeadlineHTTPConnection, "getresponse", blocked_getresponse)
     errors = []
 
     def forward():
@@ -199,13 +219,15 @@ def test_bridge_close_drains_in_flight_before_reuse(fake_shim):
 
     thread = threading.Thread(target=forward)
     thread.start()
-    until = time.monotonic() + 2
-    while not fake_shim.requests and time.monotonic() < until:
-        time.sleep(0.001)
-    assert fake_shim.requests
-    bridge.close_admissions()
-    assert bridge.drain(0.01) is False
-    thread.join(timeout=2)
+    try:
+        assert fake_shim.request_started.wait(timeout=2)
+        assert worker_waiting.wait(timeout=2)
+        bridge.close_admissions()
+        assert bridge.drain(0.01) is False
+    finally:
+        fake_shim.response_release.set()
+        thread.join(timeout=2)
+    assert not thread.is_alive()
     assert len(errors) <= 1
     assert bridge.drain(0.1) is True
     with pytest.raises(BridgeRejected):
