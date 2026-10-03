@@ -41,6 +41,11 @@ def integrations_administrator_index(request: HttpRequest) -> FileResponse:
     return administrator_index(request)
 
 urlpatterns = [
+    path("", spa_index, name="public-home"),
+    path("login", spa_index, name="public-login"),
+    path("login/", spa_index, name="public-login-slash"),
+    path("sandbox", spa_index, name="sandbox"),
+    path("sandbox/", spa_index, name="sandbox-slash"),
     path("admin/security", administrator_index, name="administrator-index"),
     path("admin/security/", administrator_index, name="administrator-index-slash"),
     path(

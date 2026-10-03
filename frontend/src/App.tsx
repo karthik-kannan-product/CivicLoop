@@ -10,6 +10,7 @@ import { HermesRunPanel } from "./components/HermesRunPanel";
 import { ReviewPackage } from "./components/ReviewPackage";
 import { Timeline } from "./components/Timeline";
 import { WorkspaceHeader } from "./components/WorkspaceHeader";
+import { PublicEntry } from "./public/PublicEntry";
 import type { DemoState } from "./types";
 
 function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLogout?: () => void }) {
@@ -185,7 +186,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
   );
 }
 
-function AuthenticatedApp() {
+export function AuthenticatedApp() {
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [checking, setChecking] = useState(true);
 
@@ -206,5 +207,10 @@ export function App() {
   if (import.meta.env.VITE_STATIC_DEMO === "true" || import.meta.env.VITEST) {
     return <Workspace />;
   }
-  return <AuthenticatedApp />;
+  return (
+    <PublicEntry
+      pathname={window.location.pathname}
+      sandbox={<AuthenticatedApp />}
+    />
+  );
 }

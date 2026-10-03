@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from django.test import Client, override_settings
+from django.urls import reverse
 
 
 def test_spa_route_serves_compiled_index(tmp_path: Path) -> None:
@@ -11,6 +12,28 @@ def test_spa_route_serves_compiled_index(tmp_path: Path) -> None:
     with override_settings(FRONTEND_INDEX=index):
         response = Client().get("/")
 
+    assert response.status_code == 200
+    assert b"<title>CivicLoop</title>" in b"".join(response.streaming_content)
+
+
+@pytest.mark.parametrize("path", ["/", "/login", "/login/", "/sandbox", "/sandbox/"])
+def test_named_public_entry_routes_serve_compiled_index(
+    tmp_path: Path, path: str
+) -> None:
+    index = tmp_path / "index.html"
+    index.write_text("<!doctype html><title>CivicLoop</title>", encoding="utf-8")
+    route_names = {
+        "/": "public-home",
+        "/login": "public-login",
+        "/login/": "public-login-slash",
+        "/sandbox": "sandbox",
+        "/sandbox/": "sandbox-slash",
+    }
+
+    with override_settings(FRONTEND_INDEX=index):
+        response = Client().get(path)
+
+    assert reverse(route_names[path]) == path
     assert response.status_code == 200
     assert b"<title>CivicLoop</title>" in b"".join(response.streaming_content)
 
