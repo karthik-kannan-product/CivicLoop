@@ -430,10 +430,17 @@ class _FakeHermesHandler(BaseHTTPRequestHandler):
 
 
 def _post(port: int, *, token: str) -> int:
+    from deploy.hermes.transport import binding_payload
+    from tests.agents.test_hermes_adapter import trusted_binding
+
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}/internal/v1/hermes/runs",
         data=json.dumps(_request()).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "X-CivicLoop-Run-Binding": json.dumps(binding_payload(trusted_binding(_request()))),
+        },
         method="POST",
     )
     try:

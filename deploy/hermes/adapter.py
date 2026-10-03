@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import threading
 import time
 import urllib.error
@@ -20,7 +21,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from deploy.hermes.process_controller import ProcessController
 
-from deploy.hermes.transport import TransportClient, TransportError, _opener, _validate_binding
+from deploy.hermes.transport import (
+    HTTPTransportClient,
+    TransportClient,
+    TransportError,
+    _opener,
+    _validate_binding,
+)
 from deploy.hermes.transport_contracts import ScopeBinding
 
 RUN_PATH = "/internal/v1/hermes/runs"
@@ -55,6 +62,31 @@ REQUEST_FIELDS = frozenset(
 BUDGET_FIELDS = frozenset(
     {"max_input_tokens", "max_output_tokens", "max_cost_microusd", "timeout_seconds"}
 )
+WORKER_BINDING_HEADER = "X-CivicLoop-Run-Binding"
+
+
+def worker_binding(body: dict[str, Any], value: object) -> ScopeBinding:
+    """Accept immutable scope metadata only from the authenticated worker."""
+    try:
+        if not isinstance(value, dict) or "capability" in value:
+            raise ValueError
+        binding = ScopeBinding.from_dict(value | {"capability": body["capability_token"]})
+        expected = {
+            "run_id": map_upstream_result(body, {})["run_id"],
+            "workflow_id": uuid.UUID(body["workflow_id"]),
+            "revision_id": body["revision_id"],
+            "actor_id": body["actor_id"],
+            "model_alias": body["model_alias"],
+            **{
+                key: body["budgets"][key]
+                for key in ("max_input_tokens", "max_output_tokens", "max_cost_microusd")
+            },
+        }
+        if any(getattr(binding, key) != value for key, value in expected.items()):
+            raise ValueError
+        return binding
+    except Exception:
+        raise PolicyError("run binding is invalid") from None
 
 
 class PolicyError(ValueError):
@@ -128,7 +160,9 @@ def build_upstream_request(
     instructions = (
         "Operate only through these exact CivicLoop MCP tools: "
         + ", ".join(allowed_tools)
-        + ". Do not use resources, prompts, terminal, process, filesystem-write, browser, web, "
+        + ". Each proposal reference contains proposal_id, proposal_digest, and schema_id "
+        "urn:civicloop:schema:campaign-proposal:v1.0. Do not use resources, prompts, terminal, "
+        "process, filesystem-write, browser, web, "
         "code-execution, cron, delegation, messaging, computer-use, skill-mutation, or "
         "general-memory capabilities. Return JSON containing only proposal_references. Never "
         "publish, send, schedule, "
@@ -290,7 +324,52 @@ class HermesAdapter(ThreadingHTTPServer):
         self.process_controller = process_controller
         self.transport_healthy = True
         self.run_lock = threading.Lock()
+        self.state_lock = threading.RLock()
+        self.active_run = None
+        self.handler_slots = threading.BoundedSemaphore(16)
+        self.handler_timers = {}
         super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.handler_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+
+        def expire():
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        timer = threading.Timer(3, expire)
+        timer.daemon = True
+        with self.state_lock:
+            self.handler_timers[request] = timer
+        timer.start()
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._release_handler(request)
+            raise
+
+    def _release_handler(self, request):
+        with self.state_lock:
+            timer = self.handler_timers.pop(request)
+        timer.cancel()
+        self.handler_slots.release()
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release_handler(request)
+
+    def body_read(self, request):
+        with self.state_lock:
+            self.handler_timers[request].cancel()
+
+    def handle_error(self, request, client_address):
+        pass  # Suppress request-bearing tracebacks, including disconnected clients.
 
     def is_ready(self) -> bool:
         if self.process_controller is not None:
@@ -306,17 +385,19 @@ class HermesAdapter(ThreadingHTTPServer):
             return False
         return health.get("status") in {"ok", "healthy", "ready"}
 
-    def execute(self, body: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self, body: dict[str, Any], *, binding: ScopeBinding | None = None
+    ) -> dict[str, Any]:
         # The Task 8 worker supplies immutable revision/run authority. The launch
         # request deliberately has neither revision_digest nor max_inferences.
         if (
             self.transport_client is None
-            or self.binding_resolver is None
+            or (binding is None and self.binding_resolver is None)
             or not self.transport_healthy
         ):
             raise UpstreamError("Hermes transport unavailable")
         try:
-            binding = _validate_binding(self.binding_resolver(body), datetime.now(UTC))
+            binding = _validate_binding(binding or self.binding_resolver(body), datetime.now(UTC))
             expected = {
                 "run_id": map_upstream_result(body, {})["run_id"],
                 "workflow_id": uuid.UUID(body["workflow_id"]),
@@ -338,13 +419,31 @@ class HermesAdapter(ThreadingHTTPServer):
         except Exception:
             raise UpstreamError("Hermes transport unavailable") from None
         token = "scope_" + secrets.token_urlsafe(32)
+        record = {
+            "run_id": binding.run_id,
+            "cancelled": threading.Event(),
+            "done": threading.Event(),
+            "clean": False,
+        }
+        with self.state_lock:
+            if self.active_run is not None and not self.active_run["done"].is_set():
+                raise UpstreamError("Hermes transport unavailable")
+            self.active_run = record
         try:
             self.transport_client.register_scope(token=token, binding=binding)
+            if record["cancelled"].is_set():
+                return map_upstream_result(body, {"status": "cancelled"})
             if self.process_controller is not None:
-                return self.process_controller.execute(
+                result = self.process_controller.execute(
                     body, scope_token=token, deadline=lease_deadline
                 )
-            return self._execute_scoped(body, transport_scope=token, timeout_seconds=remaining)
+            else:
+                result = self._execute_scoped(
+                    body, transport_scope=token, timeout_seconds=remaining
+                )
+            if record["cancelled"].is_set():
+                return map_upstream_result(body, {"status": "cancelled"})
+            return result
         except Exception:
             raise UpstreamError("Hermes transport unavailable") from None
         finally:
@@ -352,9 +451,34 @@ class HermesAdapter(ThreadingHTTPServer):
             # revoke quarantines this adapter until restart; no new lease may run.
             try:
                 self.transport_client.revoke_scope(token=token)
+                record["clean"] = self.transport_healthy and not getattr(
+                    self.process_controller, "quarantined", False
+                )
             except Exception:
                 self.transport_healthy = False
                 raise UpstreamError("Hermes transport unavailable") from None
+            finally:
+                record["done"].set()
+
+    def cancel(self, run_id: str, *, deadline: float) -> bool:
+        with self.state_lock:
+            record = self.active_run
+            if record is None or record["run_id"] != run_id:
+                return False
+            record["cancelled"].set()
+        try:
+            if not record["done"].is_set():
+                if (
+                    self.process_controller is None
+                    or self.process_controller.cancel(run_id, deadline=deadline) is not True
+                ):
+                    raise UpstreamError("Hermes transport unavailable")
+            if not record["done"].wait(max(0, deadline - time.monotonic())) or not record["clean"]:
+                raise UpstreamError("Hermes transport unavailable")
+            return True
+        except Exception:
+            self.transport_healthy = False
+            return False
 
     def _execute_scoped(
         self,
@@ -433,16 +557,61 @@ class _Handler(BaseHTTPRequestHandler):
         self._problem(404, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != RUN_PATH:
+        cancel_match = re.fullmatch(re.escape(RUN_PATH) + r"/([0-9a-f-]{36})/cancel", self.path)
+        if self.path != RUN_PATH and cancel_match is None:
             self._problem(404, "Not found")
             return
-        supplied = self.headers.get("Authorization", "")
+        auth_values = self.headers.get_all("Authorization", [])
+        supplied = auth_values[0] if len(auth_values) == 1 else ""
         expected = f"Bearer {self.server.service_token}"
         if not hmac.compare_digest(supplied.encode(), expected.encode()):
             self._problem(401, "Unauthorized")
             return
-        length = self.headers.get("Content-Length", "")
-        if not length.isdigit() or not 0 < int(length) <= MAX_BODY_BYTES:
+        lengths = self.headers.get_all("Content-Length", [])
+        length = lengths[0] if len(lengths) == 1 else ""
+        if (
+            self.headers.get_all("Transfer-Encoding")
+            or not length.isascii()
+            or not length.isdigit()
+            or len(length) > 8
+            or not 0 < int(length) <= MAX_BODY_BYTES
+        ):
+            self._problem(400, "Invalid request")
+            return
+        from deploy.hermes.run_bridge import _json
+
+        try:
+            deadline = time.monotonic() + 2
+            self.connection.settimeout(2)
+            raw = bytearray()
+            while len(raw) < int(length):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError
+                self.connection.settimeout(remaining)
+                chunk = self.rfile.read1(int(length) - len(raw))
+                if not chunk:
+                    raise ValueError
+                raw.extend(chunk)
+            body = _json(bytes(raw))
+            self.server.body_read(self.connection)
+            if cancel_match is not None:
+                if body:
+                    raise ValueError
+                if self.server.cancel(cancel_match[1], deadline=time.monotonic() + 1.5):
+                    self._send(
+                        200,
+                        {"schema_version": "1.0", "run_id": cancel_match[1], "status": "cancelled"},
+                    )
+                else:
+                    self._problem(503, "Dependency unavailable")
+                return
+            validated = validate_run_request(body, policy=self.server.policy)
+            headers = self.headers.get_all(WORKER_BINDING_HEADER, [])
+            if len(headers) != 1 or len(headers[0].encode()) > 4096:
+                raise ValueError
+            binding = worker_binding(validated, _json(headers[0].encode()))
+        except Exception:
             self._problem(400, "Invalid request")
             return
         if not self.server.run_lock.acquire(blocking=False):
@@ -450,13 +619,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             try:
-                body = json.loads(self.rfile.read(int(length)))
-                validated = validate_run_request(body, policy=self.server.policy)
-            except (UnicodeError, json.JSONDecodeError, PolicyError):
-                self._problem(400, "Invalid request")
-                return
-            try:
-                result = self.server.execute(validated)
+                result = self.server.execute(validated, binding=binding)
             except UpstreamError:
                 result = map_upstream_result(validated, {"status": "failed"})
                 result["failure_category"] = "dependency_unavailable"
@@ -474,6 +637,8 @@ def _read_token(path_value: str, *, label: str) -> str:
 
 
 def main() -> None:
+    from deploy.hermes.controller_client import RemoteProcessController
+
     policy = AdapterPolicy(
         model_alias=MODEL_ALIAS,
         upstream_url=os.getenv("HERMES_UPSTREAM_URL", "http://hermes:8642"),
@@ -489,6 +654,19 @@ def main() -> None:
         ),
         policy=policy,
         allowed_tools=ALLOWED_TOOLS,
+        transport_client=HTTPTransportClient(
+            base_url=os.environ["HERMES_TRANSPORT_CONTROL_URL"],
+            control_token=_read_token(
+                os.environ["HERMES_TRANSPORT_CONTROL_TOKEN_FILE"], label="transport identity"
+            ),
+            timeout=1,
+        ),
+        process_controller=RemoteProcessController(
+            url=os.environ["HERMES_CONTROLLER_URL"],
+            token=_read_token(
+                os.environ["HERMES_CONTROLLER_TOKEN_FILE"], label="controller identity"
+            ),
+        ),
     )
     server.serve_forever()
 

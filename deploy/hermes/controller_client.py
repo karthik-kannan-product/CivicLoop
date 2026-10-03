@@ -96,6 +96,8 @@ class RemoteProcessController:
                     raise ControllerUnavailable()
                 if status.get("status") in {"succeeded", "failed", "cancelled"}:
                     result = status.get("result")
+                    if status["status"] == "cancelled" and result is None:
+                        return map_upstream_result(body, {"status": "cancelled"})
                     validate_result(body, result)
                     return result
                 if status.get("status") not in {"running", "cancelling"}:
@@ -104,7 +106,27 @@ class RemoteProcessController:
             raise ControllerUnavailable()
         except Exception:
             try:
-                self._call(path + "/cancel", "POST", {}, time.monotonic() + 2)
+                self.cancel(run_id, deadline=time.monotonic() + 2)
             except Exception:
                 self.quarantined = True
+            raise ControllerUnavailable() from None
+
+    def cancel(self, run_id, *, deadline):
+        from deploy.hermes.controller_service import RUN_PATH
+
+        path = RUN_PATH + "/" + run_id
+        try:
+            self._call(path + "/cancel", "POST", {}, deadline)
+            while time.monotonic() < deadline:
+                status = self._call(path, "GET", None, deadline)
+                if status.get("run_id") != run_id:
+                    raise ControllerUnavailable()
+                if status.get("status") in {"succeeded", "failed", "cancelled"}:
+                    if self._call("/health/ready", "GET", None, deadline).get("status") == "ok":
+                        return True
+                    raise ControllerUnavailable()
+                time.sleep(min(self.poll_interval, max(0, deadline - time.monotonic())))
+            raise ControllerUnavailable()
+        except Exception:
+            self.quarantined = True
             raise ControllerUnavailable() from None

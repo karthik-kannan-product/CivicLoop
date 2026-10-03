@@ -2,9 +2,11 @@ import uuid
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from agents.models import (
+    AgentRun,
     BudgetLedgerRecord,
     BudgetPeriod,
     BudgetReservation,
@@ -236,10 +238,16 @@ def release_budget(*, run_id: uuid.UUID) -> BudgetReservation | None:
 
 def _expire_period_reservations(*, period: BudgetPeriod, now: datetime) -> int:
     expired = list(
-        BudgetReservation.objects.select_for_update().filter(
+        BudgetReservation.objects.select_for_update()
+        .filter(
             period=period,
             status=BudgetReservation.Status.RESERVED,
             expires_at__lte=now,
+        )
+        .exclude(
+            run_id__in=AgentRun.objects.filter(hermes_lane=True)
+            .filter(Q(status__in=("queued", "running")) | Q(control__admission_disabled=True))
+            .values("id")
         )
     )
     for reservation in expired:
@@ -269,3 +277,44 @@ def expire_reservations(*, now: datetime | None = None) -> int:
         for period in BudgetPeriod.objects.select_for_update().filter(pk__in=period_ids):
             total += _expire_period_reservations(period=period, now=current)
     return total
+
+
+@transaction.atomic
+def charge_reserved_budget(*, run_id: uuid.UUID) -> BudgetReservation | None:
+    """Keep the full conservative charge when billable usage is ambiguous."""
+    reservation = (
+        BudgetReservation.objects.select_for_update()
+        .select_related("model_profile")
+        .filter(run_id=run_id)
+        .first()
+    )
+    if reservation is None or reservation.status != BudgetReservation.Status.RESERVED:
+        return reservation
+    period = BudgetPeriod.objects.select_for_update().get(pk=reservation.period_id)
+    period.reserved_microusd -= reservation.reserved_cost_microusd
+    period.settled_microusd += reservation.reserved_cost_microusd
+    period.save(update_fields=["reserved_microusd", "settled_microusd", "updated_at"])
+    reservation.status = BudgetReservation.Status.SETTLED
+    reservation.settled_input_tokens = reservation.estimated_input_tokens
+    reservation.settled_output_tokens = reservation.estimated_output_tokens
+    reservation.settled_cost_microusd = reservation.reserved_cost_microusd
+    reservation.save(
+        update_fields=[
+            "status",
+            "settled_input_tokens",
+            "settled_output_tokens",
+            "settled_cost_microusd",
+            "updated_at",
+        ]
+    )
+    BudgetLedgerRecord.objects.create(
+        run_id=run_id,
+        reservation=reservation,
+        model_profile_id_snapshot=reservation.model_profile.profile_id,
+        model_profile_revision=reservation.model_profile.revision,
+        entry_type=BudgetLedgerRecord.EntryType.SETTLED,
+        input_tokens=reservation.estimated_input_tokens,
+        output_tokens=reservation.estimated_output_tokens,
+        cost_microusd=reservation.reserved_cost_microusd,
+    )
+    return reservation

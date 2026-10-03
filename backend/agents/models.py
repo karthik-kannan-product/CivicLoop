@@ -237,6 +237,7 @@ class AgentRun(models.Model):
     )
     event_revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
     package_hash = models.CharField(max_length=64)
+    hermes_lane = models.BooleanField(default=False)
     routing_policy = models.ForeignKey(RoutingPolicy, on_delete=models.PROTECT)
     model_profile = models.ForeignKey(ModelProfile, on_delete=models.PROTECT)
     fixture_manifest_id = models.SlugField(max_length=64)
@@ -258,6 +259,7 @@ class AgentRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     immutable_binding_fields = (
+        "hermes_lane",
         "workflow_id",
         "event_revision_id",
         "package_hash",
@@ -271,6 +273,11 @@ class AgentRun(models.Model):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(
+                fields=("hermes_lane",),
+                condition=Q(hermes_lane=True, status__in=("queued", "running")),
+                name="agents_one_active_hermes_run",
+            ),
             models.CheckConstraint(
                 condition=Q(attempt__gte=1) & Q(attempt__lte=10), name="agents_run_attempt_range"
             ),
@@ -376,6 +383,8 @@ class HermesRunBinding(models.Model):
 class AgentRunControl(models.Model):
     run = models.OneToOneField(AgentRun, related_name="control", on_delete=models.PROTECT)
     cancel_requested_at = models.DateTimeField(null=True)
+    capability = models.ForeignKey("WorkflowCapability", null=True, on_delete=models.PROTECT)
+    lease_expires_at = models.DateTimeField(null=True)
     admission_disabled = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -521,3 +530,20 @@ class AgentStep(models.Model):
     def clean(self) -> None:
         validate_safe_summary(self.input_summary)
         validate_safe_summary(self.output_summary)
+
+
+class HermesAdmissionLane(models.Model):
+    """One durable singleton lock and quarantine switch for the Hermes lane."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active_run = models.OneToOneField(
+        AgentRun, null=True, on_delete=models.PROTECT, related_name="admission_lane"
+    )
+    admission_disabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(id=1), name="agents_hermes_single_lane")]
+
+    def __str__(self):
+        return "Hermes admission lane"
