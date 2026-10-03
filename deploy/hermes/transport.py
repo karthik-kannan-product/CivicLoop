@@ -62,7 +62,7 @@ def _validate_binding(binding: ScopeBinding, now: datetime) -> ScopeBinding:
         return ScopeBinding.from_dict(
             binding_payload(binding) | {"capability": binding.capability}, now=now
         )
-    except ValueError, TypeError, AttributeError, OverflowError:
+    except (ValueError, TypeError, AttributeError, OverflowError):
         raise TransportError() from None
 
 
@@ -281,7 +281,7 @@ class HTTPTransportClient:
             with self.opener.open(request, timeout=self.timeout) as response:
                 if response.status != 200 or response.read(65) != b'{"status":"ok"}':
                     raise TransportError("Transport dependency unavailable", status=502)
-        except OSError, ValueError, urllib.error.URLError:
+        except (OSError, ValueError, urllib.error.URLError):
             raise TransportError("Transport dependency unavailable", status=502) from None
 
     def register_scope(self, *, token: str, binding: ScopeBinding) -> None:
@@ -578,7 +578,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._forward(token, raw, body)
         except TransportError as error:
             self._problem(error.status)
-        except ValueError, UnicodeError, RecursionError:
+        except (ValueError, UnicodeError, RecursionError):
             self._problem(400)
         except Exception:
             self._problem(502)

@@ -1,8 +1,22 @@
 model:
   default: civicloop-default
   provider: custom
-  base_url: http://litellm:4000/v1
+  base_url: http://127.0.0.1:1/v1
   api_mode: chat_completions
+  streaming: false
+
+auxiliary:
+  civicloop_nonstreaming: true
+  transient_retries: 0
+  compression:
+    provider: custom
+    model: civicloop-default
+    base_url: http://127.0.0.1:1/v1
+    key_env: OPENAI_API_KEY
+    api_mode: chat_completions
+    fallback_chain: []
+  title_generation:
+    enabled: false
 
 gateway:
   api_server:
@@ -80,9 +94,8 @@ platform_toolsets:
 
 mcp_servers:
   civicloop:
-    url: http://mcp:8000/internal/v1/mcp
-    headers:
-      Authorization: Bearer ${CIVICLOOP_MCP_TOKEN}
+    url: http://127.0.0.1:1/mcp
+    headers: {}
     enabled: true
     timeout: 60
     connect_timeout: 10

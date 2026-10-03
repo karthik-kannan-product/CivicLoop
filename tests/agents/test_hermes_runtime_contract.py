@@ -144,8 +144,9 @@ def test_blank_slate_configuration_exposes_exactly_eight_civicloop_tools() -> No
     assert config["model"] == {
         "default": "civicloop-default",
         "provider": "custom",
-        "base_url": "http://litellm:4000/v1",
+        "base_url": "http://127.0.0.1:1/v1",
         "api_mode": "chat_completions",
+        "streaming": False,
     }
     assert config["platform_toolsets"] == {"api_server": ["civicloop"]}
     assert config["plugins"] == {"enabled": []}
@@ -154,7 +155,7 @@ def test_blank_slate_configuration_exposes_exactly_eight_civicloop_tools() -> No
     assert config["gateway"]["api_server"]["max_concurrent_runs"] == 1
     assert list(config["mcp_servers"]) == ["civicloop"]
     server = config["mcp_servers"]["civicloop"]
-    assert server["url"] == "http://mcp:8000/internal/v1/mcp"
+    assert server["url"] == "http://127.0.0.1:1/mcp"
     assert server["tools"]["resources"] is False
     assert server["tools"]["prompts"] is False
     assert server["tools"]["include"] == [
@@ -293,24 +294,25 @@ def test_mcp_is_reachable_from_hermes_but_not_published(tmp_path: Path) -> None:
     assert mcp["healthcheck"]["test"] == ["CMD", "python", "-m", "agents.mcp_probe"]
 
 
-def test_hermes_loader_uses_only_the_distinct_mcp_identity(monkeypatch) -> None:
-    import io
+def test_hermes_loader_starts_controller_with_distinct_identities(monkeypatch) -> None:
     import runpy
+    from types import SimpleNamespace
+
+    from deploy.hermes import controller_service
 
     module = runpy.run_path(str(ROOT / "deploy/hermes/start-hermes.py"))
-    expected = "synthetic-mcp-service-identity-00000000"
-    monkeypatch.setattr(Path, "open", lambda *args, **kwargs: io.StringIO(expected))
     calls = []
-    monkeypatch.setattr(os, "execvpe", lambda *args: calls.append(args))
+    monkeypatch.setenv("HERMES_CONTROLLER_TOKEN_FILE", "/run/secrets/controller")
+    monkeypatch.setenv("HERMES_SHIM_CLIENT_TOKEN_FILE", "/run/secrets/shim-client")
+    monkeypatch.setenv("HERMES_SHIM_URL", "http://hermes-transport:8080")
+    monkeypatch.setattr(controller_service, "_read_token", lambda path, **kw: path)
+    monkeypatch.setattr(controller_service, "ProcessController", lambda **kw: calls.append(kw))
+    server = SimpleNamespace(active=None, serve_forever=lambda: None, server_close=lambda: None)
+    monkeypatch.setattr(controller_service, "ControllerService", lambda *a, **kw: server)
     module["main"]()
-    command, arguments, environment = calls[0]
-    assert command == "hermes" and arguments == ["hermes", "gateway", "run"]
-    assert environment["CIVICLOOP_MCP_TOKEN"] == expected
-    assert expected not in str(arguments)
-
-    monkeypatch.setattr(Path, "open", lambda *args, **kwargs: io.StringIO("invalid"))
-    with pytest.raises(SystemExit, match="MCP service identity unavailable"):
-        module["main"]()
+    assert calls == [
+        {"shim_base_url": "http://hermes-transport:8080", "shim_token": "/run/secrets/shim-client"}
+    ]
 
 
 def test_hermes_launcher_parses_with_pinned_python_313_grammar() -> None:

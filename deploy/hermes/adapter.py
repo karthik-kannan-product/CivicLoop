@@ -452,7 +452,7 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 body = json.loads(self.rfile.read(int(length)))
                 validated = validate_run_request(body, policy=self.server.policy)
-            except UnicodeError, json.JSONDecodeError, PolicyError:
+            except (UnicodeError, json.JSONDecodeError, PolicyError):
                 self._problem(400, "Invalid request")
                 return
             try:
