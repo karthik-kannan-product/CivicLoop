@@ -492,6 +492,12 @@ class _Handler(BaseHTTPRequestHandler):
     server: TransportServer
     protocol_version = "HTTP/1.1"
 
+    def do_GET(self):  # noqa: N802
+        if self.path == "/health/live":
+            self._send(200, b'{"status":"ok"}')
+        else:
+            self._send(404, b'{"error":"Not found"}')
+
     def setup(self) -> None:
         super().setup()
         self.connection.settimeout(self.server.timeout)

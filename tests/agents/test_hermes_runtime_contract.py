@@ -60,13 +60,21 @@ def _render_merged_compose(
         "CIVICLOOP_MODEL_GATEWAY_APPROVAL_VERIFIER": source_path,
         "CIVICLOOP_MODEL_GATEWAY_CREDENTIAL_FILE": source_path,
         "CIVICLOOP_MODEL_GATEWAY_MASTER_KEY_FILE": source_path,
-        "CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE": source_path,
-        "CIVICLOOP_MODEL_GATEWAY_BUDGET_ASSERTION_KEY_FILE": source_path,
+        "CIVICLOOP_MODEL_GATEWAY_TOKEN_FILE": str(compose_dir / "gateway-token-backing"),
+        "CIVICLOOP_MODEL_GATEWAY_BUDGET_ASSERTION_KEY_FILE": str(
+            compose_dir / "assertion-key-backing"
+        ),
         "CIVICLOOP_HERMES_ENV_FILE": source_path,
         "CIVICLOOP_HERMES_SERVICE_TOKEN_FILE": source_path,
         "CIVICLOOP_HERMES_UPSTREAM_TOKEN_FILE": source_path,
         "CIVICLOOP_HERMES_MCP_TOKEN_FILE": source_path,
+        "CIVICLOOP_HERMES_CONTROLLER_TOKEN_FILE": source_path,
+        "CIVICLOOP_HERMES_SHIM_CLIENT_TOKEN_FILE": source_path,
+        "CIVICLOOP_HERMES_TRANSPORT_CONTROL_TOKEN_FILE": source_path,
     }
+    # Test the shipped disabled defaults regardless of workstation overrides.
+    for flag in ("CIVICLOOP_HERMES_ENABLED", "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED"):
+        environment.pop(flag, None)
     if include_identity_key_path:
         environment["CIVICLOOP_IDENTITY_KEY_HOST_PATH"] = source_path
     else:
@@ -185,39 +193,53 @@ def test_compose_is_digest_pinned_private_and_adapter_only() -> None:
     services = compose["services"]
     hermes = services["hermes"]
     adapter = services["hermes-adapter"]
-
-    assert hermes["image"] == (
-        "docker.io/nousresearch/hermes-agent:v2026.9.11@"
-        "sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1"
-    )
+    transport = services["hermes-transport"]
+    assert hermes["image"] == "${CIVICLOOP_HERMES_SCOPED_IMAGE:-civicloop-hermes-scoped:local}"
+    dockerfile = (ROOT / "deploy/hermes/Dockerfile.scoped").read_text()
+    assert "@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1" in dockerfile
+    assert hermes["build"]["dockerfile"] == "deploy/hermes/Dockerfile.scoped"
+    assert hermes["init"] is True
+    assert hermes["command"] == [
+        "/opt/hermes/.venv/bin/python",
+        "-m",
+        "deploy.hermes.controller_service",
+    ]
     assert hermes["profiles"] == ["agent"]
     assert hermes["networks"] == ["hermes-runtime"]
-    assert not hermes.get("ports")
-    assert hermes["read_only"] is True
-    assert "/health" in hermes["healthcheck"]["test"][-1]
-    assert adapter["depends_on"]["hermes"]["condition"] == "service_healthy"
-    assert hermes["cpus"] == "1.00"
-    assert hermes["mem_limit"] == "1g"
     assert adapter["networks"] == ["agent-control", "hermes-runtime"]
+    assert set(transport["networks"]) == {"agent-control", "hermes-runtime", "hermes-data"}
     assert services["worker"]["networks"] == ["default", "agent-control"]
-    assert "hermes-runtime" not in services["worker"]["networks"]
-    assert not adapter.get("ports")
-    assert compose["networks"]["agent-control"]["internal"] is True
-    assert compose["networks"]["hermes-runtime"]["internal"] is True
-    assert "provider-egress" not in hermes["networks"]
-    assert services["litellm"]["networks"] == ["hermes-runtime", "provider-egress"]
-    assert {secret["source"] for secret in hermes["secrets"]} == {
-        "civicloop-hermes-env",
-        "civicloop-mcp-token",
-    }
-    assert {secret["source"] for secret in adapter["secrets"]} == {
-        "civicloop-hermes-service-token",
-        "civicloop-hermes-upstream-token",
-    }
-    assert adapter["environment"]["HERMES_ADAPTER_TOKEN_FILE"].startswith("/run/secrets/")
-    assert adapter["environment"]["HERMES_UPSTREAM_TOKEN_FILE"].startswith("/run/secrets/")
-    for service in (hermes, adapter):
+    assert services["litellm"]["networks"] == ["hermes-data", "provider-egress"]
+    assert services["mcp"]["networks"] == ["default", "hermes-data"]
+    assert adapter["depends_on"]["hermes"]["condition"] == "service_healthy"
+    assert hermes["depends_on"]["hermes-transport"]["condition"] == "service_healthy"
+    assert hermes["environment"]["HERMES_DASHBOARD"] == "false"
+    assert all(mount["target"] != "/opt/data" for mount in hermes.get("volumes", []))
+    assert any(mount.startswith("/opt/data:rw,noexec,nosuid,nodev,") for mount in hermes["tmpfs"])
+    assert transport["environment"]["HERMES_TRANSPORT_MCP_URL"] == "http://mcp:8000/internal/v1/mcp"
+    for name in ("agent-control", "hermes-runtime", "hermes-data"):
+        assert compose["networks"][name]["internal"] is True
+    for service in (hermes, adapter, transport, services["mcp"]):
+        assert not service.get("ports")
+        assert service["read_only"] is True
+        assert service["cap_drop"] == ["ALL"]
+        assert service["security_opt"] == ["no-new-privileges:true"]
+        assert service["tmpfs"] and service["pids_limit"] > 0
+        assert service["cpus"] and service["mem_limit"]
+        assert not service.get("secrets")
         assert all("TOKEN=" not in str(value) for value in service.get("environment", {}).values())
+    for name in ("worker", "hermes-transport"):
+        for flag in ("CIVICLOOP_HERMES_ENABLED", "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED"):
+            assert services[name]["environment"][flag] == "${" + flag + ":-false}"
+    assert (
+        services["worker"]["environment"]["CIVICLOOP_HERMES_PROFILE_ID"]
+        == "${CIVICLOOP_HERMES_PROFILE_ID:-}"
+    )
+    assert (
+        services["hermes-adapter"]["image"]
+        == services["hermes-transport"]["image"]
+        == services["mcp"]["image"]
+    )
 
 
 def test_exact_pinned_hermes_runtime_resolves_only_civicloop_tools() -> None:
@@ -251,7 +273,163 @@ def test_merged_compose_gives_only_worker_access_to_adapter_network(tmp_path: Pa
         service_name
         for service_name, service in services.items()
         if "agent-control" in service.get("networks", {})
-    } == {"worker", "hermes-adapter"}
+    } == {"worker", "hermes-adapter", "hermes-transport"}
+
+
+def test_merged_compose_separates_control_data_and_disables_activation(tmp_path: Path) -> None:
+    result = _render_merged_compose(tmp_path, include_identity_key_path=True)
+    assert result.returncode == 0, result.stderr
+    compose = json.loads(result.stdout)
+    services = compose["services"]
+    memberships = {
+        network: {
+            name for name, service in services.items() if network in service.get("networks", {})
+        }
+        for network in ("agent-control", "hermes-runtime", "hermes-data")
+    }
+    assert memberships == {
+        "agent-control": {"worker", "hermes-adapter", "hermes-transport"},
+        "hermes-runtime": {"hermes", "hermes-adapter", "hermes-transport"},
+        "hermes-data": {"hermes-transport", "mcp", "litellm"},
+    }
+    for name in ("worker", "hermes-transport"):
+        for flag in ("CIVICLOOP_HERMES_ENABLED", "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED"):
+            assert services[name]["environment"][flag] == "false"
+    for name in ("web", "scheduler", "migrate"):
+        assert not set(services[name].get("depends_on", {})) & {
+            "hermes",
+            "hermes-adapter",
+            "hermes-transport",
+            "mcp",
+            "litellm",
+        }
+    for name in ("hermes", "hermes-adapter", "hermes-transport", "mcp"):
+        service = services[name]
+        assert not service.get("ports")
+        assert "provider-egress" not in service["networks"]
+        assert not any(
+            any(provider in secret["source"].lower() for provider in ("eventbrite", "iterable"))
+            for secret in service.get("secrets", [])
+        )
+    # The shim signs/asserts against the exact credentials installed into LiteLLM.
+    init_mounts = {
+        mount["target"]: mount["source"]
+        for mount in services["model-gateway-init"]["volumes"]
+        if mount["type"] == "bind"
+    }
+    assert (
+        compose["secrets"]["civicloop-hermes-gateway-token"]["file"]
+        == (init_mounts["/source/gateway-token"])
+    )
+    assert (
+        compose["secrets"]["civicloop-hermes-budget-assertion-key"]["file"]
+        == (init_mounts["/source/budget-assertion-key"])
+    )
+    assert init_mounts["/source/gateway-token"] != init_mounts["/source/budget-assertion-key"]
+    assert services["hermes"]["init"] is True
+    assert all(mount["target"] != "/opt/data" for mount in services["hermes"].get("volumes", []))
+
+
+def test_compose_stages_owner_readable_identity_volumes_without_profile_dependency() -> None:
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    services = compose["services"]
+    init = services["hermes-identities-init"]
+    assert init["network_mode"] == "none"
+    assert init["user"] == "0:0"
+    assert init["cap_drop"] == ["ALL"]
+    assert init["cap_add"] == ["CHOWN"]
+    assert init["read_only"] is True
+    assert init["security_opt"] == ["no-new-privileges:true"]
+    assert init["profiles"] == ["agent"]
+    assert init["restart"] == "no"
+    assert init["entrypoint"] == ["python", "-m", "deploy.hermes.identity_init"]
+    expected = {
+        "worker": "worker",
+        "hermes-adapter": "adapter",
+        "hermes": "controller",
+        "hermes-transport": "transport",
+        "mcp": "mcp",
+    }
+    for name, consumer in expected.items():
+        service = services[name]
+        assert not service.get("secrets")
+        identity_mount = next(
+            mount for mount in service["volumes"] if mount["target"] == "/run/secrets"
+        )
+        assert identity_mount == {
+            "type": "volume",
+            "source": f"hermes-{consumer}-identities",
+            "target": "/run/secrets",
+            "read_only": True,
+        }
+        staged_mount = next(
+            mount for mount in init["volumes"] if mount["target"] == f"/handoff/{consumer}"
+        )
+        assert staged_mount["source"] == identity_mount["source"]
+        assert staged_mount["read_only"] is False
+        if name == "worker":
+            assert "hermes-identities-init" not in service.get("depends_on", {})
+        else:
+            assert (
+                service["depends_on"]["hermes-identities-init"]["condition"]
+                == "service_completed_successfully"
+            )
+    assert {item["target"] for item in init["secrets"]} == {
+        "/source/" + name
+        for name in (
+            "civicloop-hermes-service-token",
+            "civicloop-hermes-upstream-token",
+            "civicloop-hermes-controller-token",
+            "civicloop-hermes-transport-control-token",
+            "civicloop-hermes-shim-client-token",
+            "civicloop-mcp-token",
+            "civicloop-hermes-gateway-token",
+            "civicloop-hermes-budget-assertion-key",
+        )
+    }
+
+
+def test_compose_hermes_bootstrap_permissions_are_limited_to_vendor_uid_drop() -> None:
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    hermes = services["hermes"]
+    assert hermes["init"] is True
+    assert hermes["cap_drop"] == ["ALL"]
+    assert hermes["cap_add"] == ["SETUID", "SETGID", "DAC_OVERRIDE"]
+    assert hermes["security_opt"] == ["no-new-privileges:true"]
+    assert hermes["read_only"] is True
+    assert "/run:rw,noexec,nosuid,nodev,uid=0,gid=0,mode=0755,size=8m" in hermes["tmpfs"]
+    assert "/opt/data:rw,noexec,nosuid,nodev,uid=10000,gid=10000,mode=0700" in hermes["tmpfs"]
+    assert hermes["environment"]["HERMES_UID"] == "10000"
+    assert hermes["environment"]["HERMES_GID"] == "10000"
+    assert hermes["command"] == [
+        "/opt/hermes/.venv/bin/python",
+        "-m",
+        "deploy.hermes.controller_service",
+    ]
+    assert not hermes.get("entrypoint")  # Preserve the reviewed vendor UID drop.
+    for name in ("mcp", "hermes-adapter", "hermes-transport", "worker"):
+        assert not services[name].get("cap_add")
+    assert services["hermes-identities-init"]["cap_add"] == ["CHOWN"]
+
+
+def test_offline_bootstrap_probe_preserves_entrypoint_and_reports_only_safe_evidence() -> None:
+    from tests.fakes.hermes_bootstrap_probe import probe_command
+
+    command = probe_command("sha256:" + "a" * 64, "civicloop-test-bootstrap")
+    assert "--entrypoint" not in command
+    assert command[command.index("--network") + 1] == "none"
+    assert "--init" in command and "--read-only" in command
+    assert command.count("--cap-add") == 3
+    assert command[command.index("--cap-drop") + 1] == "ALL"
+    assert command[command.index("--security-opt") + 1] == "no-new-privileges:true"
+    hermes = yaml.safe_load(COMPOSE.read_text())["services"]["hermes"]
+    assert [command[i + 1] for i, value in enumerate(command) if value == "--tmpfs"] == hermes[
+        "tmpfs"
+    ]
+    assert "API_SERVER_KEY=synthetic-offline-bootstrap-probe-only" in command
+    assert "--volume" not in command and "--mount" not in command
+    with pytest.raises(ValueError, match="exact image"):
+        probe_command("hermes:latest", "civicloop-test-bootstrap")
 
 
 def test_request_validation_is_exact_and_forces_model_alias() -> None:
@@ -281,16 +459,18 @@ def test_mcp_is_reachable_from_hermes_but_not_published(tmp_path: Path) -> None:
     assert all(
         services[name]["image"] == mcp["image"] for name in ("worker", "scheduler", "migrate")
     )
-    assert set(mcp["networks"]) == {"default", "hermes-runtime"}
-    assert set(services["hermes"]["networks"]) & set(mcp["networks"]) == {"hermes-runtime"}
+    assert set(mcp["networks"]) == {"default", "hermes-data"}
+    assert not set(services["hermes"]["networks"]) & set(mcp["networks"])
+    assert set(services["hermes-transport"]["networks"]) & set(mcp["networks"]) == {"hermes-data"}
     assert not mcp.get("ports")
     for name in ("web", "scheduler", "migrate"):
         assert "hermes-runtime" not in services[name]["networks"]
     assert mcp["environment"]["DJANGO_SETTINGS_MODULE"] == "agents.mcp_settings"
     assert mcp["environment"]["CIVICLOOP_MCP_TOKEN_FILE"] == "/run/secrets/civicloop-mcp-token"
-    assert {secret["source"] for secret in mcp["secrets"]} == {"civicloop-mcp-token"}
+    assert not mcp.get("secrets")
+    assert any(mount["source"] == "hermes-mcp-identities" for mount in mcp["volumes"])
     assert mcp["read_only"] and mcp["cap_drop"] == ["ALL"]
-    assert services["hermes"]["depends_on"]["mcp"]["condition"] == "service_healthy"
+    assert services["hermes-transport"]["depends_on"]["mcp"]["condition"] == "service_healthy"
     assert mcp["healthcheck"]["test"] == ["CMD", "python", "-m", "agents.mcp_probe"]
 
 
