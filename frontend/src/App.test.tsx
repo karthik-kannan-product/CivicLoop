@@ -115,6 +115,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test.each([
+  { role: "operator", administrator: true, hermes_enabled: true, shown: true, enabled: true },
+  { role: "operator", administrator: true, hermes_enabled: false, shown: true, enabled: false },
+  { role: "operator", administrator: false, hermes_enabled: true, shown: false, enabled: false },
+  { role: "approver", administrator: false, hermes_enabled: true, shown: false, enabled: false },
+])("Hermes generation is limited to the activated owner workspace: %j", async (session) => {
+  vi.stubEnv("VITEST", "");
+  vi.stubEnv("VITE_STATIC_DEMO", "false");
+  vi.stubGlobal("fetch", vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/v1/auth/session") return jsonResponse({ user: {
+      username: "synthetic.owner", display_name: "Synthetic Owner", ...session,
+    } });
+    if (path === "/api/v1/eventbrite/events") return jsonResponse({ events: [] });
+    return jsonResponse({ ...baseState, workflow: { ...baseState.workflow, status: "ready_for_review" } });
+  }));
+  render(<App />);
+  await screen.findByRole("heading", { name: facts.title });
+  const button = screen.queryByRole("button", { name: "Generate with Hermes" });
+  if (!session.shown) expect(button).toBeNull();
+  else if (session.enabled) expect(button).toBeEnabled();
+  else expect(button).toBeDisabled();
+});
+
+test("deterministic sandbox has no Hermes generation or requests", async () => {
+  vi.stubEnv("VITEST", "true");
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(() => jsonResponse(baseState)));
+  render(<App />);
+  await screen.findByRole("heading", { name: facts.title });
+  expect(screen.queryByRole("button", { name: "Generate with Hermes" })).toBeNull();
+  expect(vi.mocked(fetch).mock.calls.every(([path]) => !String(path).includes("hermes"))).toBe(true);
+});
+
 test("logs out of the authenticated demo workspace", async () => {
   vi.stubEnv("VITEST", "");
   vi.stubEnv("VITE_STATIC_DEMO", "false");

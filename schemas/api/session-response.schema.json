@@ -14,7 +14,8 @@
         "username": { "type": "string" },
         "display_name": { "type": "string" },
         "role": { "enum": ["operator", "approver"] },
-        "administrator": { "type": "boolean" }
+        "administrator": { "type": "boolean" },
+        "hermes_enabled": { "type": "boolean" }
       }
     }
   }

@@ -1,4 +1,4 @@
-import type { DemoState } from "./types";
+import type { DemoState, HermesStartReceipt, HermesRunStatus, PendingOperation } from "./types";
 import { requestStaticDemo } from "./staticDemo";
 
 type RequestOptions = {
@@ -12,6 +12,7 @@ export type SessionUser = {
   display_name: string;
   role: "operator" | "approver";
   administrator?: boolean;
+  hermes_enabled?: boolean;
 };
 
 function csrfToken(): string {
@@ -23,14 +24,21 @@ function csrfToken(): string {
 
 export async function requestJson<T>(
   path: string,
-  options: { body?: Record<string, string>; method?: "GET" | "POST" } = {},
+  options: {
+    body?: Record<string, unknown>;
+    method?: "GET" | "POST";
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
   const response = await fetch(path, {
     method: options.method ?? "GET",
     credentials: "same-origin",
+    signal: options.signal,
     headers: {
       "Content-Type": "application/json",
       ...(options.method === "POST" && csrfToken() ? { "X-CSRFToken": csrfToken() } : {}),
+      ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -41,6 +49,74 @@ export async function requestJson<T>(
     });
   }
   return payload;
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const failures = new Set([null, "budget_exhausted", "cancelled", "dependency_unavailable",
+  "invalid_output", "provider_unavailable", "timeout"]);
+
+function objectWithKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function invalidHermesResponse(): never {
+  throw new Error("CivicLoop could not read the Hermes response.");
+}
+
+function runStatus(value: unknown, runId: string): HermesRunStatus {
+  if (!objectWithKeys(value, ["schema_version", "run_id", "status", "failure_category",
+    "cancel_requested", "proposal_count", "pending_operation_count"])
+    || value.schema_version !== "1.0" || value.run_id !== runId
+    || typeof value.status !== "string"
+    || !["queued", "running", "succeeded", "failed", "cancelled"].includes(value.status)
+    || !failures.has(value.failure_category as string | null)
+    || typeof value.cancel_requested !== "boolean"
+    || ![value.proposal_count, value.pending_operation_count].every((count) =>
+      typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 20)) {
+    invalidHermesResponse();
+  }
+  return value as unknown as HermesRunStatus;
+}
+
+export async function startHermesRun(
+  workflowId: string, revisionId: number, idempotencyKey: string, signal?: AbortSignal,
+): Promise<HermesStartReceipt> {
+  const value = await requestJson<unknown>(`/api/v1/workflows/${encodeURIComponent(workflowId)}/hermes-runs`, {
+    method: "POST", body: { revision_id: revisionId }, headers: { "Idempotency-Key": idempotencyKey }, signal,
+  });
+  if (!objectWithKeys(value, ["schema_version", "run_id", "status"])
+    || value.schema_version !== "1.0" || value.status !== "queued"
+    || typeof value.run_id !== "string" || !uuidPattern.test(value.run_id)) invalidHermesResponse();
+  return value as unknown as HermesStartReceipt;
+}
+
+export async function getHermesRun(runId: string, signal?: AbortSignal): Promise<HermesRunStatus> {
+  return runStatus(await requestJson<unknown>(`/api/v1/agent-runs/${encodeURIComponent(runId)}`, { signal }), runId);
+}
+
+export async function cancelHermesRun(runId: string, signal?: AbortSignal): Promise<HermesRunStatus> {
+  return runStatus(await requestJson<unknown>(`/api/v1/agent-runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST", signal,
+  }), runId);
+}
+
+export async function getPendingOperations(runId: string, signal?: AbortSignal): Promise<PendingOperation[]> {
+  const value = await requestJson<unknown>(`/api/v1/agent-runs/${encodeURIComponent(runId)}/pending-operations`, { signal });
+  if (!objectWithKeys(value, ["schema_version", "results"]) || value.schema_version !== "1.0"
+    || !Array.isArray(value.results) || value.results.length > 20) invalidHermesResponse();
+  const ids = new Set<string>();
+  for (const item of value.results) {
+    if (!objectWithKeys(item, ["operation_id", "provider", "operation_kind", "status", "action_digest"])
+      || typeof item.operation_id !== "string" || !uuidPattern.test(item.operation_id)
+      || ids.has(item.operation_id) || item.status !== "pending"
+      || typeof item.action_digest !== "string" || !/^[a-f0-9]{64}$/.test(item.action_digest)
+      || typeof item.operation_kind !== "string"
+      || !((item.provider === "eventbrite" && item.operation_kind === "create_eventbrite_draft")
+        || (item.provider === "iterable" && ["create_iterable_email_draft", "create_iterable_reminder_draft"].includes(item.operation_kind)))) invalidHermesResponse();
+    ids.add(item.operation_id);
+  }
+  return value.results as PendingOperation[];
 }
 
 export async function requestDemo(path: string, options: RequestOptions = {}): Promise<DemoState> {
