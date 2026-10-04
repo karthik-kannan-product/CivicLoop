@@ -401,7 +401,10 @@ def _finish(run_id, category, *, billable, cleanup_ok):
         lane.admission_disabled = True
         control.admission_disabled = True
         control.save(update_fields=["admission_disabled", "updated_at"])
+    if cleanup_ok and control.cancel_requested_at is not None:
+        category = "cancelled"
     _terminal(run, lane, category, billable=billable)
+    return category
 
 
 def _validate_result(run, control, result):
@@ -632,6 +635,8 @@ def _execute_hermes_run(run_id, span):
                 )
             except Exception:
                 cleanup_ok = False
-        _finish(run_id, category, billable=billable, cleanup_ok=cleanup_ok)
-        span.set_attribute("civicloop.outcome", "failed")
+        category = _finish(run_id, category, billable=billable, cleanup_ok=cleanup_ok) or category
+        span.set_attribute(
+            "civicloop.outcome", "cancelled" if category == "cancelled" else "failed"
+        )
         span.set_attribute("civicloop.failure_category", category)

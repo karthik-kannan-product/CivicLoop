@@ -1,4 +1,5 @@
 import hashlib
+import json
 import uuid
 from datetime import timedelta
 
@@ -393,6 +394,68 @@ def test_cancel_running_revokes_before_return(inputs, monkeypatch):
     tasks.execute_hermes_run(str(run.id))
     run.refresh_from_db()
     assert run.status == "cancelled"
+
+
+@pytest.mark.parametrize("intent,cleanup_confirmed,revocation_confirmed,expected", [
+    (True, True, True, "cancelled"),
+    (True, False, True, "failed"),
+    (False, True, True, "failed"),
+    (True, True, False, "failed"),
+])
+def test_owner_cancel_wins_transport_race_only_after_confirmed_cleanup(
+    inputs, monkeypatch, intent, cleanup_confirmed, revocation_confirmed, expected
+):
+    from agents.hermes import HermesClient, SafeRunFailure
+    from agents.models import BudgetReservation
+    from opentelemetry.trace import INVALID_SPAN_CONTEXT, NonRecordingSpan
+
+    client = HermesClient(url="http://synthetic-adapter:8080", token="synthetic-only-identity")
+    cancellations = []
+
+    def request(**kwargs):
+        if kwargs["path"].endswith("/cancel"):
+            cancellations.append(True)
+            # First cleanup can lose the transport race; the worker's second
+            # bounded cleanup establishes actual acknowledgement before finish.
+            if not cleanup_confirmed or len(cancellations) == 1:
+                raise SafeRunFailure("dependency_unavailable")
+            return 200, json.dumps({
+                "schema_version": "1.0", "run_id": str(run.id), "status": "cancelled"
+            }).encode()
+        if intent:
+            tasks.cancel_hermes_run(run.id)
+        # Actual client exception/cleanup ordering bypasses the post-response
+        # callback check, matching a lost socket or callback error boundary.
+        raise SafeRunFailure("dependency_unavailable")
+
+    monkeypatch.setattr(client, "_request", request)
+    monkeypatch.setattr(HermesClient, "from_settings", lambda: client)
+    if not revocation_confirmed:
+        def revoke_unavailable(*_):
+            raise RuntimeError("synthetic revocation unavailable")
+
+        monkeypatch.setattr(tasks, "_revoke_record", revoke_unavailable)
+    run = queue(inputs)
+    attributes = {}
+
+    class ObservedSpan(NonRecordingSpan):
+        def set_attribute(self, name, value):
+            attributes[name] = value
+
+    tasks._execute_hermes_run(str(run.id), ObservedSpan(INVALID_SPAN_CONTEXT))
+    run.refresh_from_db()
+    assert run.status == expected
+    assert run.failure_category == (
+        "cancelled" if expected == "cancelled" else "dependency_unavailable"
+    )
+    assert len(cancellations) == 2
+    assert (
+        WorkflowCapability.objects.get(pk=run.control.capability_id).revoked_at is not None
+    ) is revocation_confirmed
+    assert BudgetReservation.objects.get(run_id=run.id).status == "settled"
+    assert run.control.admission_disabled is (not cleanup_confirmed or not revocation_confirmed)
+    assert attributes["civicloop.outcome"] == expected
+    assert attributes["civicloop.failure_category"] == run.failure_category
 
 
 def test_ambiguous_ledger_failure_keeps_reservation_and_quarantine(inputs, monkeypatch):
