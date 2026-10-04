@@ -712,6 +712,13 @@ print(json.dumps(evidence))
             time.sleep(0.5)
         raise ContractFailure("component_readiness_deadline")
 
+    def restore_component(self, service):
+        # Compose start traverses dependencies and re-runs completed one-shots.
+        # Full bootstrap already verified them; recovery targets only the stopped
+        # service and must retain the exact locally cached candidate image.
+        require(service in {"mcp", "litellm", "phoenix"}, "component_restore_invalid")
+        self.compose("up", "-d", "--no-deps", "--no-build", "--pull", "never", service)
+
     def resources(self):
         identifiers = self.compose("ps", "-a", "-q").split()
         counts = {"container_count": len(identifiers), "oom_count": 0, "restart_count": 0}
@@ -1075,7 +1082,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
                 stack.record(
                     component + "_outage", outage_seed, stack.start(outage_seed), {"failed"}
                 )
-                stack.compose("start", component)
+                stack.restore_component(component)
                 stack.healthy(component)
             stack.compose("stop", "--timeout", "3", "phoenix")
             stack.stage = "phoenix_outage"
@@ -1088,7 +1095,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             require(code == 200, "deterministic_operation_failed")
             phoenix_seed = stack.fixture("seed")
             stack.record("phoenix_outage", phoenix_seed, stack.start(phoenix_seed), {"succeeded"})
-            stack.compose("start", "phoenix")
+            stack.restore_component("phoenix")
             stack.stage = "restored_success"
             restored_seed = stack.fixture("seed")
             stack.record(

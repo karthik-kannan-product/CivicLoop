@@ -913,6 +913,27 @@ def test_quarantine_proof_rejects_either_missing_persistent_flag(lane, control):
     assert failure.value.category == "kill_switch_quarantine_missing"
 
 
+@pytest.mark.parametrize("service", ["mcp", "litellm", "phoenix"])
+def test_component_recovery_targets_cached_image_without_one_shot_dependencies(service):
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    commands = []
+    stack.compose = lambda *args: commands.append(args)
+    stack.restore_component(service)
+    assert commands == [("up", "-d", "--no-deps", "--no-build", "--pull", "never", service)]
+
+
+def test_component_recovery_rejects_initializer_or_unrelated_service():
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.compose = lambda *_: pytest.fail("must not rerun a one-shot or unrelated service")
+    with pytest.raises(ContractFailure) as failure:
+        stack.restore_component("hermes-identities-init")
+    assert failure.value.category == "component_restore_invalid"
+
+
 @pytest.mark.django_db
 def test_controller_phase_queries_real_derived_binding_uuid_privately(settings, monkeypatch):
     from agents.hermes import HermesClient
