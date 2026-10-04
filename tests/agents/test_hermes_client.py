@@ -107,6 +107,55 @@ def test_bound_reservation_caps_the_runtime_cost(client, run, monkeypatch):
     assert failure.value.category == "invalid_output"
 
 
+@pytest.mark.parametrize("tokens, expected", [(700, 1400), (1, 2)])
+def test_token_only_usage_is_priced_from_bound_profile(client, run, monkeypatch, tokens, expected):
+    run.model_profile.input_price_microusd_per_million = 400_000
+    run.model_profile.output_price_microusd_per_million = 1_600_000
+    run.model_profile.max_output_tokens = 1000
+    payload = result(run)
+    payload["usage"] = {"input_tokens": tokens, "output_tokens": tokens}
+    respond(monkeypatch, client, payload)
+    assert client.execute(run, capability="cap_" + "x" * 43)["usage"] == {
+        **payload["usage"],
+        "cost_microusd": expected,
+    }
+
+
+@pytest.mark.parametrize("price", [None, 1_000_000_000])
+def test_token_only_usage_unknown_price_or_computed_over_budget_fails(
+    client, run, monkeypatch, price
+):
+    run.model_profile.input_price_microusd_per_million = price
+    run.model_profile.output_price_microusd_per_million = 1_600_000
+    payload = result(run)
+    payload["usage"].pop("cost_microusd")
+    respond(monkeypatch, client, payload)
+    with pytest.raises(SafeRunFailure) as failure:
+        client.execute(run, capability="cap_" + "x" * 43)
+    assert failure.value.category == "invalid_output"
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"output_tokens": 1},
+        {"input_tokens": True, "output_tokens": 1},
+        {"input_tokens": -1, "output_tokens": 1},
+        {"input_tokens": 1001, "output_tokens": 1},
+        {"input_tokens": 1, "output_tokens": 1, "extra": 1},
+    ],
+)
+def test_token_only_usage_malformed_or_over_limit_fails(client, run, monkeypatch, usage):
+    run.model_profile.input_price_microusd_per_million = 400_000
+    run.model_profile.output_price_microusd_per_million = 1_600_000
+    payload = result(run)
+    payload["usage"] = usage
+    respond(monkeypatch, client, payload)
+    with pytest.raises(SafeRunFailure) as failure:
+        client.execute(run, capability="cap_" + "x" * 43)
+    assert failure.value.category == "invalid_output"
+
+
 @pytest.mark.django_db
 def test_missing_reservation_blocks_admission():
     from tests.agents.test_runs import create_run
@@ -435,9 +484,13 @@ def test_server_cleanup_ack_cannot_hide_non_draining_execution_dns(run, monkeypa
 
         def do_POST(self):  # noqa: N802
             requests.append(self.path == f"/internal/v1/hermes/runs/{run.id}/cancel")
-            raw = json.dumps({
-                "schema_version": "1.0", "run_id": str(run.id), "status": "cancelled",
-            }).encode()
+            raw = json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "run_id": str(run.id),
+                    "status": "cancelled",
+                }
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
@@ -457,8 +510,12 @@ def test_server_cleanup_ack_cannot_hide_non_draining_execution_dns(run, monkeypa
     try:
         with pytest.raises(SafeRunFailure):
             client._request(
-                method="POST", path="/", raw=b"{}", headers={},
-                deadline=time.monotonic() + 0.05, should_cancel=None,
+                method="POST",
+                path="/",
+                raw=b"{}",
+                headers={},
+                deadline=time.monotonic() + 0.05,
+                should_cancel=None,
             )
         assert entered.is_set()
         client.url = f"http://127.0.0.1:{server.server_port}"
@@ -496,9 +553,13 @@ def test_only_one_cleanup_request_can_use_reserved_control_lane(run):
             requests.append(self.path.endswith("/cancel"))
             entered.set()
             release.wait(2)
-            raw = json.dumps({
-                "schema_version": "1.0", "run_id": str(run.id), "status": "cancelled",
-            }).encode()
+            raw = json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "run_id": str(run.id),
+                    "status": "cancelled",
+                }
+            ).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
@@ -507,7 +568,8 @@ def test_only_one_cleanup_request_can_use_reserved_control_lane(run):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     client = HermesClient(
-        url=f"http://127.0.0.1:{server.server_port}", token="synthetic-adapter-0000",
+        url=f"http://127.0.0.1:{server.server_port}",
+        token="synthetic-adapter-0000",
     )
     first = threading.Thread(target=lambda: result.append(client.cancel(run)), daemon=True)
     try:

@@ -20,7 +20,8 @@ from tests.agents.test_hermes_tasks import queue
 
 
 @pytest.mark.django_db(transaction=True)
-def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch):
+@pytest.mark.parametrize("cost", [200, None, 1])
+def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, cost):
     transport = Client()
 
     class BrokerChild(FakeController):
@@ -72,7 +73,11 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch):
                                 ]
                             }
                         ),
-                        "usage": {"input_tokens": 100, "output_tokens": 50, "cost_microusd": 200},
+                        "usage": {
+                            "input_tokens": 100,
+                            "output_tokens": 50,
+                            **({"cost_microusd": cost} if cost is not None else {}),
+                        },
                     },
                 )
             finally:
@@ -102,7 +107,10 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch):
         run = queue(inputs)
         tasks.execute_hermes_run(str(run.id))
         run.refresh_from_db()
-        assert run.status == "succeeded", run.failure_category
+        if cost == 1:
+            assert run.status == "failed" and run.failure_category == "invalid_output"
+        else:
+            assert run.status == "succeeded", run.failure_category
         operations = DraftOperation.objects.filter(
             proposal__capability__correlation_id=run.hermes_binding.correlation_id,
         )
@@ -113,13 +121,16 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch):
             correlation_id=run.hermes_binding.correlation_id
         ).revoked_at
         reservation = BudgetReservation.objects.get(run_id=run.id)
-        assert reservation.status == "settled" and reservation.settled_cost_microusd == 200
+        assert reservation.status == "settled"
+        assert reservation.settled_cost_microusd == (
+            reservation.reserved_cost_microusd if cost == 1 else 200
+        )
         assert child.stopped and controller.active is None
         assert transport.events[-1][0] == "revoke"
         assert list(run.events.order_by("sequence").values_list("outcome", flat=True)) == [
             "accepted",
             "started",
-            "accepted",
+            "invalid_output" if cost == 1 else "accepted",
         ]
     finally:
         child.release.set()

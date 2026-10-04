@@ -407,6 +407,18 @@ class HermesClient:
         if status != 200:
             raise SafeRunFailure()
         value = _decode(response)
+        usage = value.get("usage")
+        if isinstance(usage, dict) and set(usage) == {"input_tokens", "output_tokens"}:
+            from agents.budgets import _cost
+
+            try:
+                if any(type(v) is not int or v < 0 for v in usage.values()):
+                    raise ValueError
+                usage["cost_microusd"] = _cost(
+                    run.model_profile, usage["input_tokens"], usage["output_tokens"]
+                )
+            except Exception:
+                raise SafeRunFailure("invalid_output") from None
         self._validate_result(body, value)
         return value
 

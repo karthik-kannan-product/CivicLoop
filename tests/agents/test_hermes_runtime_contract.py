@@ -564,7 +564,7 @@ def test_terminal_result_is_allowlisted_and_schema_bound() -> None:
                 "proposal_digest": "f" * 64,
             }
         ],
-        "usage": {"input_tokens": 25, "output_tokens": 10, "cost_microusd": 0},
+        "usage": {"input_tokens": 25, "output_tokens": 10},
         "failure_category": None,
     }
 

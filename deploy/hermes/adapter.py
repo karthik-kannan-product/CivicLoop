@@ -176,7 +176,19 @@ def build_upstream_request(
     }
 
 
-def _safe_usage(value: object) -> dict[str, int]:
+def _safe_usage(value: object, *, required: bool = False) -> dict[str, int]:
+    if required:
+        if not isinstance(value, dict):
+            raise PolicyError("Hermes usage is invalid")
+        ceilings = {"input_tokens": 1_000_000, "output_tokens": 100_000}
+        if "cost_microusd" in value:
+            ceilings["cost_microusd"] = 1_000_000_000
+        # The SDK supplies aggregate tokens, but has no approved CivicLoop price.
+        # Preserve absent cost so only the bound worker profile can price it.
+        return {
+            key: _integer(value.get(key), label="usage", minimum=0, maximum=maximum)
+            for key, maximum in ceilings.items()
+        }
     usage = value if isinstance(value, dict) else {}
     return {
         "input_tokens": _bounded_nonnegative(usage.get("input_tokens"), 1_000_000),
@@ -240,9 +252,11 @@ def map_upstream_result(request: dict[str, Any], upstream: object) -> dict[str, 
     if mapped_status == "succeeded":
         try:
             references = _proposal_references(payload.get("output"))
+            usage = _safe_usage(payload.get("usage"), required=True)
         except PolicyError:
             mapped_status = "failed"
             failure_category = "invalid_output"
+            references = []
     elif mapped_status == "cancelled":
         failure_category = "cancelled"
     else:
@@ -256,7 +270,7 @@ def map_upstream_result(request: dict[str, Any], upstream: object) -> dict[str, 
         "revision_id": request["revision_id"],
         "status": mapped_status,
         "proposal_references": references,
-        "usage": _safe_usage(payload.get("usage")),
+        "usage": usage if mapped_status == "succeeded" else _safe_usage(payload.get("usage")),
         "failure_category": failure_category,
     }
 

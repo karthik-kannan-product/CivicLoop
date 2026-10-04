@@ -11,13 +11,46 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from deploy.hermes.adapter import map_upstream_result
-from deploy.hermes.controller_client import RemoteProcessController
+from deploy.hermes.controller_client import RemoteProcessController, validate_result
 from deploy.hermes.controller_service import RUN_PATH, ControllerService, Handler
 from deploy.hermes.process_controller import ControllerRun, ControllerUnavailable
 from tests.agents.test_hermes_runtime_contract import _request
 
 TOKEN = "controller-test-identity-123456789"
 SCOPE = "scope_" + "a" * 43
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"input_tokens": 1},
+        {"input_tokens": True, "output_tokens": 1},
+        {"input_tokens": -1, "output_tokens": 1},
+        {"input_tokens": 1_000_001, "output_tokens": 1},
+        {"input_tokens": 1, "output_tokens": 100_001},
+        {"input_tokens": 1, "output_tokens": 1, "extra": 1},
+    ],
+)
+def test_controller_rejects_invalid_or_extra_usage_fields(usage):
+    result = map_upstream_result(_request(), {"status": "failed"})
+    result["usage"] = usage
+    with pytest.raises(ControllerUnavailable):
+        validate_result(_request(), result)
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"input_tokens": 700, "output_tokens": 700},
+        {"input_tokens": 700, "output_tokens": 700, "cost_microusd": 17},
+    ],
+)
+def test_controller_accepts_token_only_and_preserves_supplied_cost(usage):
+    from tests.agents.test_hermes_adapter import completed_usage
+
+    result = map_upstream_result(_request(), completed_usage(usage))
+    validate_result(_request(), result)
+    assert result["usage"] == usage
 
 
 class FakeController:

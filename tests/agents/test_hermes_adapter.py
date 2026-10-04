@@ -13,6 +13,55 @@ from tests.agents.test_hermes_runtime_contract import _policy, _request
 from tests.agents.test_hermes_transport import binding
 
 
+def completed_usage(usage):
+    return {
+        "status": "completed",
+        "output": json.dumps(
+            {
+                "proposal_references": [
+                    {
+                        "proposal_id": "12345678-1234-5678-1234-567812345678",
+                        "proposal_digest": "a" * 64,
+                        "schema_id": "urn:civicloop:schema:campaign-proposal:v1.0",
+                    }
+                ]
+            }
+        ),
+        "usage": usage,
+    }
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        {},
+        {"input_tokens": 1},
+        {"output_tokens": 1},
+        {"input_tokens": True, "output_tokens": 1},
+        {"input_tokens": -1, "output_tokens": 1},
+        {"input_tokens": 1_000_001, "output_tokens": 1},
+        {"input_tokens": 1, "output_tokens": 100_001},
+        {"input_tokens": 1, "output_tokens": 1, "cost_microusd": None},
+    ],
+)
+def test_completed_malformed_usage_fails_closed(usage):
+    result = adapter.map_upstream_result(_request(), completed_usage(usage))
+    assert result["status"] == "failed"
+    assert result["failure_category"] == "invalid_output"
+    assert result["proposal_references"] == []
+
+
+@pytest.mark.parametrize("cost", [None, 17])
+def test_completed_usage_preserves_absent_or_supplied_cost(cost):
+    usage = {"input_tokens": 700, "output_tokens": 700, "total_tokens": 1400}
+    if cost is not None:
+        usage["cost_microusd"] = cost
+    result = adapter.map_upstream_result(_request(), completed_usage(usage))
+    assert result["status"] == "succeeded"
+    assert result["usage"] == {key: value for key, value in usage.items() if key != "total_tokens"}
+
+
 def trusted_binding(body):
     return binding(
         run_id=adapter.map_upstream_result(body, {})["run_id"],

@@ -24,9 +24,12 @@ def validate_result(request, result):
         raise ControllerUnavailable()
     usage = result["usage"]
     ceilings = {"input_tokens": 1_000_000, "output_tokens": 100_000, "cost_microusd": 1_000_000_000}
-    if not isinstance(usage, dict) or set(usage) != set(ceilings):
+    if not isinstance(usage, dict) or set(usage) not in (
+        {"input_tokens", "output_tokens"},
+        set(ceilings),
+    ):
         raise ControllerUnavailable()
-    if any(type(usage[k]) is not int or not 0 <= usage[k] <= v for k, v in ceilings.items()):
+    if any(type(v) is not int or not 0 <= v <= ceilings[k] for k, v in usage.items()):
         raise ControllerUnavailable()
     if result["status"] == "succeeded":
         _proposal_references(json.dumps({"proposal_references": result["proposal_references"]}))
