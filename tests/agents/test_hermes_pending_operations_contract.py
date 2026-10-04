@@ -202,6 +202,35 @@ def test_failed_subprocess_output_is_categorized_without_text(monkeypatch):
     assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(failure.value.details)
 
 
+def test_real_subprocess_utf8_output_and_invalid_bytes_remain_safe():
+    import sys
+
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    # The goat glyph includes byte0x90, undefined in Windows cp1252. An invalid
+    # UTF8 suffix also exercises replacement without dropping closed diagnostics.
+    success = harness.command(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write(bytes([240,159,144,144]))"]
+    )
+    assert success == "\U0001f410"
+    with pytest.raises(ContractFailure) as failure:
+        harness.command(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(bytes([240,159,144,144,255])); "
+                "sys.stderr.buffer.write(b'Usage: synthetic; SYNTHETIC_FORBIDDEN_UNICODE_BODY'); "
+                "sys.exit(2)",
+            ]
+        )
+    assert failure.value.category == "command_failed"
+    assert failure.value.details["return_code"] == 2
+    assert failure.value.details["output"]["category_flags"]["cli_arguments_invalid"] is True
+    assert len(failure.value.details["output"]["digest"]) == 64
+    assert "SYNTHETIC_FORBIDDEN_UNICODE_BODY" not in json.dumps(failure.value.details)
+    assert "\U0001f410" not in json.dumps(failure.value.details, ensure_ascii=False)
+
+
 def test_failure_snapshot_includes_exited_services_and_safe_log_categories(monkeypatch):
     from tests.fakes import hermes_pending_operations_contract as harness
 

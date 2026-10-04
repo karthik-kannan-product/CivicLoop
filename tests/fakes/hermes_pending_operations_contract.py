@@ -109,7 +109,13 @@ def diagnostic(raw):
 def command(arguments, *, timeout=30, include_stderr=False):
     try:
         result = subprocess.run(
-            arguments, capture_output=True, text=True, timeout=timeout, check=False
+            arguments,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired as error:
         raise ContractFailure(
