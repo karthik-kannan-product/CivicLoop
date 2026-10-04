@@ -110,6 +110,48 @@ def test_early_exit_and_readiness_timeout_fail_closed():
         never_ready.admit(_request("run-b"), scope_token=_scope("b"))
 
 
+@pytest.mark.parametrize("request_timeout,scope_seconds,accepted", [
+    (25, 25, True), (14, 25, False), (25, 14, False),
+])
+def test_cold_child_ready_after_old_cutoff_stays_capped_by_request_and_scope(
+    monkeypatch, request_timeout, scope_seconds, accepted
+):
+    from deploy.hermes import process_controller
+
+    clock = [100.0]
+
+    class Exiting(FakeChild):
+        def terminate(self):
+            self.exit_code = 0
+
+    child = Exiting()
+
+    def ready_after_cold_start(*_):
+        clock[0] = 116.0
+        return True
+
+    # Drive the real controller startup cutoff calculation deterministically;
+    # no wall-clock delay or model/provider execution is needed.
+    monkeypatch.setattr(process_controller.time, "monotonic", lambda: clock[0])
+    controller = ProcessController(
+        child_factory=lambda *_, **__: child,
+        readiness_probe=ready_after_cold_start,
+    )
+    request = dict(_request("cold-run"), timeout_seconds=request_timeout)
+    if accepted:
+        assert controller.admit(
+            request, scope_token=_scope("a"), deadline=100.0 + scope_seconds
+        ).status == "running"
+        assert controller.stop("cold-run").status == "cancelled"
+    else:
+        with pytest.raises(ControllerUnavailable):
+            controller.admit(
+                request, scope_token=_scope("a"), deadline=100.0 + scope_seconds
+            )
+    assert child.exit_code == 0
+    assert controller.quarantined is False
+
+
 def test_terminal_child_is_retired_before_next_run():
     children = []
 
