@@ -7,7 +7,7 @@ import uuid
 import pytest
 from agents import mcp, tasks
 from agents.hermes import HermesClient
-from agents.models import BudgetReservation, DraftOperation, WorkflowCapability
+from agents.models import AgentRunControl, BudgetReservation, DraftOperation, WorkflowCapability
 from django.db import close_old_connections
 
 from deploy.hermes import adapter
@@ -123,6 +123,67 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch):
         ]
     finally:
         child.release.set()
+        server.shutdown()
+        server.server_close()
+        controller.shutdown()
+        controller.server_close()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_owner_cancel_crosses_actual_worker_client_http_and_confirms_cleanup(inputs, monkeypatch):
+    """Exercise socket cancellation and duplicate cleanup without stubbing client I/O."""
+    transport = Client()
+
+    class HeldController(FakeController):
+        def execute(self, body, **kwargs):
+            self.release.wait(10)
+            return adapter.map_upstream_result(body, {"status": "cancelled"})
+
+    child = HeldController()
+    controller = ControllerService(
+        ("127.0.0.1", 0), Handler,
+        service_token="synthetic-controller-identity-0000", controller=child,
+    )
+    threading.Thread(target=controller.serve_forever, daemon=True).start()
+    server = make_adapter(transport)
+    server.process_controller = RemoteProcessController(
+        url=f"http://127.0.0.1:{controller.server_port}", token=controller.service_token,
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    client = HermesClient(url=f"http://127.0.0.1:{server.server_port}", token=server.service_token)
+    monkeypatch.setattr(HermesClient, "from_settings", lambda: client)
+    run = queue(inputs)
+
+    def execute():
+        close_old_connections()
+        try:
+            tasks.execute_hermes_run(str(run.id))
+        finally:
+            close_old_connections()
+
+    worker = threading.Thread(target=execute, daemon=True)
+    try:
+        worker.start()
+        assert child.entered.wait(3)
+        tasks.cancel_hermes_run(run.id)
+        worker.join(5)
+        assert not worker.is_alive()
+        run.refresh_from_db()
+        assert run.status == "cancelled", run.failure_category
+        assert not AgentRunControl.objects.get(run=run).admission_disabled
+        assert server.transport_healthy and not server.process_controller.quarantined
+        assert server.active_run["done"].is_set() and server.active_run["clean"]
+        assert child.stopped and controller.active is None
+        assert WorkflowCapability.objects.get(
+            correlation_id=run.hermes_binding.correlation_id,
+        ).revoked_at
+        assert BudgetReservation.objects.get(run_id=run.id).status == "settled"
+        assert not DraftOperation.objects.filter(
+            proposal__capability__correlation_id=run.hermes_binding.correlation_id,
+        ).exists()
+    finally:
+        child.release.set()
+        worker.join(5)
         server.shutdown()
         server.server_close()
         controller.shutdown()

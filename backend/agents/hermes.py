@@ -25,6 +25,7 @@ RUN_PATH = "/internal/v1/hermes/runs"
 MAX_BODY_BYTES = 32_768
 MODEL_ALIAS = "civicloop-default"
 _IO_SLOT = threading.BoundedSemaphore(1)
+_CANCEL_IO_SLOT = threading.BoundedSemaphore(1)
 _CATEGORIES = frozenset(
     {
         "budget_exhausted",
@@ -224,9 +225,10 @@ class HermesClient:
             raise SafeRunFailure("budget_exhausted")
         return reservation
 
-    def _request(self, *, method, path, raw, headers, deadline, should_cancel):
+    def _request(self, *, method, path, raw, headers, deadline, should_cancel, control=False):
         # Direct HTTPConnection deliberately ignores environment proxies and never redirects.
-        if not _IO_SLOT.acquire(blocking=False):
+        slot = _CANCEL_IO_SLOT if control else _IO_SLOT
+        if not slot.acquire(blocking=False):
             raise SafeRunFailure()
         io = _DeadlineIO(deadline)
         done = threading.Event()
@@ -250,13 +252,13 @@ class HermesClient:
             finally:
                 if connection is not None:
                     connection.close()
-                _IO_SLOT.release()
+                slot.release()
                 done.set()
 
         try:
             threading.Thread(target=perform, daemon=True).start()
         except Exception:
-            _IO_SLOT.release()
+            slot.release()
             raise SafeRunFailure() from None
         try:
             while not done.is_set():
@@ -280,6 +282,7 @@ class HermesClient:
     def cancel(self, run):
         try:
             run_id = self._run_id(run)
+            deadline = time.monotonic() + 2
             status, raw = self._request(
                 method="POST",
                 path=f"{RUN_PATH}/{run_id}/cancel",
@@ -288,8 +291,9 @@ class HermesClient:
                     "Authorization": f"Bearer {self._token}",
                     "Content-Type": "application/json",
                 },
-                deadline=time.monotonic() + 2,
+                deadline=deadline,
                 should_cancel=None,
+                control=True,
             )
             if status != 200 or _decode(raw) != {
                 "schema_version": "1.0",
@@ -297,6 +301,13 @@ class HermesClient:
                 "status": "cancelled",
             }:
                 raise SafeRunFailure()
+            # Cleanup must be able to reach the server while the execution socket
+            # awaits its terminal response. Keep control bounded separately, then
+            # require execution I/O to retire before acknowledging cleanup locally.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not _IO_SLOT.acquire(timeout=remaining):
+                raise SafeRunFailure()
+            _IO_SLOT.release()
         except Exception:
             raise SafeRunFailure() from None
         return True

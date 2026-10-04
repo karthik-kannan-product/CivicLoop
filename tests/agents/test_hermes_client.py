@@ -417,3 +417,110 @@ def test_late_dns_connection_cannot_send_authority(monkeypatch):
     finally:
         left.close()
         right.close()
+
+
+def test_server_cleanup_ack_cannot_hide_non_draining_execution_dns(run, monkeypatch):
+    """Control can reach cleanup, but stalled execution still prevents a local ACK."""
+    from agents import hermes
+
+    release = threading.Event()
+    entered = threading.Event()
+    left, right = socket.socketpair()
+    connect = socket.create_connection
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            requests.append(self.path == f"/internal/v1/hermes/runs/{run.id}/cancel")
+            raw = json.dumps({
+                "schema_version": "1.0", "run_id": str(run.id), "status": "cancelled",
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    def stalled(address, *args, **kwargs):
+        if address[0] == "adapter":
+            entered.set()
+            release.wait(5)
+            return left
+        return connect(address, *args, **kwargs)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(socket, "create_connection", stalled)
+    client = HermesClient(url="http://adapter:8080", token="synthetic-adapter-0000")
+    try:
+        with pytest.raises(SafeRunFailure):
+            client._request(
+                method="POST", path="/", raw=b"{}", headers={},
+                deadline=time.monotonic() + 0.05, should_cancel=None,
+            )
+        assert entered.is_set()
+        client.url = f"http://127.0.0.1:{server.server_port}"
+        with pytest.raises(SafeRunFailure):
+            client.cancel(run)
+        assert requests == [True]
+    finally:
+        release.set()
+        # Reclaim the real execution worker before allowing another test to run.
+        drained = hermes._IO_SLOT.acquire(timeout=1)
+        if drained:
+            hermes._IO_SLOT.release()
+        server.shutdown()
+        server.server_close()
+        right.settimeout(0.5)
+        try:
+            assert right.recv(1) == b""
+            assert drained
+        finally:
+            left.close()
+            right.close()
+
+
+def test_only_one_cleanup_request_can_use_reserved_control_lane(run):
+    entered = threading.Event()
+    release = threading.Event()
+    requests = []
+    result = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            requests.append(self.path.endswith("/cancel"))
+            entered.set()
+            release.wait(2)
+            raw = json.dumps({
+                "schema_version": "1.0", "run_id": str(run.id), "status": "cancelled",
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    client = HermesClient(
+        url=f"http://127.0.0.1:{server.server_port}", token="synthetic-adapter-0000",
+    )
+    first = threading.Thread(target=lambda: result.append(client.cancel(run)), daemon=True)
+    try:
+        first.start()
+        assert entered.wait(1)
+        with pytest.raises(SafeRunFailure):
+            client.cancel(run)
+        assert requests == [True]
+        release.set()
+        first.join(3)
+        assert not first.is_alive() and result == [True]
+    finally:
+        release.set()
+        first.join(3)
+        server.shutdown()
+        server.server_close()

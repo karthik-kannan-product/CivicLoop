@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 import threading
 import time
 import urllib.error
@@ -214,6 +215,9 @@ def transport():
         def do_POST(self):  # noqa: N802
             raw = self.rfile.read(int(self.headers["Content-Length"]))
             calls.append((self.path, dict(self.headers), raw))
+            if reply.get("hold"):
+                reply["started"].set()
+                reply["release"].wait(2)
             if reply.get("trickle"):
                 prefix = (
                     b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
@@ -241,7 +245,10 @@ def transport():
                 self.send_header("Location", reply["location"])
             self.send_header("Content-Length", str(len(reply["body"])))
             self.end_headers()
-            self.wfile.write(reply["body"])
+            try:
+                self.wfile.write(reply["body"])
+            except OSError:
+                pass
 
     upstream = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
     enabled = [True]
@@ -603,3 +610,150 @@ def test_connect_deadline_rejects_late_authority_and_bounds_pending_workers(tran
         assert server._io_slot.acquire(timeout=1)
         server._io_slot.release()
     assert calls == []
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Winsock held reads do not drain after shutdown; exact Linux probe verifies this path",
+)
+@pytest.mark.parametrize("path", [INFERENCE_PATH, "/mcp"])
+def test_authenticated_http_revoke_interrupts_held_forward_through_fixture_proxy(
+    transport, monkeypatch, path
+):
+    from tests.fakes import hermes_contract_proxy as proxy_module
+
+    server, calls, reply, _ = transport
+    assert register(server)[0] == 200
+    reply.update(hold=True, started=threading.Event(), release=threading.Event())
+    state = proxy_module.State.__new__(proxy_module.State)
+    state.scopes, state.lock = [], threading.Lock()
+    monkeypatch.setattr(proxy_module, "STATE", state)
+    actual_forward = proxy_module.forward
+
+    def forward(url, body, headers):
+        return actual_forward(
+            url.replace("http://hermes-transport:8080", f"http://127.0.0.1:{server.server_port}"),
+            body,
+            headers,
+        )
+
+    monkeypatch.setattr(proxy_module, "forward", forward)
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), proxy_module.Handler)
+    proxy_thread = threading.Thread(target=proxy.serve_forever, kwargs={"poll_interval": 0.01})
+    proxy_thread.start()
+    results = []
+    request_thread = threading.Thread(
+        target=lambda: results.append(
+            post(server, path, inference() if path == INFERENCE_PATH else {})
+        )
+    )
+    request_thread.start()
+    try:
+        assert reply["started"].wait(1)
+        assert post(server, REVOKE_PATH, auth=CLIENT)[0] == 401
+        assert request_thread.is_alive() and not reply["release"].is_set()
+        client = HTTPTransportClient(
+            base_url=f"http://127.0.0.1:{proxy.server_port}", control_token=CONTROL, timeout=1
+        )
+        started = time.monotonic()
+        client.revoke_scope(token=TOKEN)
+        assert time.monotonic() - started < 1
+        request_thread.join(1)
+        assert not request_thread.is_alive() and results[0][0] == 502
+        assert not reply["release"].is_set()
+        assert server._io_slot.acquire(blocking=False)
+        server._io_slot.release()
+        assert post(server, path, inference() if path == INFERENCE_PATH else {})[0] == 403
+        assert len(calls) == 1
+    finally:
+        reply["release"].set()
+        request_thread.join(2)
+        proxy.shutdown()
+        proxy.server_close()
+        proxy_thread.join(2)
+
+
+def test_http_revoke_refuses_ack_until_cancelled_connect_worker_drains(transport, monkeypatch):
+    server, calls, _, _ = transport
+    server.timeout = 0.15
+    assert register(server)[0] == 200
+    connect = socket.create_connection
+    release, started = threading.Event(), threading.Event()
+    port = urlsplit(server.gateway_url).port
+
+    def delayed_connect(address, *args, **kwargs):
+        if address[1] == port:
+            started.set()
+            release.wait(2)
+        return connect(address, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "create_connection", delayed_connect)
+    results = []
+    thread = threading.Thread(
+        target=lambda: results.append(post(server, INFERENCE_PATH, inference()))
+    )
+    thread.start()
+    try:
+        assert started.wait(1)
+        assert post(server, REVOKE_PATH, auth=CONTROL)[0] == 503
+        thread.join(1)
+        assert results[0][0] == 502
+        assert not server._io_slot.acquire(blocking=False)
+        assert post(server, INFERENCE_PATH, inference())[0] == 403
+    finally:
+        release.set()
+        thread.join(2)
+        assert server._io_slot.acquire(timeout=1)
+        server._io_slot.release()
+    assert calls == []
+    assert post(server, REVOKE_PATH, auth=CONTROL)[0] == 200
+
+
+def test_revoke_racing_before_owned_io_registration_denies_late_forward(transport, monkeypatch):
+    server, calls, _, _ = transport
+    assert register(server)[0] == 200
+    admitted, release = threading.Event(), threading.Event()
+    actual_request = server.upstream_request
+
+    def delayed_request(**kwargs):
+        admitted.set()
+        assert release.wait(1)
+        return actual_request(**kwargs)
+
+    monkeypatch.setattr(server, "upstream_request", delayed_request)
+    results, revoked = [], []
+    request_thread = threading.Thread(
+        target=lambda: results.append(post(server, INFERENCE_PATH, inference()))
+    )
+    request_thread.start()
+    assert admitted.wait(1)
+    revoke_thread = threading.Thread(
+        target=lambda: revoked.append(post(server, REVOKE_PATH, auth=CONTROL))
+    )
+    revoke_thread.start()
+    try:
+        deadline = time.monotonic() + 1
+        while scope_digest(TOKEN) not in server._revoked_scopes and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert scope_digest(TOKEN) in server._revoked_scopes
+        release.set()
+        request_thread.join(1)
+        revoke_thread.join(1)
+        assert results[0][0] == 502 and revoked[0][0] == 200
+        assert calls == []
+        assert server._io_slot.acquire(blocking=False)
+        server._io_slot.release()
+        assert post(server, INFERENCE_PATH, inference())[0] == 403
+    finally:
+        release.set()
+        request_thread.join(2)
+        revoke_thread.join(2)
+
+
+def test_scope_interrupt_tombstones_have_finite_capacity(transport):
+    server, _, _, _ = transport
+    server.registry.maximum_records = 1
+    assert post(server, REVOKE_PATH, auth=CONTROL)[0] == 200
+    assert post(server, REVOKE_PATH, auth=CONTROL)[0] == 200
+    assert post(server, REVOKE_PATH, auth=CONTROL, token=TOKEN_B)[0] == 503
+    assert len(server._revoked_scopes) == 1

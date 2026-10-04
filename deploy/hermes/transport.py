@@ -425,7 +425,28 @@ class TransportServer(ThreadingHTTPServer):
         self.enabled = enabled
         self.timeout = timeout
         self._io_slot = threading.BoundedSemaphore(1)
+        self._scope_io_lock = threading.Lock()
+        self._scope_io: dict[str, tuple[_DeadlineIO, threading.Event]] = {}
+        self._revoked_scopes: set[str] = set()
         super().__init__(address, _Handler)
+
+    def revoke_scope(self, token: str) -> None:
+        digest = _digest(token)
+        # Interrupt owned I/O before waiting for the forward's authority lock.
+        # The tombstone closes the race before a forward registers its socket.
+        with self._scope_io_lock:
+            if digest not in self._revoked_scopes:
+                if len(self._revoked_scopes) >= self.registry.maximum_records:
+                    raise TransportError(status=503)
+                self._revoked_scopes.add(digest)
+            active = self._scope_io.get(digest)
+            if active is not None:
+                active[0].cancel()
+        self.registry.revoke(token=token)
+        # A cancelled DNS/connect can outlive the request deadline. Such an
+        # undrained worker retains its finite slot and cannot earn a cleanup ACK.
+        if active is not None and not active[1].is_set():
+            raise TransportError(status=503)
 
     def upstream_request(
         self,
@@ -434,15 +455,23 @@ class TransportServer(ThreadingHTTPServer):
         raw: bytes,
         headers: dict[str, str],
         deadline: float,
+        scope_token: str | None = None,
     ) -> tuple[int, bytes]:
         # A stalled resolver may outlive cancellation at OS level. Keep the slot
         # occupied until that worker exits, failing closed rather than spawning
         # more workers or letting late connects send cancelled authority.
+        digest = _digest(scope_token) if scope_token is not None else None
         if not self._io_slot.acquire(blocking=False):
             raise TransportError(status=502)
         io = _DeadlineIO(deadline)
         done = threading.Event()
         result: list[tuple[int, bytes]] = []
+        with self._scope_io_lock:
+            if digest is not None and digest in self._revoked_scopes:
+                self._io_slot.release()
+                raise TransportError()
+            if digest is not None:
+                self._scope_io[digest] = (io, done)
 
         def perform() -> None:
             connection = None
@@ -466,14 +495,21 @@ class TransportServer(ThreadingHTTPServer):
             finally:
                 if connection is not None:
                     connection.close()
-                self._io_slot.release()
-                done.set()
+                with self._scope_io_lock:
+                    self._io_slot.release()
+                    done.set()
+                    if digest is not None:
+                        self._scope_io.pop(digest, None)
 
         worker = threading.Thread(target=perform, daemon=True)
         try:
             worker.start()
         except Exception:
-            self._io_slot.release()
+            with self._scope_io_lock:
+                self._io_slot.release()
+                done.set()
+                if digest is not None:
+                    self._scope_io.pop(digest, None)
             raise TransportError(status=502) from None
         try:
             if not done.wait(max(0, deadline - time.monotonic())) or not result:
@@ -593,7 +629,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == REVOKE_PATH:
             if body:
                 raise TransportError(status=400)
-            self.server.registry.revoke(token=token)
+            self.server.revoke_scope(token)
         else:
             if "capability" in body or _contains_authority(body, (token,)):
                 raise TransportError(status=400)
@@ -665,6 +701,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raw=raw,
                     headers=headers,
                     deadline=deadline,
+                    scope_token=token,
                 )
                 accepted = {200, 202} if self.path == "/mcp" else {200}
                 if status not in accepted or len(content) > MAX_BODY_BYTES:
