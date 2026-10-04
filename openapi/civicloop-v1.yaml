@@ -16,15 +16,77 @@ tags:
   - name: Administrator security
   - name: Administrator integrations
   - name: Agent observability
+  - name: Hermes pending operations
+  - name: Internal agent control
   - name: LaunchLoop
   - name: Approvals
   - name: Health
 paths:
+  /internal/v1/hermes/runs:
+    post:
+      tags: [Internal agent control]
+      operationId: startInternalHermesRun
+      summary: Start one bounded Hermes run on the private agent-control network
+      description: >-
+        Internal service-to-service boundary only. This operation is not routed
+        by Caddy and its bearer token, request content, and model output must not
+        enter logs or traces.
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HermesRunRequest" }
+      responses:
+        "200":
+          description: Schema-bound Hermes run status or terminal result
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HermesRunResult" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /internal/v1/draft-operations:
+    post:
+      tags: [Internal agent control]
+      operationId: requestInternalDraftOperation
+      summary: Record an approved provider draft operation for controlled execution
+      description: >-
+        Internal request boundary for create/update-draft operations only. It
+        never publishes, activates, schedules, sends, changes ticket economics,
+        creates segments, or exports constituent data.
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DraftOperation" }
+      responses:
+        "202":
+          description: Accepted idempotent draft operation awaiting execution or reconciliation
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DraftOperation" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/agent-runs/{runId}:
     get:
       tags: [Agent observability]
       operationId: getAgentRun
       summary: Read bounded agent run, trace, and usage status
+      description: >-
+        Hermes-lane runs require the authenticated owner operator and return the
+        closed Hermes status shape. Other lanes preserve the existing authorized
+        run-read shape. The disjoint closed schemas select the response branch;
+        no lane or authority field is added to either payload.
       parameters: [{ $ref: "#/components/parameters/RunId" }]
       responses:
         "200":
@@ -32,10 +94,96 @@ paths:
           headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/run-read.schema.json" }
+              schema:
+                oneOf:
+                  - { $ref: "../schemas/agents/hermes-status.schema.json" }
+                  - { $ref: "../schemas/agents/run-read.schema.json" }
         "401": { $ref: "#/components/responses/ProblemResponse" }
         "403": { $ref: "#/components/responses/ProblemResponse" }
         "404": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/agent-runs/{runId}/cancel:
+    post:
+      tags: [Hermes pending operations]
+      operationId: cancelHermesRun
+      summary: Request idempotent cancellation of an owner-operated Hermes run
+      description: >-
+        Requires the authenticated owner operator and same-origin CSRF protection.
+        Returns only bounded status; cancellation grants no provider authority.
+      parameters:
+        - { $ref: "#/components/parameters/RunId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "202":
+          description: Current Hermes status after the cancellation request
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/hermes-status.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/agent-runs/{runId}/pending-operations:
+    get:
+      tags: [Hermes pending operations]
+      operationId: listHermesPendingOperations
+      summary: Read at most twenty inert pending draft-operation intents
+      description: >-
+        Requires the authenticated owner operator. Returns pending intents only,
+        with digests and bounded identifiers. Nothing is created at a provider;
+        no execution, approval, receipt, or credential is exposed.
+      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      responses:
+        "200":
+          description: Closed page of inert pending operations
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/pending-operation-page.schema.json" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
+  /api/v1/workflows/{workflowId}/hermes-runs:
+    post:
+      tags: [Hermes pending operations]
+      operationId: startHermesRun
+      summary: Queue one owner-operated revision-bound Hermes run
+      description: >-
+        Requires the authenticated owner operator, same-origin CSRF protection,
+        enabled Hermes gates, and a ready current revision. The actor comes from
+        the session. Exact idempotent replay returns the original queued receipt,
+        including after the run advances or finishes; a changed revision or
+        binding conflicts. No provider execution is reachable.
+      parameters:
+        - { $ref: "#/components/parameters/WorkflowId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: "#/components/parameters/HermesIdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [revision_id]
+              properties:
+                revision_id: { type: integer, minimum: 1 }
+      responses:
+        "202":
+          description: Original queued start receipt, including exact replay
+          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          content:
+            application/json:
+              schema: { $ref: "../schemas/agents/hermes-start.schema.json" }
+        "400": { $ref: "#/components/responses/ProblemResponse" }
+        "401": { $ref: "#/components/responses/ProblemResponse" }
+        "403": { $ref: "#/components/responses/ProblemResponse" }
+        "404": { $ref: "#/components/responses/ProblemResponse" }
+        "409": { $ref: "#/components/responses/ProblemResponse" }
+        "503": { $ref: "#/components/responses/ProblemResponse" }
   /api/v1/agent-runs/{runId}/steps:
     get:
       tags: [Agent observability]
@@ -746,7 +894,29 @@ components:
       type: apiKey
       in: cookie
       name: sessionid
+    internalServiceToken:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+      description: Internal-only token loaded from a mode-0600 file; never logged or traced.
+  schemas:
+    DraftOperation:
+      $ref: "../schemas/integrations/draft-operation.schema.json"
+    HermesRunRequest:
+      $ref: "../schemas/agents/hermes-run-request.schema.json"
+    HermesRunResult:
+      $ref: "../schemas/agents/hermes-run-result.schema.json"
+    ModelGatewayProfile:
+      $ref: "../schemas/agents/model-gateway-profile.schema.json"
+    WorkflowCapability:
+      $ref: "../schemas/integrations/workflow-capability.schema.json"
   parameters:
+    HermesIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid, maxLength: 36 }
+      description: Stable UUID for one owner, workflow, and revision-bound start intent.
     CsrfToken:
       name: X-CSRFToken
       in: header

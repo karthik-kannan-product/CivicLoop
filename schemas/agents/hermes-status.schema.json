@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:hermes-status:v1.0",
+  "title": "Hermes run status response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "failure_category",
+    "cancel_requested",
+    "proposal_count",
+    "pending_operation_count"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "run_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"] },
+    "failure_category": {
+      "enum": [
+        null,
+        "budget_exhausted",
+        "cancelled",
+        "dependency_unavailable",
+        "invalid_output",
+        "provider_unavailable",
+        "timeout"
+      ]
+    },
+    "cancel_requested": { "type": "boolean" },
+    "proposal_count": { "type": "integer", "minimum": 0, "maximum": 20 },
+    "pending_operation_count": { "type": "integer", "minimum": 0, "maximum": 20 }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:hermes-transport-scope:v1.0",
+  "title": "Hermes run-scoped transport authority v1",
+  "$comment": "Consumers MUST reject use when expires_at is at or before the current time or more than ten minutes after it. Never copy capability into safe metadata, logs, traces, or model input.",
+  "x-civicloop-runtime-rules": [
+    {
+      "id": "civicloop.hermes_transport_scope.v1.expiry_bounded_at_use",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless expires_at is later than the current time and no more than 600 seconds later."
+    }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "run_id",
+    "workflow_id",
+    "revision_id",
+    "revision_digest",
+    "actor_id",
+    "capability",
+    "model_alias",
+    "expires_at",
+    "max_inferences",
+    "max_input_tokens",
+    "max_output_tokens",
+    "max_cost_microusd"
+  ],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}(?![\\s\\S])", "maxLength": 128 },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "revision_digest": { "type": "string", "pattern": "^[a-f0-9]{64}(?![\\s\\S])" },
+    "actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}(?![\\s\\S])", "maxLength": 50 },
+    "capability": { "type": "string", "pattern": "^cap_[A-Za-z0-9_-]{43,125}(?![\\s\\S])", "maxLength": 129, "writeOnly": true },
+    "model_alias": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,63}(?![\\s\\S])", "maxLength": 64 },
+    "expires_at": { "type": "string", "format": "date-time", "maxLength": 40 },
+    "max_inferences": { "type": "integer", "minimum": 1, "maximum": 1000 },
+    "max_input_tokens": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+    "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 100000 },
+    "max_cost_microusd": { "type": "integer", "minimum": 1, "maximum": 1000000000 }
+  }
+}

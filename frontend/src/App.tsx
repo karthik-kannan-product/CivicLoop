@@ -6,6 +6,7 @@ import { DecisionPanel } from "./components/DecisionPanel";
 import { EventBrief } from "./components/EventBrief";
 import { EventStartPanel } from "./components/EventStartPanel";
 import { LaneBoard } from "./components/LaneBoard";
+import { HermesRunPanel } from "./components/HermesRunPanel";
 import { ReviewPackage } from "./components/ReviewPackage";
 import { Timeline } from "./components/Timeline";
 import { WorkspaceHeader } from "./components/WorkspaceHeader";
@@ -99,6 +100,16 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
           onResolve={(answers) => void mutate(`/api/v1/workflows/${workflowId}/answers`, answers)}
         />
         <LaneBoard campaignPackage={state.workflow.package} />
+        {isOperator && sessionUser?.administrator && (
+          <HermesRunPanel
+            key={`${workflowId}:${state.event.revision.id}`}
+            workflowId={workflowId}
+            revisionId={state.event.revision.id}
+            authorized
+            enabled={sessionUser.hermes_enabled === true}
+            ready={["ready_for_review", "in_review"].includes(state.workflow.status)}
+          />
+        )}
         {state.workflow.package && (
           <ReviewPackage
             campaignPackage={state.workflow.package}

@@ -1,10 +1,13 @@
+import hashlib
 import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from agents.redaction import validate_safe_summary
+from agents.tool_schemas import bounded_json
 
 
 class ImmutableVersionedModel(models.Model):
@@ -234,6 +237,7 @@ class AgentRun(models.Model):
     )
     event_revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
     package_hash = models.CharField(max_length=64)
+    hermes_lane = models.BooleanField(default=False)
     routing_policy = models.ForeignKey(RoutingPolicy, on_delete=models.PROTECT)
     model_profile = models.ForeignKey(ModelProfile, on_delete=models.PROTECT)
     fixture_manifest_id = models.SlugField(max_length=64)
@@ -255,6 +259,7 @@ class AgentRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     immutable_binding_fields = (
+        "hermes_lane",
         "workflow_id",
         "event_revision_id",
         "package_hash",
@@ -268,6 +273,11 @@ class AgentRun(models.Model):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(
+                fields=("hermes_lane",),
+                condition=Q(hermes_lane=True, status__in=("queued", "running")),
+                name="agents_one_active_hermes_run",
+            ),
             models.CheckConstraint(
                 condition=Q(attempt__gte=1) & Q(attempt__lte=10), name="agents_run_attempt_range"
             ),
@@ -324,6 +334,140 @@ class AgentRun(models.Model):
             lifecycle_errors["failure_category"] = "Non-failed runs cannot have a failure category."
         if lifecycle_errors:
             raise ValidationError(lifecycle_errors)
+
+
+class AgentRunEvent(models.Model):
+    run = models.ForeignKey(AgentRun, related_name="events", on_delete=models.PROTECT)
+    sequence = models.PositiveSmallIntegerField()
+    event_type = models.CharField(max_length=32)
+    outcome = models.CharField(max_length=32)
+    detail_digest = models.CharField(max_length=64)
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=("run", "sequence"), name="agents_run_event_sequence"),
+            models.CheckConstraint(
+                condition=Q(sequence__gte=1), name="agents_run_event_sequence_positive"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.run_id}: {self.sequence}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError("AgentRunEvent records are append-only.")
+        return super().save(*args, **kwargs)
+
+
+class HermesRunBinding(models.Model):
+    run = models.OneToOneField(AgentRun, related_name="hermes_binding", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    correlation_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
+    revision_digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return str(self.run_id)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValueError("HermesRunBinding records are immutable.")
+        self.revision_digest = hashlib.sha256(
+            bounded_json(self.run.event_revision.snapshot).encode()
+        ).hexdigest()
+        return super().save(*args, **kwargs)
+
+
+class AgentRunControl(models.Model):
+    run = models.OneToOneField(AgentRun, related_name="control", on_delete=models.PROTECT)
+    cancel_requested_at = models.DateTimeField(null=True)
+    capability = models.ForeignKey("WorkflowCapability", null=True, on_delete=models.PROTECT)
+    lease_expires_at = models.DateTimeField(null=True)
+    admission_disabled = models.BooleanField(default=False)
+    # Worker-owned observability context; never an admission or execution authority.
+    telemetry_traceparent = models.CharField(max_length=55, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return str(self.run_id)
+
+
+class WorkflowCapability(models.Model):
+    """Only a digest of the signed bearer token is retained."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token_digest = models.CharField(max_length=64, unique=True)
+    revision_digest = models.CharField(max_length=64)
+    workflow = models.ForeignKey("launchloop.Workflow", on_delete=models.PROTECT)
+    revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    tools = models.JSONField()
+    audience = models.CharField(max_length=32, default="civicloop-hermes")
+    issued_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True)
+    correlation_id = models.UUIDField(null=True)
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+
+class MCPInvocation(models.Model):
+    capability = models.ForeignKey(WorkflowCapability, on_delete=models.PROTECT)
+    request_id = models.UUIDField(unique=True)
+    idempotency_digest = models.CharField(max_length=64, unique=True)
+    argument_digest = models.CharField(max_length=64)
+    tool_name = models.CharField(max_length=40)
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return str(self.request_id)
+
+
+class MCPSubmission(models.Model):
+    """Untrusted draft/clarification content, never approval or executable input."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    capability = models.ForeignKey(WorkflowCapability, on_delete=models.PROTECT)
+    kind = models.CharField(max_length=24)
+    content = models.JSONField()
+    digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+
+class DraftOperation(models.Model):
+    """Pending intent only. Execution/approval is deliberately not a broker operation."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.ForeignKey("launchloop.Workflow", on_delete=models.PROTECT)
+    revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    proposal = models.ForeignKey(MCPSubmission, on_delete=models.PROTECT)
+    provider = models.CharField(max_length=16)
+    operation_kind = models.CharField(max_length=40)
+    action_digest = models.CharField(max_length=64)
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    status = models.CharField(max_length=16, default="pending")
+    approval = models.ForeignKey("launchloop.ApprovalRequest", null=True, on_delete=models.PROTECT)
+    receipt = models.JSONField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status="pending", approval__isnull=True, receipt__isnull=True),
+                name="agents_broker_pending_only",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id}: {self.status}"
 
 
 class AgentStep(models.Model):
@@ -388,3 +532,40 @@ class AgentStep(models.Model):
     def clean(self) -> None:
         validate_safe_summary(self.input_summary)
         validate_safe_summary(self.output_summary)
+
+
+class HermesAdmissionLane(models.Model):
+    """One durable singleton lock and quarantine switch for the Hermes lane."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    active_run = models.OneToOneField(
+        AgentRun, null=True, on_delete=models.PROTECT, related_name="admission_lane"
+    )
+    admission_disabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=Q(id=1), name="agents_hermes_single_lane")]
+
+    def __str__(self):
+        return "Hermes admission lane"
+
+
+class HermesStartReceipt(models.Model):
+    """Immutable request identity; retries never grant authority or create a second run."""
+
+    id = models.UUIDField(primary_key=True, editable=False)
+    owner = models.ForeignKey("auth.User", on_delete=models.PROTECT)
+    actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    workflow = models.ForeignKey("launchloop.Workflow", on_delete=models.PROTECT)
+    revision = models.ForeignKey("launchloop.EventRevision", on_delete=models.PROTECT)
+    run = models.OneToOneField(AgentRun, related_name="start_receipt", on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return str(self.run_id)
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValueError("HermesStartReceipt records are immutable.")
+        return super().save(*args, **kwargs)

@@ -1,0 +1,9 @@
+{
+  "upstream_commit": "939e45c91d751fadd94dcd1b873ac3cb44846213",
+  "base_image": "docker.io/nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1",
+  "files": [{
+    "path": "agent/auxiliary_client.py",
+    "source_sha256": "becbb3f3a6b9b847b95791e0c43d2689d5f07726f75b106f13afad8d45c5c9c7",
+    "replacement_sha256": "f6b539f1c9205a7ea8008c4561a99f1956fb1948d640504b7484461e10b50cef"
+  }]
+}

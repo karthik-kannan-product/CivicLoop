@@ -3,6 +3,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import login as django_login
 from django.contrib.auth import logout as django_logout
@@ -97,6 +98,16 @@ def _session_payload(actor: DemoActor, *, administrator: bool = False) -> dict[s
             "display_name": actor.display_name,
             "role": actor.role,
             "administrator": administrator,
+            **(
+                {
+                    "hermes_enabled": bool(
+                        settings.CIVICLOOP_HERMES_ENABLED
+                        and settings.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED
+                    )
+                }
+                if administrator
+                else {}
+            ),
         }
     }
 

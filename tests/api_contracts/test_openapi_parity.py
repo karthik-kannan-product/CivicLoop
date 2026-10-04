@@ -34,6 +34,8 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
 
     assert set(specification["paths"]) == {
         "/api/v1/agent-runs/{runId}",
+        "/api/v1/agent-runs/{runId}/cancel",
+        "/api/v1/agent-runs/{runId}/pending-operations",
         "/api/v1/agent-runs/{runId}/steps",
         "/api/v1/agent-runs/{runId}/evaluations",
         "/api/v1/agent-runs/{runId}/usage",
@@ -47,6 +49,7 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/eventbrite/events/refresh",
         "/api/v1/eventbrite/events/{sourceId}/select",
         "/api/v1/workflows/{workflowId}/runs",
+        "/api/v1/workflows/{workflowId}/hermes-runs",
         "/api/v1/workflows/{workflowId}/evaluations",
         "/api/v1/workflows/{workflowId}/answers",
         "/api/v1/workflows/{workflowId}/submit",
@@ -74,6 +77,8 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/admin/integrations/{provider}/test",
         "/api/v1/admin/integrations/{provider}/disable",
         "/api/v1/admin/integrations/{provider}/audit",
+        "/internal/v1/hermes/runs",
+        "/internal/v1/draft-operations",
     }
 
 

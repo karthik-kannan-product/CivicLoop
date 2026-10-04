@@ -20,9 +20,13 @@ from opentelemetry.sdk.trace.export import (
     SpanExporter,
     SpanExportResult,
 )
-from opentelemetry.trace import Span, Tracer
+from opentelemetry.trace import Span, Status, Tracer
 
-from .redaction import sanitize_span_attributes
+from .redaction import (
+    sanitize_resource_attributes,
+    sanitize_span_attributes,
+    sanitize_span_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +91,15 @@ class RedactingSpanExporter(SpanExporter):
 
     def _sanitize_span(self, span: ReadableSpan) -> ReadableSpan:
         return ReadableSpan(
-            name=span.name,
+            name=sanitize_span_name(span.name),
             context=span.context,
             parent=span.parent,
-            resource=span.resource,
+            resource=Resource(
+                sanitize_resource_attributes(
+                    span.resource.attributes,
+                    max_length=self._max_attribute_length,
+                )
+            ),
             attributes=sanitize_span_attributes(
                 span.attributes,
                 max_length=self._max_attribute_length,
@@ -99,7 +108,7 @@ class RedactingSpanExporter(SpanExporter):
             links=(),
             kind=span.kind,
             instrumentation_scope=span.instrumentation_scope,
-            status=span.status,
+            status=Status(span.status.status_code),
             start_time=span.start_time,
             end_time=span.end_time,
         )

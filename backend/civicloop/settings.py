@@ -45,9 +45,7 @@ if CIVICLOOP_ADMIN_IDENTITY_ENABLED:
         and os.access(CIVICLOOP_IDENTITY_KEY_FILE, os.R_OK)
     )
     if identity_key_file_is_safe and os.name != "nt":
-        identity_key_file_is_safe = not bool(
-            CIVICLOOP_IDENTITY_KEY_FILE.stat().st_mode & 0o077
-        )
+        identity_key_file_is_safe = not bool(CIVICLOOP_IDENTITY_KEY_FILE.stat().st_mode & 0o077)
     if not identity_key_file_is_safe:
         raise ImproperlyConfigured(
             "The administrator identity key file must be configured as a readable "
@@ -83,12 +81,10 @@ DOCUMENTED_PLACEHOLDER_DEMO_PASSWORD = "replace-with-a-unique-demo-password"
 DEMO_PASSWORD = os.getenv("CIVICLOOP_DEMO_PASSWORD", DEVELOPMENT_DEMO_PASSWORD)
 if ENVIRONMENT not in {"development", "test"} and (
     not DEMO_PASSWORD
-    or DEMO_PASSWORD
-    in {DEVELOPMENT_DEMO_PASSWORD, DOCUMENTED_PLACEHOLDER_DEMO_PASSWORD}
+    or DEMO_PASSWORD in {DEVELOPMENT_DEMO_PASSWORD, DOCUMENTED_PLACEHOLDER_DEMO_PASSWORD}
 ):
     raise ImproperlyConfigured(
-        "CIVICLOOP_DEMO_PASSWORD must be set to a non-default value outside "
-        "development and test."
+        "CIVICLOOP_DEMO_PASSWORD must be set to a non-default value outside development and test."
     )
 DEBUG = ENVIRONMENT == "development"
 ALLOWED_HOSTS = [
@@ -146,6 +142,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "civicloop.urls"
+CIVICLOOP_MCP_TOKEN_FILE = os.getenv("CIVICLOOP_MCP_TOKEN_FILE", "")
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -229,7 +226,7 @@ SESSION_COOKIE_SAMESITE = "Lax"
 
 try:
     configured_agent_concurrency = int(os.getenv("AGENT_MAX_CONCURRENCY", "3"))
-except (TypeError, ValueError):
+except TypeError, ValueError:
     raise ImproperlyConfigured("AGENT_MAX_CONCURRENCY must be an integer.") from None
 
 AGENT_MAX_CONCURRENCY = min(max(configured_agent_concurrency, 1), 3)
@@ -243,14 +240,28 @@ CELERY_TASK_SOFT_TIME_LIMIT = 270
 
 try:
     configured_celery_worker_concurrency = int(os.getenv("CELERY_WORKER_CONCURRENCY", "1"))
-except (TypeError, ValueError):
+except TypeError, ValueError:
     raise ImproperlyConfigured("CELERY_WORKER_CONCURRENCY must be an integer.") from None
 
-CELERY_WORKER_CONCURRENCY = min(
-    max(configured_celery_worker_concurrency, 1), AGENT_MAX_CONCURRENCY
-)
+CELERY_WORKER_CONCURRENCY = min(max(configured_celery_worker_concurrency, 1), AGENT_MAX_CONCURRENCY)
 
 CIVICLOOP_TELEMETRY_ENABLED = os.getenv("CIVICLOOP_TELEMETRY_ENABLED", "false").lower() == "true"
 CIVICLOOP_TELEMETRY_ENDPOINT = os.getenv("CIVICLOOP_TELEMETRY_ENDPOINT", "")
 CIVICLOOP_TELEMETRY_HEADERS_FILE = os.getenv("CIVICLOOP_TELEMETRY_HEADERS_FILE", "")
 CIVICLOOP_TELEMETRY_SERVICE_NAME = os.getenv("CIVICLOOP_TELEMETRY_SERVICE_NAME", "civicloop")
+
+CIVICLOOP_HERMES_ENABLED = os.getenv("CIVICLOOP_HERMES_ENABLED", "false").lower() == "true"
+CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED = (
+    os.getenv("CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED", "false").lower() == "true"
+)
+CIVICLOOP_HERMES_PROFILE_ID = os.getenv("CIVICLOOP_HERMES_PROFILE_ID", "")
+CIVICLOOP_HERMES_PROFILE_REVISION = int(os.getenv("CIVICLOOP_HERMES_PROFILE_REVISION", "1"))
+CIVICLOOP_HERMES_TIMEOUT_SECONDS = int(os.getenv("CIVICLOOP_HERMES_TIMEOUT_SECONDS", "120"))
+CIVICLOOP_HERMES_MAX_INFERENCES = int(os.getenv("CIVICLOOP_HERMES_MAX_INFERENCES", "8"))
+
+CIVICLOOP_HERMES_ADAPTER_URL = os.getenv(
+    "CIVICLOOP_HERMES_ADAPTER_URL", "http://hermes-adapter:8080"
+)
+CIVICLOOP_HERMES_ADAPTER_TOKEN_FILE = os.getenv(
+    "CIVICLOOP_HERMES_ADAPTER_TOKEN_FILE", "/run/secrets/civicloop-hermes-service-token"
+)

@@ -28,6 +28,29 @@ they do not change the nine frozen persistence/interchange contracts above:
 | Agents | `agents/usage-read.schema.json` | `urn:civicloop:schema:agents:usage-read:v1.0` | Reservation and append-only ledger status |
 | Evaluations | `evaluations/result-page.schema.json` | `urn:civicloop:schema:evaluations:result-page:v1.0` | Bounded advisory evaluation summaries |
 
+The self-hosted Hermes and live-draft boundary adds five provider-neutral,
+closed contracts. These contracts carry references, digests, bounded usage, and
+sanitized categories; they never carry raw model or provider draft content.
+
+| Area | Schema | Immutable `$id` | Purpose |
+| --- | --- | --- | --- |
+| Agents | `agents/hermes-run-request.schema.json` | `urn:civicloop:schema:agents:hermes-run-request:v1.0` | Workflow-, revision-, actor-, capability-, route-, and budget-bound dispatch |
+| Agents | `agents/hermes-transport-scope.schema.json` | `urn:civicloop:schema:agents:hermes-transport-scope:v1.0` | Short-lived run-scoped transport authority and inference budgets |
+| Agents | `agents/hermes-run-result.schema.json` | `urn:civicloop:schema:agents:hermes-run-result:v1.0` | Validated proposal references, bounded usage, and sanitized terminal status |
+| Agents | `agents/model-gateway-profile.schema.json` | `urn:civicloop:schema:agents:model-gateway-profile:v1.0` | Provider-neutral alias, internal base URL, timeout, and budget policy |
+| Integrations | `integrations/workflow-capability.schema.json` | `urn:civicloop:schema:integrations:workflow-capability:v1.0` | Short-lived, audience-bound, tool-scoped, independently revocable authority |
+| Integrations | `integrations/draft-operation.schema.json` | `urn:civicloop:schema:integrations:draft-operation:v1.0` | Exact-digest, four-eyes, idempotent provider draft operation and typed receipt |
+
+The production Hermes pending-operation API publishes three additional closed
+responses. They expose run state and pending intent metadata only; draft bodies,
+approval, execution, and receipts are outside this API.
+
+| Area | Schema | Immutable `$id` | Purpose |
+| --- | --- | --- | --- |
+| Agents | `agents/hermes-start.schema.json` | `urn:civicloop:schema:agents:hermes-start:v1.0` | Queued run identifier after authorized start |
+| Agents | `agents/hermes-status.schema.json` | `urn:civicloop:schema:agents:hermes-status:v1.0` | Run status, cancellation state, and bounded counts |
+| Agents | `agents/pending-operation-page.schema.json` | `urn:civicloop:schema:agents:pending-operation-page:v1.0` | Up to 20 pending operation identifiers, kinds, and action digests |
+
 ## Compatibility
 
 A published `$id` is immutable. Any compatible minor revision is published as a

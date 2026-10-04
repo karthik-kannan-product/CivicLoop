@@ -28,7 +28,13 @@ def test_openapi_agent_reads_are_get_only_no_store_and_problem_shaped() -> None:
     agent_paths = {
         path: value
         for path, value in specification["paths"].items()
-        if path.startswith("/api/v1/agent-runs/")
+        if path
+        in {
+            "/api/v1/agent-runs/{runId}",
+            "/api/v1/agent-runs/{runId}/steps",
+            "/api/v1/agent-runs/{runId}/evaluations",
+            "/api/v1/agent-runs/{runId}/usage",
+        }
     }
     assert len(agent_paths) == 4
     for path_item in agent_paths.values():

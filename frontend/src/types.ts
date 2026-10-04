@@ -4,6 +4,32 @@ export type Actor = {
   role: "operator" | "approver";
 };
 
+export type HermesStartReceipt = {
+  schema_version: "1.0";
+  run_id: string;
+  status: "queued";
+};
+
+export type HermesRunStatus = {
+  schema_version: "1.0";
+  run_id: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  failure_category: "budget_exhausted" | "cancelled" | "dependency_unavailable" |
+    "invalid_output" | "provider_unavailable" | "timeout" | null;
+  cancel_requested: boolean;
+  proposal_count: number;
+  pending_operation_count: number;
+};
+
+export type PendingOperation = {
+  operation_id: string;
+  provider: "eventbrite" | "iterable";
+  operation_kind: "create_eventbrite_draft" | "create_iterable_email_draft" |
+    "create_iterable_reminder_draft";
+  status: "pending";
+  action_digest: string;
+};
+
 export type Lane = {
   label: string;
   status: "complete" | "needs_input" | "blocked";

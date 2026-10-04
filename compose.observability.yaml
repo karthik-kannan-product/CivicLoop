@@ -1,3 +1,8 @@
+x-phoenix-image-lock:
+  target: docker.io/arizephoenix/phoenix:version-20.11.0-nonroot@sha256:fa710d5910700c2cf682a2bdd34f14593d7357638b0a4415703bbd360fbdafc3
+  rollback: docker.io/arizephoenix/phoenix:version-20.4.0-nonroot@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07
+  activation_allowed: false
+
 services:
   phoenix-volume-init:
     image: busybox:1.37.0-musl@sha256:fc6dddc4c44b1bfe37f41cae8e67d1693828e8f42a91862816d7953e2c9d3f23
@@ -15,7 +20,7 @@ services:
     restart: "no"
 
   phoenix:
-    image: arizephoenix/phoenix:version-20.4.0-nonroot@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07
+    image: ${PHOENIX_IMAGE:-docker.io/arizephoenix/phoenix:version-20.4.0-nonroot@sha256:5605acbd1f6c7b0f425e52080aed303818f322a46174a8e60332868bbe015b07}
     profiles: [observability]
     env_file:
       - ${CIVICLOOP_PHOENIX_ENV_HOST_PATH:?Set an absolute host Phoenix environment path}
@@ -71,3 +76,5 @@ services:
 
 volumes:
   phoenix-data:
+    name: ${PHOENIX_VOLUME_NAME:?Set the exact existing Phoenix volume name}
+    external: true

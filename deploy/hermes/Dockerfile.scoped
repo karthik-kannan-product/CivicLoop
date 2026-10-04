@@ -1,0 +1,11 @@
+FROM docker.io/nousresearch/hermes-agent:v2026.9.11@sha256:9469b3e78b9545b6d576eb8887a95352e9a0ea83730eaf31431cf862ca1010e1
+
+USER root
+COPY deploy/hermes/runtime_patch /tmp/civicloop-runtime-patch
+RUN /opt/hermes/.venv/bin/python /tmp/civicloop-runtime-patch/apply.py /opt/hermes \
+    && rm -r /tmp/civicloop-runtime-patch
+COPY deploy/hermes/*.py deploy/hermes/*.yaml /opt/civicloop/deploy/hermes/
+COPY deploy/litellm/assertions.py /opt/civicloop/deploy/litellm/assertions.py
+ENV PYTHONPATH=/opt/civicloop
+# Preserve the upstream dispatcher and its hermes UID drop.
+CMD ["/opt/hermes/.venv/bin/python", "-m", "deploy.hermes.controller_service"]

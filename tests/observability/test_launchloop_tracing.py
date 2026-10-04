@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 import pytest
 from django.test import Client
-from launchloop.models import DemoActor, Workflow
+from launchloop.models import AuditEvent, DemoActor, Workflow
 from launchloop.services import (
     answer_questions,
     decide_approval,
@@ -123,6 +123,14 @@ def test_telemetry_outage_does_not_change_workflow_result() -> None:
     assert workflow.status == "completed"
     assert workflow.package_hash == approval.package_hash
     assert approval.execution.receipt["external_actions"] == 0
+    assert AuditEvent.objects.filter(
+        target_id=str(workflow.id),
+        action="package_approved",
+    ).exists()
+    assert AuditEvent.objects.filter(
+        target_id=str(workflow.id),
+        action="sandbox_receipt_recorded",
+    ).exists()
 
 
 @pytest.mark.django_db

@@ -41,6 +41,26 @@ jobs:
           git cat-file -e "${TARGET_COMMIT}^{commit}"
           git merge-base --is-ancestor "$TARGET_COMMIT" origin/main
 
+      # Admission validation only; the reviewed private operations overlay
+      # enforces actual container flags and the required derived image digest.
+      - name: Validate disabled Hermes deployment contract
+        env:
+          HERMES_ENABLED: ${{ vars.CIVICLOOP_HERMES_ENABLED || 'false' }}
+          PENDING_OPERATIONS_ENABLED: ${{ vars.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED || 'false' }}
+          HERMES_IMAGE_REPOSITORY: ${{ vars.CIVICLOOP_HERMES_IMAGE_REPOSITORY }}
+          HERMES_IMAGE_DIGEST: ${{ vars.CIVICLOOP_HERMES_IMAGE_DIGEST }}
+        run: |
+          if [[ "$HERMES_ENABLED" != "false" || "$PENDING_OPERATIONS_ENABLED" != "false" ]]; then
+            echo "Application deployment requires both Hermes activation flags disabled." >&2
+            exit 1
+          fi
+          if [[ -n "$HERMES_IMAGE_REPOSITORY" || -n "$HERMES_IMAGE_DIGEST" ]]; then
+            if [[ ! "$HERMES_IMAGE_REPOSITORY" =~ ^[a-z0-9][a-z0-9._:/-]*$ || ! "$HERMES_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Configured derived Hermes image requires an exact repository and sha256 digest." >&2
+              exit 1
+            fi
+          fi
+
       - name: Deploy pinned revision to Vultr
         env:
           TARGET_COMMIT: ${{ inputs.commit_sha }}

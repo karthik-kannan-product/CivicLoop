@@ -1,0 +1,25 @@
+schema_version: "1.0"
+model_alias: civicloop-default
+maximum_concurrent_runs: 1
+effective_tools:
+  - mcp__civicloop__get_event_revision
+  - mcp__civicloop__get_policy_context
+  - mcp__civicloop__request_clarification
+  - mcp__civicloop__propose_campaign_drafts
+  - mcp__civicloop__validate_proposal
+  - mcp__civicloop__request_eventbrite_draft
+  - mcp__civicloop__request_iterable_drafts
+  - mcp__civicloop__get_operation_status
+prohibited_capability_classes:
+  - terminal
+  - process
+  - filesystem_write
+  - browser
+  - web
+  - code_execution
+  - cron
+  - delegation
+  - messaging
+  - computer_use
+  - skill_mutation
+  - general_memory

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:integrations:workflow-capability:v1.0",
+  "title": "Workflow capability v1",
+  "$comment": "Consumers MUST reject a capability when revoked_at is non-null, when the current time is at or after expires_at, or when expires_at is not later than issued_at and within ttl_seconds.",
+  "x-civicloop-runtime-rules": [
+    {
+      "id": "civicloop.workflow_capability.v1.issued_before_expires",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless issued_at is earlier than expires_at."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.not_expired_at_use",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject every use when the current time is at or after expires_at."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.not_revoked_at_use",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject every use when revoked_at is non-null, regardless of issued_at, expires_at, or ttl_seconds."
+    },
+    {
+      "id": "civicloop.workflow_capability.v1.ttl_matches_timestamps",
+      "enforcement": "runtime_required",
+      "failure_behavior": "reject",
+      "requirement": "Reject unless expires_at minus issued_at equals ttl_seconds and ttl_seconds is at most 300."
+    }
+  ],
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capability_id",
+    "token_digest",
+    "workflow_id",
+    "revision_id",
+    "actor_id",
+    "tools",
+    "audience",
+    "issued_at",
+    "expires_at",
+    "ttl_seconds",
+    "revoked_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "capability_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "token_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$", "writeOnly": true },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "get_event_revision",
+          "get_policy_context",
+          "request_clarification",
+          "propose_campaign_drafts",
+          "validate_proposal",
+          "request_eventbrite_draft",
+          "request_iterable_drafts",
+          "get_operation_status"
+        ]
+      }
+    },
+    "audience": { "const": "civicloop-hermes" },
+    "issued_at": { "type": "string", "format": "date-time", "maxLength": 40 },
+    "expires_at": { "type": "string", "format": "date-time", "maxLength": 40 },
+    "ttl_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+    "revoked_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 40 }
+  }
+}

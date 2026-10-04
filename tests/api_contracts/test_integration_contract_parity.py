@@ -53,8 +53,10 @@ LIVE_INTEGRATION_ROUTES = {
 
 EXPECTED_SCHEMAS = {
     "connection.schema.json",
+    "draft-operation.schema.json",
     "mutations.schema.json",
     "health-check.schema.json",
+    "workflow-capability.schema.json",
 }
 SENSITIVE_FIELD_NAMES = {
     "ciphertext",

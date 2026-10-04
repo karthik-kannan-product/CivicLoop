@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:civicloop:schema:agents:hermes-run-request:v1.0",
+  "title": "Hermes run request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "revision_id",
+    "actor_id",
+    "correlation_id",
+    "capability_token",
+    "model_alias",
+    "budgets"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "workflow_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "revision_id": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "actor_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,50}$", "maxLength": 50 },
+    "correlation_id": { "type": "string", "format": "uuid", "maxLength": 36 },
+    "capability_token": {
+      "type": "string",
+      "pattern": "^cap_[A-Za-z0-9_-]{43,125}$",
+      "maxLength": 129,
+      "writeOnly": true
+    },
+    "model_alias": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{2,63}$",
+      "maxLength": 64
+    },
+    "budgets": { "$ref": "#/$defs/Budgets" }
+  },
+  "$defs": {
+    "Budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_input_tokens",
+        "max_output_tokens",
+        "max_cost_microusd",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "max_input_tokens": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "max_cost_microusd": { "type": "integer", "minimum": 1, "maximum": 1000000000 },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 600 }
+      }
+    }
+  }
+}

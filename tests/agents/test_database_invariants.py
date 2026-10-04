@@ -1,10 +1,18 @@
+import importlib
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from agents.budgets import reserve_budget, settle_budget
-from agents.models import AgentRun, BudgetLedgerRecord
+from agents.models import (
+    AgentRun,
+    AgentRunControl,
+    AgentRunEvent,
+    BudgetLedgerRecord,
+    HermesRunBinding,
+)
 from django.core.cache import cache
-from django.db import DatabaseError, close_old_connections, connection, transaction
+from django.db import DatabaseError, close_old_connections, connection, migrations, transaction
 from django.db.migrations.loader import MigrationLoader
 from django.test import override_settings
 from evaluations.models import EvaluationResult
@@ -16,6 +24,7 @@ def test_control_plane_invariant_migrations_are_present() -> None:
     loader = MigrationLoader(None, ignore_no_migrations=True)
 
     assert ("agents", "0002_database_invariants") in loader.disk_migrations
+    assert ("agents", "0006_hermes_run_state") in loader.disk_migrations
     assert ("evaluations", "0002_evaluation_results_append_only") in loader.disk_migrations
     assert AgentRun._meta.get_field("workflow").remote_field.on_delete.__name__ == "PROTECT"
     assert (
@@ -23,6 +32,58 @@ def test_control_plane_invariant_migrations_are_present() -> None:
         == "PROTECT"
     )
     assert EvaluationResult._meta.get_field("run").remote_field.on_delete.__name__ == "PROTECT"
+    for model in (AgentRunEvent, HermesRunBinding, AgentRunControl):
+        assert model._meta.get_field("run").remote_field.on_delete.__name__ == "PROTECT"
+
+
+def test_hermes_evidence_migration_installs_and_reverses_database_guards() -> None:
+    migration = importlib.import_module("agents.migrations.0006_hermes_run_state")
+    operation = next(
+        operation
+        for operation in migration.Migration.operations
+        if isinstance(operation, migrations.RunPython)
+    )
+    statements: list[str] = []
+    editor = SimpleNamespace(
+        connection=SimpleNamespace(vendor="postgresql"), execute=statements.append
+    )
+
+    operation.code(None, editor)
+    sql = "\n".join(statements)
+    for table in ("agents_agentrunevent", "agents_hermesrunbinding"):
+        assert f"BEFORE UPDATE OR DELETE ON {table}" in sql
+
+    statements.clear()
+    operation.reverse_code(None, editor)
+    reverse_sql = "\n".join(statements)
+    for table in ("agents_agentrunevent", "agents_hermesrunbinding"):
+        assert f"ON {table}" in reverse_sql
+    assert "DROP FUNCTION IF EXISTS" in reverse_sql
+
+
+@pytest.mark.django_db(transaction=True)
+def test_postgresql_rejects_bulk_changes_to_hermes_evidence() -> None:
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL trigger enforcement is verified with a PostgreSQL database.")
+
+    run = create_run()
+    event = AgentRunEvent.objects.create(
+        run=run,
+        sequence=1,
+        event_type="queued",
+        outcome="accepted",
+        detail_digest="a" * 64,
+    )
+    binding = HermesRunBinding.objects.create(run=run, actor=run.event_revision.author)
+    for model, record, changed_field in (
+        (AgentRunEvent, event, {"outcome": "changed"}),
+        (HermesRunBinding, binding, {"revision_digest": "f" * 64}),
+    ):
+        with pytest.raises(DatabaseError), transaction.atomic():
+            model.objects.filter(pk=record.pk).update(**changed_field)
+        with pytest.raises(DatabaseError), transaction.atomic():
+            model.objects.filter(pk=record.pk).delete()
+        assert model.objects.filter(pk=record.pk).exists()
 
 
 @override_settings(
