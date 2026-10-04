@@ -711,6 +711,41 @@ def test_actual_run_inspection_emits_only_closed_event_categories(settings, monk
     assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(evidence)
 
 
+@pytest.mark.django_db
+def test_controller_phase_queries_real_derived_binding_uuid_privately(settings, monkeypatch):
+    from agents.hermes import HermesClient
+
+    from tests.agents import test_hermes_tasks
+    from tests.fakes import hermes_pending_operations_contract as harness
+    from tests.fakes.hermes_contract_fixture import controller_binding
+
+    inputs = test_hermes_tasks.inputs.__wrapped__(settings, monkeypatch)
+    run = test_hermes_tasks.queue(inputs)
+    binding = controller_binding(str(run.id))
+    expected = HermesClient._run_id(run)
+    assert binding == {"controller_run_id": expected}
+    # Current admission deliberately uses this same UUID as AgentRun.id.
+    assert expected == str(run.id)
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.active_run_id = str(run.id)
+    stack.fixture = lambda name, run_id: controller_binding(run_id)
+    captured = []
+
+    def compose(*arguments, **kwargs):
+        captured.append({
+            "derived_id": json.loads(kwargs["input_text"]) == expected,
+            "argv_private": expected not in json.dumps(arguments),
+            "proxies_disabled": "ProxyHandler({})" in arguments[-1],
+        })
+        return '{"phase":"failed","failure_count":1}'
+
+    stack.compose = compose
+    evidence = stack.controller_phase()
+    assert captured == [{"derived_id": True, "argv_private": True, "proxies_disabled": True}]
+    assert evidence == {"phase": "failed", "failure_count": 1}
+    assert expected not in json.dumps(evidence)
+
+
 @pytest.mark.skipif(
     os.environ.get("CIVICLOOP_RUN_EXACT_HERMES_CONTRACT") != "1",
     reason="exact image application gate requires reviewed frozen manifest",

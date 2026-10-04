@@ -463,6 +463,12 @@ class Stack:
         return "clean"
 
     def controller_phase(self):
+        binding = self.fixture("controller-binding", self.active_run_id)
+        require(set(binding) == {"controller_run_id"}, "controller_snapshot_invalid")
+        try:
+            controller_run_id = str(uuid.UUID(binding["controller_run_id"]))
+        except ValueError, TypeError, AttributeError:
+            raise ContractFailure("controller_snapshot_invalid") from None
         code = """import json,os,pathlib,sys,urllib.error,urllib.request,uuid
 run_id=str(uuid.UUID(json.loads(sys.stdin.read(128))))
 evidence={'phase':'unavailable','failure_count':0}
@@ -471,7 +477,8 @@ try:
     request=urllib.request.Request(
         'http://127.0.0.1:8642/internal/v1/controller/runs/'+run_id,
         headers={'Authorization':'Bearer '+token})
-    response=urllib.request.urlopen(request,timeout=3)
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    response=opener.open(request,timeout=3)
     payload=json.loads(response.read(32769))
     phase=payload.get('status')
     if phase in {'running','succeeded','failed','cancelled'}:
@@ -485,7 +492,7 @@ print(json.dumps(evidence))
 """
         value = json.loads(self.compose(
             "exec", "-T", "hermes", "python", "-c", code,
-            input_text=json.dumps(self.active_run_id),
+            input_text=json.dumps(controller_run_id),
         ))
         require(
             set(value) == {"phase", "failure_count"}

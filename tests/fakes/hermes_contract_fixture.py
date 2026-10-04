@@ -286,6 +286,16 @@ def nonces():
     }
 
 
+def controller_binding(run_id):
+    django_setup()
+    from agents.hermes import HermesClient
+    from agents.models import AgentRun
+
+    run = AgentRun.objects.select_related("hermes_binding").get(pk=run_id)
+    # Internal diagnostic transfer only; never included in public evidence.
+    return {"controller_run_id": HermesClient._run_id(run)}
+
+
 if __name__ == "__main__":
     try:
         command = sys.argv[1]
@@ -296,7 +306,14 @@ if __name__ == "__main__":
             "phoenix": phoenix_start,
             "nonces": nonces,
         }.get(command)
-        payload = result() if result else inspect(sys.argv[2]) if command == "inspect" else None
+        if result:
+            payload = result()
+        elif command == "inspect":
+            payload = inspect(sys.argv[2])
+        elif command == "controller-binding":
+            payload = controller_binding(sys.argv[2])
+        else:
+            payload = None
         if payload is None:
             raise ValueError
         print(json.dumps(payload, separators=(",", ":")))
