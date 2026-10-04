@@ -34,6 +34,12 @@ def main() -> int:
     }
     probe = """
 import json
+import os
+import shutil
+from pathlib import Path
+home = Path(os.environ['HERMES_HOME'])
+home.mkdir(mode=0o700)
+shutil.copyfile('/probe/config.yaml', home / 'config.yaml')
 from hermes_cli.tools_config import _get_platform_tools
 from model_tools import get_tool_definitions
 from tools.registry import registry
@@ -47,6 +53,7 @@ assert set(disabled) == set(TOOLSETS), (
     set(disabled) - set(TOOLSETS),
 )
 assert config['plugins']['enabled'] == []
+assert config['tools'] == {'tool_search': {'enabled': 'off'}}
 for name in payload['allowed_tools']:
     registry.register(
         name=name,
@@ -64,7 +71,6 @@ definitions = get_tool_definitions(
     enabled_toolsets=enabled,
     disabled_toolsets=disabled,
     quiet_mode=True,
-    skip_tool_search_assembly=True,
 )
 actual = sorted(item['function']['name'] for item in definitions)
 expected = sorted(payload['allowed_tools'])
@@ -76,6 +82,7 @@ print(json.dumps({'enabled_toolsets': enabled, 'effective_tools': actual}))
         probe_dir = Path(temp_dir)
         (probe_dir / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
         (probe_dir / "config.json").write_text(json.dumps(config), encoding="utf-8")
+        (probe_dir / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
         result = subprocess.run(
             [
                 "docker",
@@ -84,6 +91,10 @@ print(json.dumps({'enabled_toolsets': enabled, 'effective_tools': actual}))
                 "--network",
                 "none",
                 "--read-only",
+                "--env",
+                "HERMES_HOME=/tmp/hermes-contract",
+                "--tmpfs",
+                "/tmp:rw,noexec,nosuid,nodev,mode=0700",
                 "--mount",
                 f"type=bind,source={probe_dir},target=/probe,readonly",
                 "--entrypoint",
@@ -95,6 +106,8 @@ print(json.dumps({'enabled_toolsets': enabled, 'effective_tools': actual}))
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
         )
     if result.returncode != 0:

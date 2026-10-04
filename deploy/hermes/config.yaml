@@ -38,6 +38,12 @@ gateway:
 plugins:
   enabled: []
 
+# Keep the reviewed MCP allowlist directly visible to the model. The vendor's
+# progressive discovery bridge introduces tools outside this eight-tool contract.
+tools:
+  tool_search:
+    enabled: 'off'
+
 agent:
   disabled_toolsets:
     - web

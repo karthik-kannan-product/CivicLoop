@@ -158,6 +158,7 @@ def test_blank_slate_configuration_exposes_exactly_eight_civicloop_tools() -> No
     }
     assert config["platform_toolsets"] == {"api_server": ["civicloop"]}
     assert config["plugins"] == {"enabled": []}
+    assert config["tools"] == {"tool_search": {"enabled": "off"}}
     assert "*" not in config["agent"]["disabled_toolsets"]
     assert "all" not in config["agent"]["disabled_toolsets"]
     assert config["gateway"]["api_server"]["max_concurrent_runs"] == 1
