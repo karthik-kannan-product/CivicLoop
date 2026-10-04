@@ -506,6 +506,18 @@ def mcp_endpoint(request: HttpRequest) -> JsonResponse:
         params = body.get("params", {})
         if type(params) is not dict:
             raise InvalidToolArguments()
+        if "_meta" in params:
+            metadata = params["_meta"]
+            if type(metadata) is not dict or set(metadata) - {"progressToken"}:
+                raise InvalidToolArguments()
+            if "progressToken" in metadata:
+                progress_token = metadata["progressToken"]
+                if not (
+                    (type(progress_token) is int and 0 <= progress_token <= 2**53)
+                    or (type(progress_token) is str and 1 <= len(progress_token) <= 128)
+                ):
+                    raise InvalidToolArguments()
+            params = {key: value for key, value in params.items() if key != "_meta"}
         if method == "initialize":
             result = {
                 "protocolVersion": "2025-03-26",

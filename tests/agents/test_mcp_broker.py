@@ -496,3 +496,64 @@ def test_pending_operations_deduplicate_across_capabilities_for_unchanged_conten
     repeated = call(fresh, tool, proposal_id=proposal["proposal_id"])
     assert repeated["operations"] == original["operations"]
     assert DraftOperation.objects.count() == count
+
+
+@pytest.mark.parametrize("metadata", [{}, {"progressToken": 1}, {"progressToken": "synthetic"}])
+def test_sdk_request_metadata_keeps_discovery_and_authorized_tools(
+    broker, settings, client, metadata
+):
+    settings.ROOT_URLCONF = "agents.mcp_urls"
+    headers = {"HTTP_AUTHORIZATION": f"Bearer {IDENTITY}"}
+    path = "/internal/v1/mcp"
+    for method in ("initialize", "tools/list", "notifications/initialized"):
+        response = client.post(
+            path, data={"jsonrpc": "2.0", "id": 1, "method": method,
+                        "params": {"_meta": metadata}},
+            content_type="application/json", **headers,
+        )
+        assert response.status_code == (202 if method.startswith("notifications/") else 200)
+        if method == "tools/list":
+            from agents.tool_schemas import TOOL_SCHEMAS
+
+            names = {tool["name"] for tool in response.json()["result"]["tools"]}
+            assert names == set(TOOL_SCHEMAS)
+    invocation = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": {"name": "get_event_revision", "arguments": broker[2],
+                             "_meta": metadata}}
+    denied = client.post(path, data=invocation, content_type="application/json", **headers)
+    assert denied.status_code == 401
+    response = client.post(path, data=invocation, content_type="application/json",
+                           HTTP_X_CIVICLOOP_CAPABILITY=broker[1], **headers)
+    assert response.status_code == 200
+    assert response.json()["result"]["structuredContent"]["revision_id"] == broker[0].revision_id
+
+
+@pytest.mark.parametrize("metadata", [None, [], "invalid", {"unknown": 1},
+                                     {"progressToken": True}, {"progressToken": -1},
+                                     {"progressToken": 2**53 + 1}, {"progressToken": ""},
+                                     {"progressToken": "x" * 129}, {"progressToken": {}}])
+def test_mcp_rejects_invalid_transport_metadata(broker, settings, client, metadata):
+    settings.ROOT_URLCONF = "agents.mcp_urls"
+    response = client.post(
+        "/internal/v1/mcp", data={"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                                  "params": {"_meta": metadata}},
+        content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {IDENTITY}",
+    )
+    assert response.status_code == 400
+    assert "result" not in response.json()
+
+
+@pytest.mark.parametrize("method,params", [
+    ("tools/list", {"cursor": "unexpected"}),
+    ("tools/list", {"unknown": True}),
+    ("tools/call", {"name": "get_event_revision", "arguments": {}, "unknown": True}),
+])
+def test_mcp_metadata_does_not_relax_method_params(broker, settings, client, method, params):
+    settings.ROOT_URLCONF = "agents.mcp_urls"
+    response = client.post(
+        "/internal/v1/mcp", data={"jsonrpc": "2.0", "id": 1, "method": method,
+                                  "params": {**params, "_meta": {}}},
+        content_type="application/json", HTTP_AUTHORIZATION=f"Bearer {IDENTITY}",
+        HTTP_X_CIVICLOOP_CAPABILITY=broker[1],
+    )
+    assert response.status_code == 400
