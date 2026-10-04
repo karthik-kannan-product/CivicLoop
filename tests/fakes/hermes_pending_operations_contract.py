@@ -13,13 +13,10 @@ import json
 import os
 import re
 import secrets
-import socket
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 import uuid
 from pathlib import Path
 
@@ -106,7 +103,7 @@ def diagnostic(raw):
     }
 
 
-def command(arguments, *, timeout=30, include_stderr=False):
+def command(arguments, *, timeout=30, include_stderr=False, input_text=None):
     try:
         result = subprocess.run(
             arguments,
@@ -114,6 +111,7 @@ def command(arguments, *, timeout=30, include_stderr=False):
             text=True,
             encoding="utf-8",
             errors="replace",
+            input=input_text,
             timeout=timeout,
             check=False,
         )
@@ -214,13 +212,7 @@ def merge(left, right):
     return result
 
 
-def free_port():
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return listener.getsockname()[1]
-
-
-def standalone_config(candidate, web_port, *, enabled=True):
+def standalone_config(candidate, *, enabled=True):
     """Retain production service commands/security/networks; isolate fixture data."""
     production = yaml.safe_load(Path(candidate["production_compose"]).read_text())
     base = yaml.safe_load((ROOT / "compose.yaml").read_text())
@@ -293,8 +285,6 @@ def standalone_config(candidate, web_port, *, enabled=True):
             service["depends_on"]["hermes-identities-init"] = {
                 "condition": "service_completed_successfully"
             }
-        if name == "web":
-            service["ports"] = [f"127.0.0.1:{web_port}:8000"]
         if name == "hermes":
             service["image"] = candidate["images"]["hermes"]
         if name == "hermes-adapter":
@@ -419,8 +409,7 @@ class Stack:
         self.candidate = candidate
         self.project = "hermes-contract-" + uuid.uuid4().hex[:12]
         self.path = Path(directory) / "compose.json"
-        self.port = free_port()
-        self.config = standalone_config(candidate, self.port)
+        self.config = standalone_config(candidate)
         self.write()
         self.scan_count = 0
         self.scenarios = {}
@@ -429,10 +418,11 @@ class Stack:
     def write(self):
         self.path.write_text(json.dumps(self.config))
 
-    def compose(self, *arguments, timeout=30):
+    def compose(self, *arguments, timeout=30, input_text=None):
         return command(
             ["docker", "compose", "--project-name", self.project, "-f", str(self.path), *arguments],
             timeout=timeout,
+            input_text=input_text,
         )
 
     def fixture(self, command_name, *arguments):
@@ -473,31 +463,50 @@ class Stack:
         return json.loads(self.compose("exec", "-T", service.split(":")[0], "python", "-c", code))
 
     def owner(self, seed, path, body=None, key=None):
-        headers = {
-            "Cookie": "sessionid=" + seed["session"] + "; csrftoken=" + seed["csrf"],
-            "X-CSRFToken": seed["csrf"],
-            "Content-Type": "application/json",
-        }
-        if key:
-            headers["Idempotency-Key"] = key
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}" + path,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers=headers,
-        )
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
-                status, raw = response.status, response.read(65537)
-        except urllib.error.HTTPError as error:
-            status, raw = error.code, error.read(65537)
+            reply = json.loads(
+                self.compose(
+                    "exec",
+                    "-T",
+                    "web",
+                    "python",
+                    "/fixture/hermes_contract_http.py",
+                    input_text=json.dumps(
+                        {
+                            "path": path,
+                            "body": body,
+                            "session": seed["session"],
+                            "csrf": seed["csrf"],
+                            "idempotency_key": key or "",
+                        }
+                    ),
+                )
+            )
         except Exception:
             raise ContractFailure("owner_http_unavailable") from None
-        require(len(raw) <= 65536, "owner_response_bound")
-        self.scan(raw)
-        try:
-            return status, json.loads(raw)
-        except Exception:
-            raise ContractFailure("owner_response_schema") from None
+        if set(reply) == {"failure_category"}:
+            category = reply["failure_category"]
+            require(
+                category
+                in {
+                    "owner_response_bound",
+                    "owner_response_schema",
+                    "prohibited_authority",
+                    "owner_request_invalid",
+                    "owner_http_unavailable",
+                },
+                "owner_response_schema",
+            )
+            raise ContractFailure(category)
+        require(
+            set(reply) == {"http_status", "body"}
+            and type(reply["http_status"]) is int
+            and 100 <= reply["http_status"] <= 599
+            and type(reply["body"]) is dict,
+            "owner_response_schema",
+        )
+        self.scan(json.dumps(reply["body"]).encode())
+        return reply["http_status"], reply["body"]
 
     def scan(self, raw):
         from tests.fakes.hermes_contract_model import PROHIBITED_MARKER

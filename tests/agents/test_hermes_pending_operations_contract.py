@@ -2,12 +2,15 @@
 
 import json
 import os
+import secrets
 import threading
 import urllib.request
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from tests.fakes.hermes_contract_http import owner_http
 from tests.fakes.hermes_contract_model import STEPS, FixtureFailure, ModelServer, completion
 from tests.fakes.hermes_pending_operations_contract import (
     SCENARIOS,
@@ -138,6 +141,147 @@ def test_model_hold_release_exposes_closed_counters_only():
         server.shutdown()
         server.server_close()
         thread.join(2)
+
+
+def test_real_owner_http_preserves_cookie_csrf_idempotency_and_json_body():
+    session, csrf, key = secrets.token_hex(16), secrets.token_hex(16), str(uuid.uuid4())
+    checks = []
+
+    class OwnerHandler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_POST(self):  # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            checks.append(
+                {
+                    "cookie": self.headers.get("Cookie")
+                    == f"sessionid={session}; csrftoken={csrf}",
+                    "csrf": self.headers.get("X-CSRFToken") == csrf,
+                    "idempotency": self.headers.get("Idempotency-Key") == key,
+                    "body": body == {"revision_id": 1},
+                    "path": self.path == "/api/v1/example",
+                }
+            )
+            raw = b'{"schema_version":"1.0","status":"queued"}'
+            self.send_response(202)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OwnerHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        payload = {
+            "path": "/api/v1/example",
+            "body": {"revision_id": 1},
+            "session": session,
+            "csrf": csrf,
+            "idempotency_key": key,
+        }
+        reply = owner_http(payload, base_url=f"http://127.0.0.1:{server.server_port}")
+        assert reply == {"http_status": 202, "body": {"schema_version": "1.0", "status": "queued"}}
+        assert len(checks) == 1
+        assert all(checks[0].values())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [
+        ("oversized", "owner_response_bound"),
+        ("invalid_json", "owner_response_schema"),
+        ("echo", "prohibited_authority"),
+    ],
+)
+def test_owner_http_bounds_and_private_header_echo_are_closed(kind, expected):
+    session = secrets.token_hex(16)
+
+    class BoundaryHandler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):  # noqa: N802
+            raw = {
+                "oversized": b"x" * 65537,
+                "invalid_json": b"not json",
+                "echo": json.dumps({"echo": session}).encode(),
+            }[kind]
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            try:
+                self.wfile.write(raw)
+            except BrokenPipeError, ConnectionResetError:
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), BoundaryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        reply = owner_http(
+            {
+                "path": "/api/v1/example",
+                "body": None,
+                "session": session,
+                "csrf": "",
+                "idempotency_key": "",
+            },
+            base_url=f"http://127.0.0.1:{server.server_port}",
+        )
+        assert reply == {"failure_category": expected}
+        assert session not in json.dumps(reply)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+def test_owner_command_transfers_authority_only_through_stdin():
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    captured = []
+    stack.scan = lambda _: None
+
+    def compose(*arguments, **kwargs):
+        payload = json.loads(kwargs["input_text"])
+        captured.append(
+            {
+                "argv_safe": all(
+                    payload[field] not in json.dumps(arguments)
+                    for field in ("session", "csrf", "idempotency_key")
+                ),
+                "body": payload["body"] == {"revision_id": 1},
+            }
+        )
+        return '{"http_status":202,"body":{"status":"queued"}}'
+
+    stack.compose = compose
+    seed = {"session": secrets.token_hex(16), "csrf": secrets.token_hex(16)}
+    assert stack.owner(seed, "/api/v1/example", {"revision_id": 1}, str(uuid.uuid4())) == (
+        202,
+        {"status": "queued"},
+    )
+    assert captured == [{"argv_safe": True, "body": True}]
+
+
+def test_owner_stdin_bound_failure_never_emits_request_material():
+    import sys
+    from pathlib import Path
+
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    raw = harness.command(
+        [sys.executable, str(Path(owner_http.__globals__["__file__"]))],
+        input_text="SYNTHETIC_FORBIDDEN_STDIN_VALUE" * 3000,
+    )
+    assert json.loads(raw) == {"failure_category": "owner_request_invalid"}
+    assert "SYNTHETIC_FORBIDDEN_STDIN_VALUE" not in raw
 
 
 def test_manifest_missing_is_safe_and_does_not_launch():
@@ -301,7 +445,7 @@ def test_isolated_config_preserves_actual_commands_and_network_boundaries():
             for name in ("app", "hermes", "litellm", "phoenix", "postgres", "valkey")
         },
     }
-    config = standalone_config(candidate, 8765)
+    config = standalone_config(candidate)
     services = config["services"]
     assert services["worker"]["command"] == ["worker"]
     assert services["litellm"]["entrypoint"] == ["python", "/app/gateway.py"]
@@ -310,6 +454,7 @@ def test_isolated_config_preserves_actual_commands_and_network_boundaries():
     assert services["hermes"]["init"] is True
     assert set(services["hermes"]["networks"]) == {"hermes-runtime"}
     assert all(network["internal"] for network in config["networks"].values())
+    assert all("ports" not in service for service in services.values())
     assert all(service["restart"] == "no" for service in services.values())
     assert all(
         "env_file" not in service and "build" not in service for service in services.values()
