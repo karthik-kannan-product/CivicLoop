@@ -447,6 +447,10 @@ def test_isolated_config_preserves_actual_commands_and_network_boundaries():
     }
     config = standalone_config(candidate)
     services = config["services"]
+    assert all(
+        services[name]["environment"]["VALKEY_URL"] == "redis://valkey:6379/0"
+        for name in ("web", "worker", "mcp", "migrate")
+    )
     assert services["worker"]["command"] == ["worker"]
     assert services["litellm"]["entrypoint"] == ["python", "/app/gateway.py"]
     assert services["litellm"]["command"] == []
@@ -477,6 +481,76 @@ def test_isolated_config_preserves_actual_commands_and_network_boundaries():
         "litellm_outage",
         "phoenix_outage",
         "restored_success",
+    }
+
+
+def test_real_django_cache_configuration_uses_fixture_valkey():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    candidate = {
+        "production_compose": str(Path(__file__).resolve().parents[2] / "compose.agent.yaml"),
+        "operations_sha": "a" * 40,
+        "images": {
+            name: "sha256:" + "b" * 64
+            for name in ("app", "hermes", "litellm", "phoenix", "postgres", "valkey")
+        },
+    }
+    environment = dict(os.environ)
+    environment.update(standalone_config(candidate)["services"]["web"]["environment"])
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "backend")
+    environment["DJANGO_SETTINGS_MODULE"] = "civicloop.settings"
+    # This offline cache resolver has no mounted synthetic owner identity.
+    environment["CIVICLOOP_ADMIN_IDENTITY_ENABLED"] = "false"
+    # Real Django RedisCache resolves the fixture host without opening a socket.
+    code = (
+        "from django.core.cache import caches; "
+        "c=caches['default']._cache.get_client(); "
+        "k=c.connection_pool.connection_kwargs; "
+        "print(k['host']=='valkey' and k['port']==6379 and k['db']==0)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], env=environment, capture_output=True,
+        text=True, encoding="utf-8", errors="replace", timeout=15,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "True"
+
+
+def test_readiness_preserves_safe_real_health_response_at_deadline(monkeypatch):
+    from django.test import RequestFactory
+    from health import checks, views
+
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    monkeypatch.setattr(checks, "postgres_is_ready", lambda: True)
+    monkeypatch.setattr(checks, "valkey_is_ready", lambda: False)
+    response = views.ready(RequestFactory().get("/api/v1/health/ready"))
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.owner = lambda *_: (response.status_code, json.loads(response.content))
+    with pytest.raises(ContractFailure) as caught:
+        stack.await_readiness(timeout=0)
+    assert caught.value.category == "stack_readiness_deadline"
+    assert caught.value.details == {
+        "failure_category": "deterministic_readiness",
+        "details": {"http_status": 503, "dependencies": {"postgres": True, "valkey": False}},
+    }
+
+
+def test_readiness_preserves_closed_helper_command_failure():
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+
+    def unavailable(*_, **__):
+        raise ContractFailure("command_failed", details={"return_code": 2})
+
+    stack.compose = unavailable
+    with pytest.raises(ContractFailure) as caught:
+        stack.await_readiness(timeout=0)
+    assert caught.value.details == {
+        "failure_category": "command_failed", "details": {"return_code": 2}
     }
 
 

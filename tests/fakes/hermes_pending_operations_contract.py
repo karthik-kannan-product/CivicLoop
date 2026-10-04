@@ -238,6 +238,7 @@ def standalone_config(candidate, *, enabled=True):
         "DJANGO_SECRET_KEY": secrets.token_urlsafe(48),
         "DATABASE_URL": f"postgres://fixture:{database_password}@db:5432/fixture",
         "CELERY_BROKER_URL": "redis://valkey:6379/1",
+        "VALKEY_URL": "redis://valkey:6379/0",
         "DJANGO_ALLOWED_HOSTS": "127.0.0.1,localhost,web",
         "CIVICLOOP_HERMES_PROFILE_ID": "task8_fixture",
         "CIVICLOOP_HERMES_PROFILE_REVISION": "1",
@@ -482,6 +483,8 @@ class Stack:
                     ),
                 )
             )
+        except ContractFailure:
+            raise
         except Exception:
             raise ContractFailure("owner_http_unavailable") from None
         if set(reply) == {"failure_category"}:
@@ -528,8 +531,39 @@ class Stack:
 
     def readiness(self):
         code, payload = self.owner({"session": "", "csrf": ""}, "/api/v1/health/ready")
-        require(code == 200, "deterministic_readiness")
+        if code != 200:
+            dependencies = payload.get("dependencies", {})
+            raise ContractFailure(
+                "deterministic_readiness",
+                details={
+                    "http_status": code,
+                    "dependencies": {
+                        name: dependencies[name]["ready"]
+                        for name in ("postgres", "valkey")
+                        if isinstance(dependencies, dict)
+                        and isinstance(dependencies.get(name), dict)
+                        and type(dependencies[name].get("ready")) is bool
+                    },
+                },
+            )
         return digest(payload)
+
+    def await_readiness(self, *, timeout=210):
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.readiness()
+                return
+            except ContractFailure as error:
+                self.last_readiness_failure = {
+                    "failure_category": error.category,
+                    "details": error.details,
+                }
+                if time.monotonic() >= deadline:
+                    raise ContractFailure(
+                        "stack_readiness_deadline", details=self.last_readiness_failure
+                    ) from None
+                time.sleep(0.5)
 
     def mode(self, mode):
         return self.internal("fixture-model:8088", "/fixture/mode", {"mode": mode})
@@ -775,14 +809,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             stack.stage = "stack_startup"
             stack.compose("up", "-d", "--no-build", "--pull", "never", timeout=240)
             stack.stage = "deterministic_readiness"
-            ready_by = time.monotonic() + 210
-            while True:
-                try:
-                    stack.readiness()
-                    break
-                except ContractFailure:
-                    require(time.monotonic() < ready_by, "stack_readiness_deadline")
-                    time.sleep(0.5)
+            stack.await_readiness()
             stack.stage = "fixture_seed"
             seed = stack.fixture("seed")
             stack.stage = "delayed_revoked_a"
