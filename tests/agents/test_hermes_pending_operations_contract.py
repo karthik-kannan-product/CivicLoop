@@ -170,6 +170,74 @@ def test_mutable_image_manifest_is_rejected_before_any_command(monkeypatch):
         load_candidate("synthetic-manifest")
 
 
+def test_failure_diagnostics_emit_only_closed_flags_counts_and_hash():
+    from tests.fakes.hermes_pending_operations_contract import diagnostic
+
+    raw = b"Permission denied; unrecognized arguments; SYNTHETIC_FORBIDDEN_DIAGNOSTIC_VALUE"
+    evidence = diagnostic(raw)
+    assert evidence["category_flags"]["permission_denied"] is True
+    assert evidence["category_flags"]["cli_arguments_invalid"] is True
+    assert evidence["byte_count"] == len(raw)
+    assert len(evidence["digest"]) == 64
+    assert "SYNTHETIC_FORBIDDEN_DIAGNOSTIC_VALUE" not in json.dumps(evidence)
+
+
+def test_failed_subprocess_output_is_categorized_without_text(monkeypatch):
+    import subprocess
+
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *_, **__: subprocess.CompletedProcess(
+            ["synthetic"], 2, stdout="", stderr="unrecognized arguments; SYNTHETIC_FORBIDDEN_VALUE"
+        ),
+    )
+    with pytest.raises(ContractFailure) as failure:
+        harness.command(["synthetic"])
+    assert failure.value.category == "command_failed"
+    assert failure.value.details["return_code"] == 2
+    assert failure.value.details["output"]["category_flags"]["cli_arguments_invalid"] is True
+    assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(failure.value.details)
+
+
+def test_failure_snapshot_includes_exited_services_and_safe_log_categories(monkeypatch):
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.stage = "stack_startup"
+    stack.config = {"services": {"litellm": {}}}
+    stack.compose = lambda *_, **__: "fixture-container-id"
+
+    def fake_command(arguments, **_):
+        if arguments[1] == "logs":
+            return "Usage: litellm; SYNTHETIC_FORBIDDEN_VALUE"
+        if "Health.Log" in arguments[3]:
+            return "[]"
+        return json.dumps(
+            {
+                "service": "litellm",
+                "status": "exited",
+                "exit_code": 2,
+                "oom": False,
+                "restarts": 0,
+                "health": "none",
+            }
+        )
+
+    monkeypatch.setattr(harness, "command", fake_command)
+    evidence = stack.failure_snapshot()
+    assert evidence["stage"] == "stack_startup"
+    assert evidence["snapshot_status"] == "complete"
+    assert evidence["services"]["litellm"]["exit_code"] == 2
+    assert (
+        evidence["services"]["litellm"]["log_evidence"]["category_flags"]["cli_arguments_invalid"]
+        is True
+    )
+    assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(evidence)
+
+
 @pytest.mark.django_db
 def test_container_seed_creates_synthetic_owner_and_ready_deterministic_binding():
     from agents.models import ModelProfile, RoutingPolicy
@@ -207,6 +275,8 @@ def test_isolated_config_preserves_actual_commands_and_network_boundaries():
     config = standalone_config(candidate, 8765)
     services = config["services"]
     assert services["worker"]["command"] == ["worker"]
+    assert services["litellm"]["entrypoint"] == ["python", "/app/gateway.py"]
+    assert services["litellm"]["command"] == []
     assert services["hermes"]["command"][-1] == "deploy.hermes.controller_service"
     assert services["hermes"]["init"] is True
     assert set(services["hermes"]["networks"]) == {"hermes-runtime"}

@@ -44,8 +44,9 @@ SCENARIOS = (
 
 
 class ContractFailure(Exception):
-    def __init__(self, category):
+    def __init__(self, category, *, details=None):
         self.category = category
+        self.details = details or {}
         super().__init__(category)
 
 
@@ -70,15 +71,62 @@ def tree_digest(directory):
     return digest(sorted(rows))
 
 
-def command(arguments, *, timeout=30):
+def diagnostic(raw):
+    """Classify captured ephemeral output without returning its constituent text."""
+    if isinstance(raw, str):
+        raw = raw.encode()
+    raw = raw[-262144:]
+    lowered = raw.lower()
+    matches = {
+        "permission_denied": (b"permission denied", b"access is denied"),
+        "readonly_filesystem": (b"read-only file system", b"readonly filesystem"),
+        "missing_module": (b"modulenotfounderror", b"no module named"),
+        "missing_file": (b"no such file or directory", b"filenotfounderror"),
+        "dependency_failed": (b"dependency failed", b"didn't complete successfully"),
+        "cli_arguments_invalid": (
+            b"unexpected extra arguments",
+            b"unrecognized arguments",
+            b"no such command",
+            b"usage:",
+        ),
+        "configuration_invalid": (b"configuration unavailable", b"improperlyconfigured"),
+        "port_conflict": (b"address already in use", b"port is already allocated"),
+        "unhealthy": (b"is unhealthy", b"healthcheck failed"),
+        "oom": (b"out of memory", b"oomkilled"),
+        "daemon_unavailable": (b"cannot connect to the docker daemon",),
+        "prohibited_content": (b"task8_synthetic_content_marker_4d70ae",),
+    }
+    return {
+        "byte_count": len(raw),
+        "digest": hashlib.sha256(raw).hexdigest(),
+        "category_flags": {
+            category: any(marker in lowered for marker in markers)
+            for category, markers in matches.items()
+        },
+    }
+
+
+def command(arguments, *, timeout=30, include_stderr=False):
     try:
         result = subprocess.run(
             arguments, capture_output=True, text=True, timeout=timeout, check=False
         )
-    except OSError, subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as error:
+        raise ContractFailure(
+            "command_timeout",
+            details={"output": diagnostic((error.stdout or b"") + (error.stderr or b""))},
+        ) from None
+    except OSError:
         raise ContractFailure("command_unavailable") from None
-    require(result.returncode == 0, "command_failed")
-    return result.stdout
+    if result.returncode != 0:
+        raise ContractFailure(
+            "command_failed",
+            details={
+                "return_code": result.returncode,
+                "output": diagnostic(result.stdout + result.stderr),
+            },
+        )
+    return result.stdout + result.stderr if include_stderr else result.stdout
 
 
 def load_candidate(path):
@@ -370,6 +418,7 @@ class Stack:
         self.write()
         self.scan_count = 0
         self.scenarios = {}
+        self.stage = "compose_created"
 
     def write(self):
         self.path.write_text(json.dumps(self.config))
@@ -534,6 +583,46 @@ class Stack:
             counts["restart_count"] += state["restart"]
         return counts
 
+    def failure_snapshot(self):
+        """Inspect closed service/container fields and bounded log categories before cleanup."""
+        evidence = {"stage": self.stage, "services": {}, "snapshot_status": "complete"}
+        try:
+            identifiers = self.compose("ps", "-a", "-q").split()
+            for identifier in identifiers[:32]:
+                state = json.loads(
+                    command(
+                        [
+                            "docker",
+                            "inspect",
+                            "--format",
+                            '{"service":"{{index .Config.Labels "com.docker.compose.service"}}",'
+                            '"status":"{{.State.Status}}","exit_code":{{.State.ExitCode}},'
+                            '"oom":{{.State.OOMKilled}},"restarts":{{.RestartCount}},'
+                            '"health":"{{if .State.Health}}{{.State.Health.Status}}'
+                            '{{else}}none{{end}}"}',
+                            identifier,
+                        ]
+                    )
+                )
+                service = state.pop("service")
+                require(service in self.config["services"], "snapshot_service_invalid")
+                logs = command(["docker", "logs", "--tail", "100", identifier], include_stderr=True)
+                state["log_evidence"] = diagnostic(logs)
+                health_logs = command(
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        "{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}",
+                        identifier,
+                    ]
+                )
+                state["health_evidence"] = diagnostic(health_logs)
+                evidence["services"][service] = state
+        except Exception:
+            evidence["snapshot_status"] = "incomplete"
+        return evidence
+
     def record(self, name, seed, run_id, expected):
         status = self.wait(seed, run_id)
         require(status["status"] in expected, "unexpected_terminal_state")
@@ -666,8 +755,11 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
                 {"type": "bind", "source": str(FIXTURES), "target": "/fixture", "read_only": True}
             )
             stack.write()
+            stack.stage = "compose_validation"
             stack.compose("config", "--quiet")
+            stack.stage = "stack_startup"
             stack.compose("up", "-d", "--no-build", "--pull", "never", timeout=240)
+            stack.stage = "deterministic_readiness"
             ready_by = time.monotonic() + 210
             while True:
                 try:
@@ -676,7 +768,9 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
                 except ContractFailure:
                     require(time.monotonic() < ready_by, "stack_readiness_deadline")
                     time.sleep(0.5)
+            stack.stage = "fixture_seed"
             seed = stack.fixture("seed")
+            stack.stage = "delayed_revoked_a"
             stack.mode("hold")
             run_a = stack.start(seed)
             stack.held()
@@ -694,6 +788,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             time.sleep(0.5)
             require(stack.fixture("inspect", run_a)["operation_count"] == 0, "late_durable_write")
             stack.mode("success")
+            stack.stage = "success_b"
             seed_b = stack.fixture("seed")
             before_calls = stack.internal("fixture-model:8088", "/fixture/state")["call_count"]
             before_nonce = json.loads(
@@ -744,9 +839,11 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
                 }
             )
             stack.mode("invalid")
+            stack.stage = "invalid_output"
             invalid_seed = stack.fixture("seed")
             stack.record("invalid_output", invalid_seed, stack.start(invalid_seed), {"failed"})
             stack.mode("hold")
+            stack.stage = "cancellation"
             cancel_seed = stack.fixture("seed")
             cancel_run = stack.start(cancel_seed)
             stack.held()
@@ -754,6 +851,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             stack.record("cancellation", cancel_seed, cancel_run, {"cancelled"})
             stack.mode("release")
             stack.mode("hold")
+            stack.stage = "kill_switch"
             kill_seed = stack.fixture("seed")
             kill_run = stack.start(kill_seed)
             stack.held()
@@ -772,6 +870,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             stack.gates(True)
             stack.mode("success")
             for component in ("mcp", "litellm"):
+                stack.stage = component + "_outage"
                 stack.compose("stop", "--timeout", "3", component)
                 outage_seed = stack.fixture("seed")
                 stack.record(
@@ -780,6 +879,7 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
                 stack.compose("start", component)
                 stack.healthy(component)
             stack.compose("stop", "--timeout", "3", "phoenix")
+            stack.stage = "phoenix_outage"
             deterministic_seed = stack.fixture("seed-draft")
             code, _ = stack.owner(
                 deterministic_seed,
@@ -790,12 +890,14 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             phoenix_seed = stack.fixture("seed")
             stack.record("phoenix_outage", phoenix_seed, stack.start(phoenix_seed), {"succeeded"})
             stack.compose("start", "phoenix")
+            stack.stage = "restored_success"
             restored_seed = stack.fixture("seed")
             stack.record(
                 "restored_success", restored_seed, stack.start(restored_seed), {"succeeded"}
             )
             time.sleep(2)
             traces = stack.internal("fixture-proxy:8089", "/fixture/state")
+            stack.stage = "final_evidence"
             require(
                 traces["trace_scan_failure_count"] == 0 and traces["correlated_span_count"] >= 6,
                 "correlated_trace_missing",
@@ -820,10 +922,15 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             )
             load_candidate(path)
         except ContractFailure as error:
+            evidence["status"] = "failed"
             evidence["failure_category"] = error.category
+            evidence["command_evidence"] = error.details
         except Exception:
+            evidence["status"] = "failed"
             evidence["failure_category"] = "contract_unavailable"
         finally:
+            if evidence["status"] != "passed":
+                evidence["failure_state"] = stack.failure_snapshot()
             evidence["cleanup_status"] = stack.cleanup()
             if evidence["cleanup_status"] != "clean":
                 evidence["status"] = "failed"

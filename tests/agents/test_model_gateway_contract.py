@@ -855,6 +855,8 @@ def test_compose_uses_root_handoff_durable_ledger_and_physical_startup_gate() ->
     )
     assert initializer["image"] == expected_image
     assert service["image"] == expected_image
+    assert service["entrypoint"] == ["python", "/app/gateway.py"]
+    assert service["command"] == []
     assert "LITELLM_IMAGE" not in COMPOSE.read_text()
     assert service["depends_on"]["model-gateway-init"]["condition"] == (
         "service_completed_successfully"

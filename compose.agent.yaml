@@ -168,9 +168,10 @@ services:
     platform: linux/amd64
     profiles:
     - agent
-    command:
+    entrypoint:
     - python
     - /app/gateway.py
+    command: []
     user: 65534:65534
     read_only: true
     cap_drop:
