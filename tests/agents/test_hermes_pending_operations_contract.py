@@ -3,6 +3,8 @@
 import json
 import os
 import secrets
+import subprocess
+import sys
 import threading
 import urllib.request
 import uuid
@@ -11,7 +13,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from tests.fakes.hermes_contract_http import owner_http
-from tests.fakes.hermes_contract_model import STEPS, FixtureFailure, ModelServer, completion
+from tests.fakes.hermes_contract_model import (
+    FAILURE_CATEGORIES,
+    REQUEST_SHAPE_FIELDS,
+    STEPS,
+    FixtureFailure,
+    ModelServer,
+    completion,
+    request_shape,
+)
 from tests.fakes.hermes_pending_operations_contract import (
     SCENARIOS,
     ContractFailure,
@@ -86,6 +96,90 @@ def test_fixture_fails_closed_without_binding_or_advertised_tool():
         completion(body)
 
 
+@pytest.mark.parametrize("category", [
+    "binding_missing", "binding_mismatch", "binding_uuid", "revision_invalid", "actor_invalid",
+    "advertised_tool_missing", "advertised_tool_duplicate", "tool_result_count", "step_invalid",
+    "proposal_missing", "request_schema",
+])
+def test_model_failure_reasons_are_closed_and_identify_rejected_contract(category):
+    body = request()
+    binding = json.loads(body["messages"][0]["content"])
+    if category == "request_schema":
+        body = []
+    elif category == "binding_missing":
+        body["messages"] = []
+    elif category == "binding_mismatch":
+        body["messages"].append({"role": "user", "content": json.dumps(
+            binding | {"revision_id": 2})})
+    elif category in {"binding_uuid", "revision_invalid", "actor_invalid"}:
+        field, value = {
+            "binding_uuid": ("workflow_id", "synthetic_sensitive_marker"),
+            "revision_invalid": ("revision_id", True),
+            "actor_invalid": ("actor_id", "synthetic sensitive marker"),
+        }[category]
+        body["messages"][0]["content"] = json.dumps(binding | {field: value})
+    elif category == "advertised_tool_missing":
+        body["tools"] = []
+    elif category == "advertised_tool_duplicate":
+        body["tools"].append(body["tools"][0])
+    else:
+        count = 7 if category == "step_invalid" else 3 if category == "proposal_missing" else 1
+        body["messages"].append({"role": "assistant", "tool_calls": [{}] * count})
+        if category != "tool_result_count":
+            body["messages"].extend([{"role": "tool", "content": "{}"}] * count)
+    with pytest.raises(FixtureFailure) as caught:
+        completion(body)
+    assert caught.value.category == category
+    assert str(caught.value) == "fixture_contract_failed"
+    assert FixtureFailure("synthetic_sensitive_marker").category == "internal_contract"
+
+
+def test_model_http_failure_state_contains_counts_and_closed_categories_only():
+    server = ModelServer(("127.0.0.1", 0))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    body = request()
+    marker = "synthetic_sensitive_marker_" + secrets.token_hex(16)
+    body["tools"] = [{"function": {"name": marker}}]
+    base = f"http://127.0.0.1:{server.server_port}"
+    wire_request = urllib.request.Request(base + "/v1/chat/completions",
+                                          data=json.dumps(body).encode(),
+                                          headers={"Authorization": "Bearer " + marker})
+    try:
+        with pytest.raises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(wire_request, timeout=2)
+        assert caught.value.code == 503
+        with urllib.request.urlopen(base + "/fixture/state", timeout=2) as response:
+            state = json.loads(response.read())
+        assert state["call_count"] == state["failure_count"] == 1
+        assert set(state["failure_categories"]) == set(FAILURE_CATEGORIES)
+        assert state["failure_categories"]["advertised_tool_missing"] == 1
+        assert sum(state["failure_categories"].values()) == 1
+        assert set(state["request_shape"]) == set(REQUEST_SHAPE_FIELDS)
+        assert state["request_shape"]["binding_count"] == 1
+        assert state["request_shape"]["advertised_tool_count"] == 1
+        assert state["request_shape"]["expected_next_tool_count"] == 0
+        assert all(type(value) is int for value in state["request_shape"].values())
+        assert marker not in json.dumps(state)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+@pytest.mark.parametrize("module_mode", [False, True])
+def test_harness_help_supports_direct_script_and_package(module_mode):
+    from tests.fakes.hermes_pending_operations_contract import ROOT
+
+    target = ["-m", "tests.fakes.hermes_pending_operations_contract"] if module_mode else [
+        str(ROOT / "tests/fakes/hermes_pending_operations_contract.py")
+    ]
+    result = subprocess.run([sys.executable, *target, "--help"], cwd=ROOT,
+                            capture_output=True, encoding="utf-8", errors="replace", timeout=10)
+    assert result.returncode == 0
+    assert "--help" in result.stdout
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
@@ -130,7 +224,11 @@ def test_model_hold_release_exposes_closed_counters_only():
         assert server.blocked.wait(2)
         with urllib.request.urlopen(base + "/fixture/state", timeout=2) as reply:
             state = json.loads(reply.read())
-        assert state == {"call_count": 1, "failure_count": 0, "blocked": True}
+        assert state == {
+            "call_count": 1, "failure_count": 0, "blocked": True,
+            "failure_categories": dict.fromkeys(FAILURE_CATEGORIES, 0),
+            "request_shape": request_shape(request()),
+        }
         assert post("/fixture/mode", {"mode": "release"}) == {"status": "accepted"}
         caller.join(2)
         assert len(result) == 1
@@ -678,7 +776,8 @@ def test_failed_stage_retains_started_run_before_cleanup():
     stack.controller_counts = lambda: {"child_count": 0, "home_count": 0}
     stack.controller_phase = lambda: {"phase": "not_registered", "failure_count": 0}
     stack.internal = lambda service, _: (
-        {"call_count": 0, "failure_count": 0, "blocked": False}
+        {"call_count": 0, "failure_count": 0, "blocked": False,
+         "failure_categories": dict.fromkeys(FAILURE_CATEGORIES, 0), "request_shape": {}}
         if service.startswith("fixture-model") else {"scope_count": 0}
     )
     stack.memory_events = lambda _: {"oom": 0, "oom_kill": 1}
@@ -686,6 +785,7 @@ def test_failed_stage_retains_started_run_before_cleanup():
     assert evidence["started_run"]["terminal_status"] == "failed"
     assert evidence["controller_phase"]["phase"] == "not_registered"
     assert evidence["observer_counts"]["model_call_count"] == 0
+    assert evidence["model_failure_categories"] == dict.fromkeys(FAILURE_CATEGORIES, 0)
     assert evidence["memory_events"]["hermes"]["oom_kill"] == 1
     assert stack.active_run_id not in json.dumps(evidence)
 

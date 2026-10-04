@@ -23,6 +23,11 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
+if __package__:
+    from .hermes_contract_model import FAILURE_CATEGORIES, REQUEST_SHAPE_FIELDS
+else:
+    from hermes_contract_model import FAILURE_CATEGORIES, REQUEST_SHAPE_FIELDS
+
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent
 APP_SERVICES = {"web", "worker", "migrate", "mcp", "hermes-adapter", "hermes-transport"}
@@ -750,6 +755,19 @@ print(json.dumps(evidence))
                     "observer_snapshot_invalid",
                 )
                 evidence["model_blocked"] = model["blocked"] is True
+                categories = model["failure_categories"]
+                shape = model["request_shape"]
+                require(
+                    set(categories) == set(FAILURE_CATEGORIES)
+                    and all(type(value) is int and 0 <= value <= 1_000_000
+                            for value in categories.values())
+                    and sum(categories.values()) == model["failure_count"]
+                    and set(shape) <= set(REQUEST_SHAPE_FIELDS)
+                    and all(type(value) is int and 0 <= value <= 4096 for value in shape.values()),
+                    "observer_snapshot_invalid",
+                )
+                evidence["model_failure_categories"] = categories
+                evidence["model_request_shape"] = shape
             except Exception:
                 evidence.pop("observer_counts", None)
                 evidence["observer_snapshot_status"] = "unavailable"
