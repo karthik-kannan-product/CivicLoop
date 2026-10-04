@@ -6,6 +6,7 @@ they never occur in subprocess arguments or public diagnostics.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -14,6 +15,19 @@ import urllib.request
 
 MAX_BYTES = 65536
 FIELDS = {"path", "body", "session", "csrf", "idempotency_key"}
+
+
+def response_evidence(status, content_type, raw):
+    return {
+        "http_status": status,
+        "content_type": content_type if content_type in {
+            "application/json", "application/problem+json", "text/html", "text/plain"
+        } else "other",
+        "body_length": len(raw),
+        "body_digest": hashlib.sha256(raw).hexdigest(),
+        "csrf_rejected": status == 403 and b"csrf" in raw.lower(),
+        "server_error": status >= 500,
+    }
 
 
 def owner_http(payload, *, base_url="http://127.0.0.1:8000"):
@@ -52,8 +66,10 @@ def owner_http(payload, *, base_url="http://127.0.0.1:8000"):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
             with opener.open(request, timeout=5) as response:
+                content_type = response.headers.get_content_type()
                 status, raw = response.status, response.read(MAX_BYTES + 1)
         except urllib.error.HTTPError as error:
+            content_type = error.headers.get_content_type()
             status, raw = error.code, error.read(MAX_BYTES + 1)
         if len(raw) > MAX_BYTES:
             return {"failure_category": "owner_response_bound"}
@@ -62,7 +78,10 @@ def owner_http(payload, *, base_url="http://127.0.0.1:8000"):
             if type(value) is not dict:
                 raise ValueError
         except Exception:
-            return {"failure_category": "owner_response_schema"}
+            return {
+                "failure_category": "owner_response_schema",
+                "response_evidence": response_evidence(status, content_type, raw),
+            }
         # An accidental echo of the private session/header must not cross even
         # this private command boundary. The API schemas do not include either.
         if any(

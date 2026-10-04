@@ -487,7 +487,7 @@ class Stack:
             raise
         except Exception:
             raise ContractFailure("owner_http_unavailable") from None
-        if set(reply) == {"failure_category"}:
+        if set(reply) in ({"failure_category"}, {"failure_category", "response_evidence"}):
             category = reply["failure_category"]
             require(
                 category
@@ -500,7 +500,28 @@ class Stack:
                 },
                 "owner_response_schema",
             )
-            raise ContractFailure(category)
+            details = reply.get("response_evidence", {})
+            if details:
+                require(
+                    set(details) == {
+                        "http_status", "content_type", "body_length", "body_digest",
+                        "csrf_rejected", "server_error",
+                    }
+                    and type(details["http_status"]) is int
+                    and 100 <= details["http_status"] <= 599
+                    and details["content_type"] in {
+                        "application/json", "application/problem+json", "text/html", "text/plain",
+                        "other",
+                    }
+                    and type(details["body_length"]) is int
+                    and 0 <= details["body_length"] <= 65536
+                    and isinstance(details["body_digest"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}", details["body_digest"]) is not None
+                    and type(details["csrf_rejected"]) is bool
+                    and type(details["server_error"]) is bool,
+                    "owner_response_schema",
+                )
+            raise ContractFailure(category, details=details)
         require(
             set(reply) == {"http_status", "body"}
             and type(reply["http_status"]) is int

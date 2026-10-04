@@ -195,6 +195,8 @@ def test_real_owner_http_preserves_cookie_csrf_idempotency_and_json_body():
     [
         ("oversized", "owner_response_bound"),
         ("invalid_json", "owner_response_schema"),
+        ("csrf_html", "owner_response_schema"),
+        ("server_html", "owner_response_schema"),
         ("echo", "prohibited_authority"),
     ],
 )
@@ -210,8 +212,12 @@ def test_owner_http_bounds_and_private_header_echo_are_closed(kind, expected):
                 "oversized": b"x" * 65537,
                 "invalid_json": b"not json",
                 "echo": json.dumps({"echo": session}).encode(),
+                "csrf_html": b"<html>CSRF verification failed SYNTHETIC_FORBIDDEN_BODY</html>",
+                "server_html": b"<html>Server Error SYNTHETIC_FORBIDDEN_BODY</html>",
             }[kind]
-            self.send_response(200)
+            status = 403 if kind == "csrf_html" else 500 if kind == "server_html" else 200
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
             try:
@@ -233,7 +239,17 @@ def test_owner_http_bounds_and_private_header_echo_are_closed(kind, expected):
             },
             base_url=f"http://127.0.0.1:{server.server_port}",
         )
-        assert reply == {"failure_category": expected}
+        assert reply["failure_category"] == expected
+        if kind == "invalid_json":
+            assert reply["response_evidence"]["body_length"] == 8
+        if kind in {"csrf_html", "server_html"}:
+            evidence = reply["response_evidence"]
+            assert evidence["http_status"] == (403 if kind == "csrf_html" else 500)
+            assert evidence["content_type"] == "text/html"
+            assert evidence["csrf_rejected"] == (kind == "csrf_html")
+            assert evidence["server_error"] == (kind == "server_html")
+            assert len(evidence["body_digest"]) == 64
+            assert "SYNTHETIC_FORBIDDEN_BODY" not in json.dumps(reply)
         assert session not in json.dumps(reply)
     finally:
         server.shutdown()
@@ -431,6 +447,84 @@ def test_container_seed_creates_synthetic_owner_and_ready_deterministic_binding(
     assert profile.max_input_tokens == 500000
     assert profile.max_output_tokens == 100000
     assert RoutingPolicy.objects.get(model_profile=profile).per_run_limit_microusd == 500000
+
+
+@pytest.mark.django_db
+def test_seeded_session_csrf_and_actual_owner_start_use_canonical_actor(settings, monkeypatch):
+    from types import SimpleNamespace
+
+    from django.test import Client
+    from launchloop.models import DemoActor, Workflow
+
+    from tests.fakes.hermes_contract_fixture import seed
+
+    settings.CIVICLOOP_ADMIN_IDENTITY_ENABLED = True
+    settings.CIVICLOOP_HERMES_ENABLED = True
+    settings.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED = True
+    payload = seed()
+    actor = Workflow.objects.get(pk=payload["workflow_id"]).revision.author
+    client = Client(enforce_csrf_checks=True)
+    client.cookies["sessionid"] = payload["session"]
+    client.cookies["csrftoken"] = payload["csrf"]
+    path = f"/api/v1/workflows/{payload['workflow_id']}/hermes-runs"
+    arguments = {
+        "data": json.dumps({"revision_id": payload["revision_id"]}),
+        "content_type": "application/json",
+        "HTTP_IDEMPOTENCY_KEY": str(uuid.uuid4()),
+    }
+    calls = []
+    run_id = uuid.uuid4()
+
+    def dispatch(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(id=run_id)
+
+    # Only asynchronous admission/dispatch is isolated; real middleware, CSRF,
+    # seeded session, owner authorization and canonical actor DB update execute.
+    monkeypatch.setattr("agents.tasks.start_hermes_run", dispatch)
+    rejected = client.post(path, HTTP_X_CSRFTOKEN=secrets.token_hex(16), **arguments)
+    assert rejected.status_code == 403
+    assert calls == []
+    accepted = client.post(path, HTTP_X_CSRFTOKEN=payload["csrf"], **arguments)
+    assert accepted.status_code == 202
+    assert accepted.json() == {"schema_version": "1.0", "run_id": str(run_id), "status": "queued"}
+    assert len(calls) == 1
+    assert calls[0]["actor_slug"] == actor.slug
+    assert DemoActor.objects.filter(user=actor.user).count() == 1
+
+
+@pytest.mark.django_db
+def test_repeated_scenario_seed_reuses_single_owner_session_and_actor():
+    from identity.models import AdministratorProfile, AdministratorSession
+    from launchloop.models import DemoActor, Workflow
+
+    from tests.fakes.hermes_contract_fixture import seed
+
+    first, second = seed(), seed()
+    assert first["workflow_id"] != second["workflow_id"]
+    assert first["session"] == second["session"]
+    assert AdministratorProfile.objects.exclude(status="disabled").count() == 1
+    assert AdministratorSession.objects.count() == 1
+    assert DemoActor.objects.count() == 1
+    assert Workflow.objects.get(pk=first["workflow_id"]).revision.author_id == (
+        Workflow.objects.get(pk=second["workflow_id"]).revision.author_id
+    )
+
+
+@pytest.mark.django_db
+def test_old_fixture_actor_slug_reproduces_actual_owner_operator_collision():
+    from django.contrib.auth.models import User
+    from django.db import IntegrityError, transaction
+    from identity.models import AdministratorProfile, AdministratorSession
+    from launchloop.models import DemoActor
+    from launchloop.pilot import owner_operator
+
+    user = User.objects.create(username="synthetic-collision-proof")
+    profile = AdministratorProfile.objects.create(user=user, status="active")
+    DemoActor.objects.create(slug="old-fixture-owner", user=user, role="operator")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        owner_operator(AdministratorSession(profile=profile))
+    assert DemoActor.objects.filter(user=user).count() == 1
 
 
 def test_isolated_config_preserves_actual_commands_and_network_boundaries():

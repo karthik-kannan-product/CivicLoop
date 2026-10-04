@@ -133,12 +133,18 @@ def seed(*, draft=False):
     from launchloop.services import NEW_YORK_EVENT, package_hash
 
     suffix = uuid.uuid4().hex[:8]
-    user = User.objects.create_user(username="fixture-owner-" + suffix)
-    user.set_unusable_password()
-    user.save()
-    profile = AdministratorProfile.objects.create(user=user, status="active")
-    actor = DemoActor.objects.create(
-        slug="fixture-owner-" + suffix, display_name="Synthetic owner", role="operator", user=user
+    user, created = User.objects.get_or_create(username="task8-fixture-owner")
+    if created:
+        user.set_unusable_password()
+        user.save()
+    profile, _ = AdministratorProfile.objects.get_or_create(
+        user=user, defaults={"status": "active"}
+    )
+    actor, _ = DemoActor.objects.get_or_create(
+        user=user,
+        defaults={
+            "slug": f"owner-{profile.id}", "display_name": "Synthetic owner", "role": "operator"
+        },
     )
     event = Event.objects.create(slug="fixture-event-" + suffix, title="Synthetic event")
     snapshot = dict(
@@ -177,31 +183,36 @@ def seed(*, draft=False):
             per_run_limit_microusd=500000,
             monthly_limit_microusd=25000000,
         )
-    client = Client()
-    client.force_login(user)
-    session = client.session
     now = timezone.now()
-    metadata = AdministratorSession.objects.create(
-        profile=profile,
-        session_key=session.session_key,
-        authenticated_at=now,
-        last_activity_at=now,
-        mfa_verified_at=now,
-        fresh_verified_at=now,
-        absolute_expires_at=now + timedelta(hours=12),
-        expires_at=now + timedelta(minutes=30),
-        device_label="Synthetic fixture",
-        source_ip="192.0.2.44",
-    )
-    session[ADMIN_SESSION_KEY] = str(metadata.id)
-    session.save()
+    metadata = AdministratorSession.objects.filter(
+        profile=profile, revoked_at__isnull=True, expires_at__gt=now,
+        absolute_expires_at__gt=now,
+    ).first()
+    if metadata is None:
+        client = Client()
+        client.force_login(user)
+        session = client.session
+        metadata = AdministratorSession.objects.create(
+            profile=profile,
+            session_key=session.session_key,
+            authenticated_at=now,
+            last_activity_at=now,
+            mfa_verified_at=now,
+            fresh_verified_at=now,
+            absolute_expires_at=now + timedelta(hours=12),
+            expires_at=now + timedelta(minutes=30),
+            device_label="Synthetic fixture",
+            source_ip="192.0.2.44",
+        )
+        session[ADMIN_SESSION_KEY] = str(metadata.id)
+        session.save()
     csrf = secrets.token_hex(16)
     # Fixture credentials are transferred through stdin/stdout capture only; the
     # orchestrator never prints this internal payload or includes it in evidence.
     return {
         "workflow_id": str(workflow.id),
         "revision_id": revision.id,
-        "session": session.session_key,
+        "session": metadata.session_key,
         "csrf": csrf,
         "package_digest": workflow.package_hash,
     }
