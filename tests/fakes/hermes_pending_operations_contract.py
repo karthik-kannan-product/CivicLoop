@@ -869,6 +869,39 @@ print(json.dumps(evidence))
             timeout=45,
         )
 
+    def confirm_quarantine(self, seed, run_id):
+        """Re-enabled process flags cannot erase unacknowledged durable cleanup."""
+        for name in ("web", "worker", "hermes-transport"):
+            for flag in ("CIVICLOOP_HERMES_ENABLED", "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED"):
+                require(
+                    self.config["services"][name]["environment"][flag] == "true",
+                    "kill_switch_not_reenabled",
+                )
+        snapshot = self.fixture("inspect", run_id)
+        require(
+            snapshot["lane_admission_disabled"] is True
+            and snapshot["run_admission_disabled"] is True,
+            "kill_switch_quarantine_missing",
+        )
+        code, problem = self.owner(
+            seed,
+            f"/api/v1/workflows/{seed['workflow_id']}/hermes-runs",
+            {"revision_id": seed["revision_id"]},
+            str(uuid.uuid4()),
+        )
+        require(
+            code == 409 and problem.get("code") == "hermes_admission_denied",
+            "kill_switch_quarantine_admission_open",
+        )
+        return {
+            "lane_admission_disabled": True,
+            "run_admission_disabled": True,
+            "reenabled_process_flags": True,
+            "reenabled_owner_start_status": code,
+            "reenabled_admission_category": "hermes_admission_denied",
+            "operator_recovery_required": True,
+        }
+
     def cleanup(self):
         try:
             self.compose("down", "--volumes", "--remove-orphans", "--timeout", "5", timeout=45)
@@ -1034,24 +1067,6 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             stack.owner(cancel_seed, f"/api/v1/agent-runs/{cancel_run}/cancel", {})
             stack.record("cancellation", cancel_seed, cancel_run, {"cancelled"})
             stack.mode("release")
-            stack.mode("hold")
-            stack.stage = "kill_switch"
-            kill_seed = stack.fixture("seed")
-            kill_run = stack.start(kill_seed)
-            stack.held()
-            stack.gates(False, include_worker=False)
-            stack.mode("release")
-            code, _ = stack.owner(
-                kill_seed,
-                f"/api/v1/workflows/{kill_seed['workflow_id']}/hermes-runs",
-                {"revision_id": kill_seed["revision_id"]},
-                str(uuid.uuid4()),
-            )
-            require(code == 503, "kill_switch_admission_open")
-            stack.record("kill_switch", kill_seed, kill_run, {"failed"})
-            stack.scenarios["kill_switch"]["web_transport_recreated"] = True
-            stack.gates(False)
-            stack.gates(True)
             stack.mode("success")
             for component in ("mcp", "litellm"):
                 stack.stage = component + "_outage"
@@ -1079,6 +1094,40 @@ def run_pending_operations_contract(candidate_manifest=None) -> dict[str, object
             stack.record(
                 "restored_success", restored_seed, stack.start(restored_seed), {"succeeded"}
             )
+            # Replacing transport during held I/O loses cleanup acknowledgement.
+            # Run this destructive scenario last: durable quarantine requires
+            # operator recovery, whereas dependency recovery above is automatic.
+            stack.mode("hold")
+            stack.stage = "kill_switch"
+            kill_seed = stack.fixture("seed")
+            kill_run = stack.start(kill_seed)
+            stack.held()
+            stack.gates(False, include_worker=False)
+            stack.mode("release")
+            code, _ = stack.owner(
+                kill_seed,
+                f"/api/v1/workflows/{kill_seed['workflow_id']}/hermes-runs",
+                {"revision_id": kill_seed["revision_id"]},
+                str(uuid.uuid4()),
+            )
+            require(code == 503, "kill_switch_admission_open")
+            kill_evidence = stack.record("kill_switch", kill_seed, kill_run, {"failed"})
+            require(
+                kill_evidence["operation_count"] == 0
+                and kill_evidence["reservation_status"] == "settled",
+                "kill_switch_terminal_evidence_invalid",
+            )
+            stack.gates(False)
+            stack.gates(True)
+            stack.await_readiness(timeout=45)
+            # A fresh ready workflow reaches admission instead of returning the
+            # existing-run conflict for the workflow that was just terminated.
+            quarantine_seed = stack.fixture("seed")
+            kill_evidence.update(stack.confirm_quarantine(quarantine_seed, kill_run))
+            kill_evidence["web_transport_recreated"] = True
+            kill_evidence["disabled_owner_start_status"] = 503
+            kill_evidence["restored_success_before_destructive_kill"] = True
+            require(stack.controller_clean() == "clean", "controller_cleanup_incomplete")
             time.sleep(2)
             traces = stack.internal("fixture-proxy:8089", "/fixture/state")
             stack.stage = "final_evidence"

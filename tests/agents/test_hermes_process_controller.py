@@ -264,6 +264,7 @@ def test_controller_executes_adapter_protocol_on_owned_child_only(upstream_statu
             self._send(
                 {
                     "status": upstream_status,
+                    "usage": {"input_tokens": 100, "output_tokens": 100, "total_tokens": 200},
                     "output": json.dumps(
                         {
                             "proposal_references": [
@@ -293,6 +294,8 @@ def test_controller_executes_adapter_protocol_on_owned_child_only(upstream_statu
         result = controller.execute(valid_request(), scope_token=_scope("a"))
         expected = "succeeded" if upstream_status == "completed" else "failed"
         assert result["status"] == expected
+        if upstream_status == "completed":
+            assert result["usage"] == {"input_tokens": 100, "output_tokens": 100}
         assert len(received) == 1
         assert _scope("a").encode() not in received[0]
         assert controller.quarantined is False

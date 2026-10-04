@@ -809,6 +809,108 @@ def test_actual_run_inspection_emits_only_closed_event_categories(settings, monk
     assert evidence["event_outcomes"]["accepted"] == 1
     assert evidence["other_event_count"] == 1
     assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(evidence)
+    assert evidence["lane_admission_disabled"] is False
+    assert evidence["run_admission_disabled"] is False
+
+
+@pytest.mark.django_db
+def test_reenabled_flags_keep_actual_worker_quarantine_and_owner_refusal(settings, monkeypatch):
+    from agents import tasks
+    from agents.hermes import HermesClient
+    from django.test import Client
+
+    from tests.agents.test_hermes_tasks import FakeClient
+    from tests.fakes import hermes_pending_operations_contract as harness
+    from tests.fakes.hermes_contract_fixture import inspect, seed
+
+    settings.CIVICLOOP_ADMIN_IDENTITY_ENABLED = True
+    settings.CIVICLOOP_HERMES_ENABLED = True
+    settings.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED = True
+    settings.CIVICLOOP_HERMES_PROFILE_ID = "task8_fixture"
+    settings.CIVICLOOP_HERMES_PROFILE_REVISION = 1
+    payload = seed()
+    monkeypatch.setattr(tasks.execute_hermes_run, "delay", lambda *_: None)
+    client = Client(enforce_csrf_checks=True)
+    client.cookies["sessionid"] = payload["session"]
+    client.cookies["csrftoken"] = payload["csrf"]
+
+    def owner(seed, path, body, key):
+        client.cookies["csrftoken"] = seed["csrf"]
+        response = client.post(
+            path, data=json.dumps(body), content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY=key, HTTP_X_CSRFTOKEN=seed["csrf"],
+        )
+        return response.status_code, response.json()
+
+    code, response = owner(
+        payload, f"/api/v1/workflows/{payload['workflow_id']}/hermes-runs",
+        {"revision_id": payload["revision_id"]}, str(uuid.uuid4()),
+    )
+    assert code == 202
+    run_id = response["run_id"]
+
+    def lost_acknowledgement(run, should_cancel):
+        raise RuntimeError("Synthetic transport interruption")
+
+    monkeypatch.setattr(
+        HermesClient, "from_settings",
+        lambda: FakeClient(behavior=lost_acknowledgement, cleanup=False),
+    )
+    tasks.execute_hermes_run(run_id)
+    snapshot = inspect(run_id)
+    assert snapshot["terminal_status"] == "failed"
+    assert snapshot["lane_admission_disabled"] is True
+    assert snapshot["run_admission_disabled"] is True
+    assert snapshot["capability_revoked"] is True
+    assert snapshot["reservation_status"] == "settled"
+    assert snapshot["operation_count"] == snapshot["provider_call_count"] == 0
+
+    # Only service recreation is isolated here; actual settings, ORM quarantine,
+    # seeded owner session, CSRF middleware and owner admission execute normally.
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.config = {"services": {
+        name: {"environment": {}} for name in ("web", "worker", "hermes-transport")
+    }}
+    stack.write = lambda: None
+    recreations = []
+    stack.compose = lambda *args, **kwargs: recreations.append(args)
+    stack.fixture = lambda command, run_id: inspect(run_id)
+    stack.owner = owner
+    settings.CIVICLOOP_HERMES_ENABLED = False
+    settings.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED = False
+    stack.gates(False)
+    stack.gates(True)
+    settings.CIVICLOOP_HERMES_ENABLED = True
+    settings.CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED = True
+    proof = stack.confirm_quarantine(seed(), run_id)
+    assert len(recreations) == 2
+    assert all(args[-3:] == ("web", "worker", "hermes-transport") for args in recreations)
+    assert proof == {
+        "lane_admission_disabled": True, "run_admission_disabled": True,
+        "reenabled_process_flags": True, "reenabled_owner_start_status": 409,
+        "reenabled_admission_category": "hermes_admission_denied",
+        "operator_recovery_required": True,
+    }
+
+
+@pytest.mark.parametrize("lane, control", [(False, True), (True, False), (False, False)])
+def test_quarantine_proof_rejects_either_missing_persistent_flag(lane, control):
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.config = {"services": {
+        name: {"environment": {
+            "CIVICLOOP_HERMES_ENABLED": "true",
+            "CIVICLOOP_HERMES_PENDING_OPERATIONS_ENABLED": "true",
+        }} for name in ("web", "worker", "hermes-transport")
+    }}
+    stack.fixture = lambda *_: {
+        "lane_admission_disabled": lane, "run_admission_disabled": control,
+    }
+    stack.owner = lambda *_: pytest.fail("must verify quarantine before HTTP admission")
+    with pytest.raises(ContractFailure) as failure:
+        stack.confirm_quarantine({}, str(uuid.uuid4()))
+    assert failure.value.category == "kill_switch_quarantine_missing"
 
 
 @pytest.mark.django_db

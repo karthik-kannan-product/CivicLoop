@@ -222,8 +222,10 @@ def inspect(run_id):
     django_setup()
     from agents.models import (
         AgentRun,
+        AgentRunControl,
         BudgetReservation,
         DraftOperation,
+        HermesAdmissionLane,
         MCPSubmission,
         WorkflowCapability,
     )
@@ -268,6 +270,8 @@ def inspect(run_id):
         "provider_call_count": ConnectorExecution.objects.count(),
         "capability_revoked": capability is None or capability.revoked_at is not None,
         "reservation_status": reservation.status,
+        "lane_admission_disabled": HermesAdmissionLane.objects.get(pk=1).admission_disabled,
+        "run_admission_disabled": AgentRunControl.objects.get(run=run).admission_disabled,
         "package_digest": run.workflow.package_hash,
         "events_digest": digest(events),
         "event_count": len(events),
