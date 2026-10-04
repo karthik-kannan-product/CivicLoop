@@ -648,6 +648,69 @@ def test_readiness_preserves_closed_helper_command_failure():
     }
 
 
+def test_hold_wait_aborts_on_real_terminal_category_before_model_poll():
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.active_run_id = str(uuid.uuid4())
+    stack.readiness = lambda: None
+    snapshot = {
+        "terminal_status": "failed", "failure_category": "dependency_unavailable",
+        "event_count": 2, "events_digest": "a" * 64,
+    }
+    stack.fixture = lambda *args: snapshot
+    stack.internal = lambda *_: pytest.fail("terminal run must not poll model")
+    with pytest.raises(ContractFailure) as caught:
+        stack.held()
+    assert caught.value.category == "run_terminal_before_model_hold"
+    assert caught.value.details == snapshot
+
+
+def test_failed_stage_retains_started_run_before_cleanup():
+    from tests.fakes import hermes_pending_operations_contract as harness
+
+    stack = harness.Stack.__new__(harness.Stack)
+    stack.stage = "delayed_revoked_a"
+    stack.active_run_id = str(uuid.uuid4())
+    stack.config = {"services": {}}
+    stack.compose = lambda *_, **__: ""
+    stack.fixture = lambda *args: {"terminal_status": "failed", "event_count": 2}
+    stack.controller_counts = lambda: {"child_count": 0, "home_count": 0}
+    stack.controller_phase = lambda: {"phase": "not_registered", "failure_count": 0}
+    stack.internal = lambda service, _: (
+        {"call_count": 0, "failure_count": 0, "blocked": False}
+        if service.startswith("fixture-model") else {"scope_count": 0}
+    )
+    stack.memory_events = lambda _: {"oom": 0, "oom_kill": 1}
+    evidence = stack.failure_snapshot()
+    assert evidence["started_run"]["terminal_status"] == "failed"
+    assert evidence["controller_phase"]["phase"] == "not_registered"
+    assert evidence["observer_counts"]["model_call_count"] == 0
+    assert evidence["memory_events"]["hermes"]["oom_kill"] == 1
+    assert stack.active_run_id not in json.dumps(evidence)
+
+
+@pytest.mark.django_db
+def test_actual_run_inspection_emits_only_closed_event_categories(settings, monkeypatch):
+    from agents.models import AgentRunEvent
+
+    from tests.agents import test_hermes_tasks
+    from tests.fakes.hermes_contract_fixture import inspect
+
+    inputs = test_hermes_tasks.inputs.__wrapped__(settings, monkeypatch)
+    run = test_hermes_tasks.queue(inputs)
+    AgentRunEvent.objects.create(
+        run=run, sequence=2, event_type="SYNTHETIC_FORBIDDEN_VALUE",
+        outcome="SYNTHETIC_FORBIDDEN_VALUE", detail_digest="a" * 64,
+    )
+    evidence = inspect(str(run.id))
+    assert evidence["terminal_status"] == "queued"
+    assert evidence["event_categories"]["queued"] == 1
+    assert evidence["event_outcomes"]["accepted"] == 1
+    assert evidence["other_event_count"] == 1
+    assert "SYNTHETIC_FORBIDDEN_VALUE" not in json.dumps(evidence)
+
+
 @pytest.mark.skipif(
     os.environ.get("CIVICLOOP_RUN_EXACT_HERMES_CONTRACT") != "1",
     reason="exact image application gate requires reviewed frozen manifest",

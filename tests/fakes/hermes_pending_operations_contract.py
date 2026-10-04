@@ -415,6 +415,7 @@ class Stack:
         self.scan_count = 0
         self.scenarios = {}
         self.stage = "compose_created"
+        self.active_run_id = None
 
     def write(self):
         self.path.write_text(json.dumps(self.config))
@@ -439,7 +440,7 @@ class Stack:
             )
         )
 
-    def controller_clean(self):
+    def controller_counts(self):
         code = (
             "import pathlib,json; "
             "homes=list(pathlib.Path('/tmp').glob('civicloop-hermes-run-*')); "
@@ -449,8 +450,69 @@ class Stack:
             "print(json.dumps({'child_count':children,'home_count':len(homes)}))"
         )
         counts = json.loads(self.compose("exec", "-T", "hermes", "python", "-c", code))
+        require(
+            set(counts) == {"child_count", "home_count"}
+            and all(type(value) is int and 0 <= value <= 1024 for value in counts.values()),
+            "controller_snapshot_invalid",
+        )
+        return counts
+
+    def controller_clean(self):
+        counts = self.controller_counts()
         require(counts == {"child_count": 0, "home_count": 0}, "controller_cleanup_incomplete")
         return "clean"
+
+    def controller_phase(self):
+        code = """import json,os,pathlib,sys,urllib.error,urllib.request,uuid
+run_id=str(uuid.UUID(json.loads(sys.stdin.read(128))))
+evidence={'phase':'unavailable','failure_count':0}
+try:
+    token=pathlib.Path(os.environ['HERMES_CONTROLLER_TOKEN_FILE']).read_text().strip()
+    request=urllib.request.Request(
+        'http://127.0.0.1:8642/internal/v1/controller/runs/'+run_id,
+        headers={'Authorization':'Bearer '+token})
+    response=urllib.request.urlopen(request,timeout=3)
+    payload=json.loads(response.read(32769))
+    phase=payload.get('status')
+    if phase in {'running','succeeded','failed','cancelled'}:
+        evidence={'phase':phase,'failure_count':int(phase=='failed')}
+except urllib.error.HTTPError as error:
+    if error.code==404:
+        evidence['phase']='not_registered'
+except Exception:
+    pass
+print(json.dumps(evidence))
+"""
+        value = json.loads(self.compose(
+            "exec", "-T", "hermes", "python", "-c", code,
+            input_text=json.dumps(self.active_run_id),
+        ))
+        require(
+            set(value) == {"phase", "failure_count"}
+            and value["phase"] in {
+                "running", "succeeded", "failed", "cancelled", "not_registered", "unavailable"
+            }
+            and type(value["failure_count"]) is int
+            and value["failure_count"] in {0, 1},
+            "controller_snapshot_invalid",
+        )
+        return value
+
+    def memory_events(self, service):
+        code = (
+            "import json,pathlib; p=pathlib.Path('/sys/fs/cgroup/memory.events'); "
+            "raw=p.read_text()[:4096] if p.exists() else ''; "
+            "values=dict(line.split() for line in raw.splitlines()); "
+            "print(json.dumps({k:int(values[k]) for k in "
+            "('low','high','max','oom','oom_kill','oom_group_kill') if k in values}))"
+        )
+        value = json.loads(self.compose("exec", "-T", service, "python", "-c", code))
+        require(
+            set(value) <= {"low", "high", "max", "oom", "oom_kill", "oom_group_kill"}
+            and all(type(count) is int and count >= 0 for count in value.values()),
+            "memory_snapshot_invalid",
+        )
+        return value
 
     def internal(self, service, path, body=None):
         # Only fixture endpoints and health probes are accepted by callers.
@@ -595,6 +657,7 @@ class Stack:
         status, payload = self.owner(seed, path, {"revision_id": seed["revision_id"]}, key)
         require(status == 202, "owner_start_denied")
         self.validate(payload, "hermes-start.schema.json")
+        self.active_run_id = payload["run_id"]
         replay_status, replay = self.owner(seed, path, {"revision_id": seed["revision_id"]}, key)
         require(replay_status == 202 and replay == payload, "idempotency_replay")
         return payload["run_id"]
@@ -611,10 +674,13 @@ class Stack:
             time.sleep(0.25)
         raise ContractFailure("run_deadline")
 
-    def held(self):
-        deadline = time.monotonic() + 40
+    def held(self, *, timeout=40):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self.readiness()
+            run = self.fixture("inspect", self.active_run_id)
+            if run["terminal_status"] in {"succeeded", "failed", "cancelled"}:
+                raise ContractFailure("run_terminal_before_model_hold", details=run)
             if self.internal("fixture-model:8088", "/fixture/state")["blocked"]:
                 return
             time.sleep(0.25)
@@ -656,6 +722,36 @@ class Stack:
     def failure_snapshot(self):
         """Inspect closed service/container fields and bounded log categories before cleanup."""
         evidence = {"stage": self.stage, "services": {}, "snapshot_status": "complete"}
+        if getattr(self, "active_run_id", None):
+            try:
+                evidence["started_run"] = self.fixture("inspect", self.active_run_id)
+                evidence["controller_process"] = self.controller_counts()
+                evidence["controller_phase"] = self.controller_phase()
+            except Exception:
+                evidence["started_run_snapshot_status"] = "unavailable"
+            try:
+                model = self.internal("fixture-model:8088", "/fixture/state")
+                proxy = self.internal("fixture-proxy:8089", "/fixture/state")
+                evidence["observer_counts"] = {
+                    "model_call_count": model["call_count"],
+                    "model_failure_count": model["failure_count"],
+                    "scope_count": proxy["scope_count"],
+                }
+                require(
+                    all(type(count) is int and count >= 0
+                        for count in evidence["observer_counts"].values()),
+                    "observer_snapshot_invalid",
+                )
+                evidence["model_blocked"] = model["blocked"] is True
+            except Exception:
+                evidence.pop("observer_counts", None)
+                evidence["observer_snapshot_status"] = "unavailable"
+            evidence["memory_events"] = {}
+            for service in ("worker", "hermes"):
+                try:
+                    evidence["memory_events"][service] = self.memory_events(service)
+                except Exception:
+                    evidence["memory_events"][service] = {"snapshot_status": "unavailable"}
         try:
             identifiers = self.compose("ps", "-a", "-q").split()
             for identifier in identifiers[:32]:

@@ -240,6 +240,25 @@ def inspect(run_id):
     events = list(run.events.order_by("sequence").values("event_type", "outcome", "detail_digest"))
     return {
         "terminal_status": run.status,
+        "failure_category": (
+            run.failure_category if run.failure_category in AgentRun.FailureCategory.values else ""
+        ),
+        "event_categories": {
+            name: sum(event["event_type"] == name for event in events)
+            for name in (
+                "queued", "running", "cancel_requested", "succeeded", "failed", "cancelled"
+            )
+        },
+        "event_outcomes": {
+            name: sum(event["outcome"] == name for event in events)
+            for name in ("accepted", "started", *AgentRun.FailureCategory.values)
+        },
+        "other_event_count": sum(
+            event["event_type"] not in {
+                "queued", "running", "cancel_requested", "succeeded", "failed", "cancelled"
+            }
+            for event in events
+        ),
         "proposal_count": proposals.count(),
         "pending_operation_count": operations.filter(status="pending").count(),
         "pending_provider_count": operations.values("provider").distinct().count(),
