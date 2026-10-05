@@ -11,7 +11,7 @@ import re
 import sys
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, NamedTuple
 
 import psycopg
 from psycopg import sql
@@ -35,7 +35,8 @@ INVARIANT_CATEGORIES = (
 
 CATALOG_QUERIES = {
     "columns": """
-        SELECT n.nspname, c.relname, a.attname, a.attnum,
+        SELECT n.nspname, c.relname, a.attname,
+               row_number() OVER (PARTITION BY c.oid ORDER BY a.attnum),
                pg_catalog.format_type(a.atttypid, a.atttypmod), t.typname,
                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END,
                pg_catalog.pg_get_expr(ad.adbin, ad.adrelid),
@@ -231,6 +232,168 @@ CATALOG_QUERIES = {
 }
 
 
+class _SQLToken(NamedTuple):
+    kind: str
+    value: str
+    start: int
+    end: int
+
+
+def _sql_tokens(definition: str) -> list[_SQLToken] | None:
+    """Quoted content is opaque; unsupported quoting/comments fail unchanged."""
+    tokens: list[_SQLToken] = []
+    offset = 0
+    while offset < len(definition):
+        start = offset
+        char = definition[offset]
+        if char.isspace():
+            offset += 1
+            continue
+        if char in "'\"":
+            quote = char
+            offset += 1
+            while offset < len(definition):
+                if definition[offset] == "\\":
+                    return None
+                if definition[offset] == quote:
+                    offset += 1
+                    if offset < len(definition) and definition[offset] == quote:
+                        offset += 1
+                        continue
+                    break
+                offset += 1
+            else:
+                return None
+            tokens.append(
+                _SQLToken(
+                    "literal" if quote == "'" else "quoted", definition[start:offset], start, offset
+                )
+            )
+            continue
+        if char in "$\\" or definition.startswith(("--", "/*"), offset):
+            return None
+        if char in "eE" and definition[offset : offset + 2].lower() == "e'":
+            return None
+        word = re.match(r"[A-Za-z_][A-Za-z_0-9]*", definition[offset:])
+        if word:
+            offset += len(word[0])
+            tokens.append(_SQLToken("word", word[0].lower(), start, offset))
+        else:
+            offset += 2 if definition.startswith("::", offset) else 1
+            tokens.append(_SQLToken("symbol", definition[start:offset], start, offset))
+    return tokens
+
+
+def _literal_text_array(tokens: list[_SQLToken], start: int) -> tuple[int, str] | None:
+    """Recognize only unbounded-varchar string literals coerced to text arrays."""
+    position = start
+
+    def take(value: str) -> bool:
+        nonlocal position
+        if (
+            position < len(tokens)
+            and tokens[position].kind != "literal"
+            and tokens[position].kind != "quoted"
+            and tokens[position].value == value
+        ):
+            position += 1
+            return True
+        return False
+
+    wrapped_array = take("(")
+    if not take("array") or not take("["):
+        return None
+    literals: list[str] = []
+    coerced: list[bool] = []
+    while True:
+        wrapped_literal = take("(")
+        if position >= len(tokens) or tokens[position].kind != "literal":
+            return None
+        literal = tokens[position].value
+        position += 1
+        if not take("::") or not take("character") or not take("varying"):
+            return None
+        if wrapped_literal and not take(")"):
+            return None
+        element_text = take("::")
+        if element_text and not take("text"):
+            return None
+        literals.append(literal)
+        coerced.append(element_text)
+        if take("]"):
+            break
+        if not take(","):
+            return None
+    if wrapped_array and not take(")"):
+        return None
+    if not any(coerced):
+        if not take("::") or not take("text") or not take("[") or not take("]"):
+            return None
+    elif (
+        not all(coerced)
+        or wrapped_array
+        or (position < len(tokens) and tokens[position].value == "::")
+    ):
+        return None
+    canonical = "ARRAY[" + ",".join(value + "::character varying::text" for value in literals) + "]"
+    return position, canonical
+
+
+def normalize_catalog_definition(definition: str) -> str:
+    """Canonicalize the one proven literal-array cast redistribution only."""
+    tokens = _sql_tokens(definition)
+    if tokens is None:
+        return definition
+    pieces: list[str] = []
+    copied = 0
+    position = 0
+    while position < len(tokens):
+        token = tokens[position]
+        array_start = token.kind == "word" and token.value == "array"
+        wrapped_start = (
+            token.value == "("
+            and position + 1 < len(tokens)
+            and tokens[position + 1].kind == "word"
+            and tokens[position + 1].value == "array"
+            and (
+                position == 0
+                or (
+                    tokens[position - 1].kind == "symbol"
+                    and tokens[position - 1].value
+                    in {"(", "[", ",", "=", "<", ">", "+", "-", "*", "/", "!", "|", "&"}
+                )
+            )
+        )
+        if array_start or wrapped_start:
+            matched = _literal_text_array(tokens, position)
+            if matched:
+                end, canonical = matched
+                pieces.extend((definition[copied : token.start], canonical))
+                copied = tokens[end - 1].end
+                position = end
+                continue
+            if wrapped_start:
+                # This '(' may belong to ANY/function context rather than the
+                # array cast itself. Let the following ARRAY be parsed directly.
+                position += 1
+                continue
+            # An unsupported outer ARRAY must not be partially normalized.
+            bracket = position + (2 if wrapped_start else 1)
+            if bracket < len(tokens) and tokens[bracket].value == "[":
+                depth = 0
+                while bracket < len(tokens):
+                    depth += tokens[bracket].value == "["
+                    depth -= tokens[bracket].value == "]"
+                    bracket += 1
+                    if not depth:
+                        break
+                position = bracket
+                continue
+        position += 1
+    pieces.append(definition[copied:])
+    return "".join(pieces)
+
+
 @contextmanager
 def read_only_snapshot(connection: Any) -> Iterator[None]:
     """Run catalog reads in a repeatable, explicitly read-only transaction."""
@@ -246,6 +409,12 @@ def capture_invariants(connection: psycopg.Connection[Any]) -> InvariantSet:
         for category, query in CATALOG_QUERIES.items():
             cursor.execute(query)
             invariants[category] = [list(row) for row in cursor.fetchall()]
+            definition_index = {"constraints": 4, "indexes": 3}.get(category)
+            if definition_index is not None:
+                for catalog_row in invariants[category]:
+                    catalog_row[definition_index] = normalize_catalog_definition(
+                        catalog_row[definition_index]
+                    )
         cursor.execute(
             """
             SELECT n.nspname, c.relname
@@ -274,9 +443,7 @@ def capture_invariants(connection: psycopg.Connection[Any]) -> InvariantSet:
 
 
 def invariant_digest(invariants: InvariantSet) -> str:
-    canonical = json.dumps(
-        invariants, sort_keys=True, separators=(",", ":"), default=str
-    ).encode()
+    canonical = json.dumps(invariants, sort_keys=True, separators=(",", ":"), default=str).encode()
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
@@ -291,8 +458,7 @@ def validate_invariants(expected: InvariantSet, restored: InvariantSet) -> list[
 def diagnostic_summary(expected: InvariantSet, restored: InvariantSet) -> str:
     def counts(invariants: InvariantSet) -> str:
         return ",".join(
-            f"{category}={len(invariants.get(category, []))}"
-            for category in INVARIANT_CATEGORIES
+            f"{category}={len(invariants.get(category, []))}" for category in INVARIANT_CATEGORIES
         )
 
     return (
