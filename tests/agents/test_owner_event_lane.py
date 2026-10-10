@@ -433,15 +433,20 @@ def test_invalid_imported_schedule_remains_editable(owner_lane):
 
 
 def test_owner_binding_immutable_and_fixture_constraint(owner_lane):
-    from django.db import IntegrityError, transaction
+    from django.db import IntegrityError, OperationalError, connection, transaction
 
     run = queue(owner_lane, ready(owner_lane))
     binding = run.hermes_binding
     binding.owner_session = None
     with pytest.raises(ValueError, match="immutable"):
         binding.save()
-    with pytest.raises(IntegrityError), transaction.atomic():
+    expected_error = OperationalError if connection.vendor == "postgresql" else IntegrityError
+    with pytest.raises(expected_error) as rejected, transaction.atomic():
         AgentRun.objects.filter(pk=run.pk).update(fixture_manifest_revision=3)
+    if connection.vendor == "postgresql":
+        assert rejected.value.__cause__.sqlstate == "55000"
+    run.refresh_from_db()
+    assert run.fixture_manifest_revision is None
 
 
 def test_owner_readiness_cannot_use_another_principal_session(owner_lane):
