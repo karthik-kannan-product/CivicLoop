@@ -19,6 +19,8 @@ PURPOSE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 CONNECTION_TEST_PURPOSE = "connection_test"
 EVENTBRITE_READ_PURPOSE = "eventbrite_metadata_read"
 EVALUATION_JUDGE_PURPOSE = "evaluation_judge"
+EVENTBRITE_WRITE_PURPOSE = "eventbrite_draft_write"
+ITERABLE_WRITE_PURPOSE = "iterable_draft_write"
 
 
 class SecretStore(ABC):
@@ -35,6 +37,8 @@ class SecretStore(ABC):
         workflow_id: UUID | None,
         purpose: str,
         ttl: timedelta,
+        execution_id: UUID | None = None,
+        execution_kind: str | None = None,
     ) -> _LeaseContext:
         """Return a context that exposes plaintext only during a validated call."""
 
@@ -76,9 +80,22 @@ class PostgresSecretStore(SecretStore):
         workflow_id: UUID | None,
         purpose: str,
         ttl: timedelta,
+        execution_id: UUID | None = None,
+        execution_kind: str | None = None,
     ) -> _LeaseContext:
-        self._validate_lease_request(reference, caller_id, workflow_id, purpose, ttl)
-        return _LeaseContext(self, reference, caller_id, workflow_id, purpose, timezone.now() + ttl)
+        self._validate_lease_request(
+            reference, caller_id, workflow_id, purpose, ttl, execution_id, execution_kind
+        )
+        return _LeaseContext(
+            self,
+            reference,
+            caller_id,
+            workflow_id,
+            purpose,
+            timezone.now() + ttl,
+            execution_id,
+            execution_kind,
+        )
 
     def _open_lease(
         self,
@@ -87,7 +104,19 @@ class PostgresSecretStore(SecretStore):
         workflow_id: UUID | None,
         purpose: str,
         expires_at: object,
+        execution_id: UUID | None = None,
+        execution_kind: str | None = None,
     ) -> SecretLease:
+        if purpose in {EVENTBRITE_WRITE_PURPOSE, ITERABLE_WRITE_PURPOSE}:
+            self._validate_lease_request(
+                reference,
+                caller_id,
+                workflow_id,
+                purpose,
+                timedelta(seconds=1),
+                execution_id,
+                execution_kind,
+            )
         if not isinstance(expires_at, type(timezone.now())) or timezone.now() >= expires_at:
             raise SecretUnavailable()
         secret = self._secret_for_reference(reference, current_version=True)
@@ -191,7 +220,112 @@ class PostgresSecretStore(SecretStore):
         workflow_id: UUID | None,
         purpose: str,
         ttl: timedelta,
+        execution_id: UUID | None = None,
+        execution_kind: str | None = None,
     ) -> None:
+        if purpose == EVENTBRITE_WRITE_PURPOSE:
+            from integrations.draft_operations import validate_execution
+            from integrations.models import DraftExecution, IntegrationConnection
+
+            if (
+                not isinstance(reference, SecretReference)
+                or reference.provider != "eventbrite"
+                or not isinstance(workflow_id, UUID)
+                or not isinstance(execution_id, UUID)
+                or execution_kind != "draft"
+            ):
+                raise SecretUnavailable()
+            if not IntegrationConnection.objects.filter(
+                provider="eventbrite",
+                state="healthy",
+                secret_id=reference.id,
+                secret__version=reference.version,
+                secret__status="active",
+            ).exists():
+                raise SecretUnavailable()
+            session = AdministratorSession.objects.filter(
+                id=caller_id,
+                profile__status=AdministratorProfile.Status.ACTIVE,
+                profile__user__is_active=True,
+                recovery_restricted=False,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+                absolute_expires_at__gt=timezone.now(),
+                mfa_verified_at__isnull=False,
+            ).first()
+            operations = DraftExecution.objects.filter(
+                pk=execution_id,
+                intent__workflow_id=workflow_id,
+                intent__provider="eventbrite",
+                approver_id=session.profile.user_id if session else None,
+                status__in=("executing", "unknown"),
+                approver__isnull=False,
+                approved_at__isnull=False,
+                claimed_at__isnull=False,
+            )
+            if session is None or not operations.exists():
+                raise SecretUnavailable()
+            try:
+                for operation in operations:
+                    validate_execution(operation, require_live_approval=False)
+            except Exception:
+                raise SecretUnavailable() from None
+        if purpose == ITERABLE_WRITE_PURPOSE:
+            import os
+
+            from integrations.draft_operations import validate_execution
+            from integrations.models import DraftExecution, IntegrationConnection, TemplateExecution
+
+            if (
+                not isinstance(reference, SecretReference)
+                or reference.provider != "iterable"
+                or not isinstance(workflow_id, UUID)
+                or not isinstance(execution_id, UUID)
+                or execution_kind not in {"draft", "template"}
+                or os.environ.get("ITERABLE_DRAFT_WRITE_ENABLED") != "true"
+            ):
+                raise SecretUnavailable()
+            healthy = IntegrationConnection.objects.filter(
+                provider="iterable",
+                state="healthy",
+                secret_id=reference.id,
+                secret__version=reference.version,
+                secret__status="active",
+            ).first()
+            session = AdministratorSession.objects.filter(
+                id=caller_id,
+                profile__status=AdministratorProfile.Status.ACTIVE,
+                profile__user__is_active=True,
+                recovery_restricted=False,
+                revoked_at__isnull=True,
+                expires_at__gt=timezone.now(),
+                absolute_expires_at__gt=timezone.now(),
+                mfa_verified_at__isnull=False,
+            ).first()
+            if healthy is None or session is None:
+                raise SecretUnavailable()
+            model = TemplateExecution if execution_kind == "template" else DraftExecution
+            operations = model.objects.filter(
+                pk=execution_id,
+                intent__workflow_id=workflow_id,
+                intent__provider="iterable",
+                status__in=("executing", "unknown"),
+                approver_id=session.profile.user_id,
+                approved_at__isnull=False,
+                approval_session__isnull=False,
+                claimed_at__isnull=False,
+            )
+            if not operations:
+                raise SecretUnavailable()
+            try:
+                for operation in operations:
+                    validate_execution(operation, require_live_approval=False)
+                    if operation.provider_configuration.get("region") != healthy.configuration.get(
+                        "region"
+                    ):
+                        raise SecretUnavailable()
+            except Exception:
+                raise SecretUnavailable() from None
         valid_purpose = (
             (purpose == CONNECTION_TEST_PURPOSE and workflow_id is None)
             or (
@@ -202,6 +336,16 @@ class PostgresSecretStore(SecretStore):
             or (
                 purpose == EVALUATION_JUDGE_PURPOSE
                 and reference.provider == "openai"
+                and isinstance(workflow_id, UUID)
+            )
+            or (
+                purpose == EVENTBRITE_WRITE_PURPOSE
+                and reference.provider == "eventbrite"
+                and isinstance(workflow_id, UUID)
+            )
+            or (
+                purpose == ITERABLE_WRITE_PURPOSE
+                and reference.provider == "iterable"
                 and isinstance(workflow_id, UUID)
             )
         )
@@ -252,6 +396,8 @@ class _LeaseContext:
         workflow_id: UUID | None,
         purpose: str,
         expires_at: object,
+        execution_id: UUID | None = None,
+        execution_kind: str | None = None,
     ) -> None:
         self._store = store
         self._reference = reference
@@ -259,6 +405,8 @@ class _LeaseContext:
         self._workflow_id = workflow_id
         self._purpose = purpose
         self._expires_at = expires_at
+        self._execution_id = execution_id
+        self._execution_kind = execution_kind
         self._lease: SecretLease | None = None
         self._entered = False
         self._closed = False
@@ -273,6 +421,8 @@ class _LeaseContext:
             self._workflow_id,
             self._purpose,
             self._expires_at,
+            self._execution_id,
+            self._execution_kind,
         )
         self._entered = True
         return self._lease

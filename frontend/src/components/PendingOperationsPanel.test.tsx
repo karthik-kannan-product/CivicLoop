@@ -13,7 +13,7 @@ test("renders each pending intent without execution or approval controls", () =>
   expect(screen.getByRole("heading", { name: "Pending Iterable email draft" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Pending Iterable reminder draft" })).toBeInTheDocument();
   expect(screen.getAllByText("Status: pending")).toHaveLength(3);
-  expect(screen.getByText(/Nothing has been created at Eventbrite or Iterable/)).toBeInTheDocument();
+  expect(screen.getByText(/Provider execution and receipts are shown separately/)).toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
 });

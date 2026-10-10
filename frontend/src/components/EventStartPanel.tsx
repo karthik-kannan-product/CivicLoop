@@ -11,6 +11,8 @@ import type { DemoState } from "../types";
 
 export function EventStartPanel({ onStarted }: { onStarted: (state: DemoState) => void }) {
   const [events, setEvents] = useState<EventbriteEvent[] | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [complete, setComplete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -29,6 +31,17 @@ export function EventStartPanel({ onStarted }: { onStarted: (state: DemoState) =
       setBusy(false);
     }
   }
+
+  async function refresh(loadMore = false) {
+    const page = await refreshEventbriteEvents(loadMore && cursor ? cursor : undefined);
+    setEvents((previous) => Array.from(new Map([
+      ...(loadMore ? previous ?? [] : []), ...page.events,
+    ].filter((event) => event.status === "draft").map((event) => [event.id, event])).values()));
+    setCursor(page.next_cursor);
+    setComplete(page.complete);
+  }
+
+  const drafts = events?.filter((event) => event.status === "draft") ?? [];
 
   return (
     <section className="event-start" aria-labelledby="event-start-title">
@@ -56,11 +69,13 @@ export function EventStartPanel({ onStarted }: { onStarted: (state: DemoState) =
         <div className="event-start__provider">
           <div className="event-start__provider-heading">
             <h3>Eventbrite</h3>
-            <button className="button button--secondary" disabled={busy} onClick={() => void act(async () => setEvents(await refreshEventbriteEvents()))} type="button">Refresh events</button>
+            <button className="button button--secondary" disabled={busy} onClick={() => void act(async () => refresh())} type="button">Refresh events</button>
           </div>
-          {events.length === 0 ? <p>No Eventbrite events are available. You can still start a manual brief.</p> : (
+          <p role="status">{complete ? "All accessible drafts have been loaded." : cursor ? "More drafts may be available." : "Refresh to browse accessible drafts."}</p>
+          {cursor && <button className="button button--secondary" disabled={busy} onClick={() => void act(() => refresh(true))} type="button">Load more drafts</button>}
+          {drafts.length === 0 ? <p>No Eventbrite events are available. You can still start a manual brief.</p> : (
             <ul className="event-start__events">
-              {events.map((event) => (
+              {drafts.map((event) => (
                 <li key={event.id}>
                   <div><strong>{event.title}</strong><span>{event.status} · {event.start_at ? new Date(event.start_at).toLocaleDateString() : "Date not set"}</span></div>
                   <button className="button button--secondary" disabled={busy || !event.selectable} onClick={() => void act(async () => onStarted(await selectEventbriteEvent(event.id)))} type="button">{event.selectable ? "Use event" : "Unavailable"}</button>

@@ -54,6 +54,8 @@ LIVE_INTEGRATION_ROUTES = {
 EXPECTED_SCHEMAS = {
     "connection.schema.json",
     "draft-operation.schema.json",
+    "eventbrite-owner-draft.schema.json",
+    "iterable-owner-draft.schema.json",
     "mutations.schema.json",
     "health-check.schema.json",
     "workflow-capability.schema.json",

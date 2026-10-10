@@ -143,3 +143,18 @@ def test_demo_reset_preserves_imported_event_history() -> None:
 
     imported.refresh_from_db()
     assert imported.revision.source_snapshot_id is not None
+
+
+@pytest.mark.django_db
+def test_partial_product_page_never_marks_unseen_events_unavailable() -> None:
+    original = refresh_eventbrite_events(reader=FakeEventbriteReader((event(),)))[0]
+    refresh_eventbrite_events(
+        reader=FakeEventbriteReader(()), supplied_events=(), reconcile_missing=False
+    )
+    source = ProviderEvent.objects.get(id=original["id"])
+    assert source.available
+    refresh_eventbrite_events(
+        reader=FakeEventbriteReader(()), supplied_events=(), reconcile_missing=False
+    )
+    source.refresh_from_db()
+    assert source.available

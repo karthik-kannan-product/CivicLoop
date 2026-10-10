@@ -33,6 +33,21 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         specification = yaml.safe_load(source)
 
     assert set(specification["paths"]) == {
+        "/api/v1/agent-runs/{runId}/pending-operations/{intentId}/iterable-review",
+        "/api/v1/agent-runs/{runId}/pending-operations/{intentId}/iterable-campaign-review",
+        "/api/v1/iterable-template-executions/{operationId}",
+        "/api/v1/iterable-template-executions/{operationId}/approve",
+        "/api/v1/iterable-template-executions/{operationId}/execute",
+        "/api/v1/iterable-template-executions/{operationId}/reconcile",
+        "/api/v1/iterable-campaign-executions/{operationId}",
+        "/api/v1/iterable-campaign-executions/{operationId}/approve",
+        "/api/v1/iterable-campaign-executions/{operationId}/execute",
+        "/api/v1/iterable-campaign-executions/{operationId}/reconcile",
+        "/api/v1/agent-runs/{runId}/pending-operations/{intentId}/draft-review",
+        "/api/v1/draft-executions/{operationId}",
+        "/api/v1/draft-executions/{operationId}/approve",
+        "/api/v1/draft-executions/{operationId}/execute",
+        "/api/v1/draft-executions/{operationId}/reconcile",
         "/api/v1/agent-runs/{runId}",
         "/api/v1/agent-runs/{runId}/cancel",
         "/api/v1/agent-runs/{runId}/pending-operations",

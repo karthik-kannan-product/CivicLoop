@@ -1,5 +1,7 @@
 import { useId } from "react";
 import type { PendingOperation } from "../types";
+import { DraftExecutionReview } from "./DraftExecutionReview";
+import { IterableExecutionReview } from "./IterableExecutionReview";
 
 const operationLabels: Record<PendingOperation["operation_kind"], string> = {
   create_eventbrite_draft: "Pending Eventbrite draft",
@@ -7,12 +9,12 @@ const operationLabels: Record<PendingOperation["operation_kind"], string> = {
   create_iterable_reminder_draft: "Pending Iterable reminder draft",
 };
 
-export function PendingOperationsPanel({ operations }: { operations: PendingOperation[] }) {
+export function PendingOperationsPanel({ operations, runId, revisionId, ownerReview = false }: { operations: PendingOperation[]; runId?: string; revisionId?: number; ownerReview?: boolean }) {
   const titleId = useId();
   return (
     <section className="review-package" aria-labelledby={titleId}>
       <h3 id={titleId}>Pending draft operations</h3>
-      <p>These are reviewable intents. Nothing has been created at Eventbrite or Iterable.</p>
+      <p>These are reviewable intents. Provider execution and receipts are shown separately.</p>
       {operations.length === 0 ? <p>No pending draft operations.</p> : (
         <div className="asset-stack">
           {operations.map((operation) => (
@@ -20,6 +22,8 @@ export function PendingOperationsPanel({ operations }: { operations: PendingOper
               <h4>{operationLabels[operation.operation_kind]}</h4>
               <p>Status: pending</p>
               <p>Digest <code>{operation.action_digest.slice(0, 12)}</code></p>
+              {ownerReview && runId && revisionId && operation.operation_kind === "create_eventbrite_draft" && <DraftExecutionReview key={`${runId}:${revisionId}:${operation.operation_id}`} runId={runId} revisionId={revisionId} intentId={operation.operation_id} />}
+              {ownerReview && runId && revisionId && operation.provider === "iterable" && <IterableExecutionReview key={`${runId}:${revisionId}:${operation.operation_id}`} runId={runId} revisionId={revisionId} intentId={operation.operation_id} />}
             </article>
           ))}
         </div>
