@@ -17,11 +17,36 @@ from tests.agents.test_hermes_adapter import Client, make_adapter
 from tests.agents.test_hermes_controller_service import FakeController
 from tests.agents.test_hermes_tasks import inputs as inputs
 from tests.agents.test_hermes_tasks import queue
+from tests.agents.test_owner_event_lane import FACTS
+from tests.identity.test_security_actions_api import create_authenticated_owner
+
+
+def queue_lane(inputs, lane):
+    if lane == "synthetic":
+        return queue(inputs)
+    from launchloop.pilot import owner_operator, start_manual_event
+    from launchloop.services import run_workflow
+
+    _, _, session, _ = create_authenticated_owner()
+    actor = owner_operator(session)
+    workflow = start_manual_event(FACTS, actor)
+    run_workflow(workflow.pk, actor)
+    workflow.refresh_from_db()
+    run = tasks.queue_hermes_run(
+        workflow_id=workflow.pk,
+        revision_id=workflow.revision_id,
+        actor_slug=actor.pk,
+        owner_session_id=session.pk,
+    )
+    assert run.privacy_mode == "pilot_minimized"
+    assert run.fixture_manifest_id is None
+    return run
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("cost", [200, None, 1])
-def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, cost):
+@pytest.mark.parametrize("lane", ["synthetic", "owner"])
+def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, cost, lane):
     transport = Client()
 
     class BrokerChild(FakeController):
@@ -45,6 +70,10 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
                             **extra,
                         },
                     )
+
+                event = call("get_event_revision")
+                assert set(event["event"]) <= set(FACTS)
+                assert "owner_event" not in event["event"]
 
                 proposal = call(
                     "propose_campaign_drafts",
@@ -104,7 +133,7 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
     client = HermesClient(url=f"http://127.0.0.1:{server.server_port}", token=server.service_token)
     monkeypatch.setattr(HermesClient, "from_settings", lambda: client)
     try:
-        run = queue(inputs)
+        run = queue_lane(inputs, lane)
         tasks.execute_hermes_run(str(run.id))
         run.refresh_from_db()
         if cost == 1:
@@ -141,7 +170,10 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
 
 
 @pytest.mark.django_db(transaction=True)
-def test_owner_cancel_crosses_actual_worker_client_http_and_confirms_cleanup(inputs, monkeypatch):
+@pytest.mark.parametrize("lane", ["synthetic", "owner"])
+def test_owner_cancel_crosses_actual_worker_client_http_and_confirms_cleanup(
+    inputs, monkeypatch, lane
+):
     """Exercise socket cancellation and duplicate cleanup without stubbing client I/O."""
     transport = Client()
 
@@ -152,18 +184,21 @@ def test_owner_cancel_crosses_actual_worker_client_http_and_confirms_cleanup(inp
 
     child = HeldController()
     controller = ControllerService(
-        ("127.0.0.1", 0), Handler,
-        service_token="synthetic-controller-identity-0000", controller=child,
+        ("127.0.0.1", 0),
+        Handler,
+        service_token="synthetic-controller-identity-0000",
+        controller=child,
     )
     threading.Thread(target=controller.serve_forever, daemon=True).start()
     server = make_adapter(transport)
     server.process_controller = RemoteProcessController(
-        url=f"http://127.0.0.1:{controller.server_port}", token=controller.service_token,
+        url=f"http://127.0.0.1:{controller.server_port}",
+        token=controller.service_token,
     )
     threading.Thread(target=server.serve_forever, daemon=True).start()
     client = HermesClient(url=f"http://127.0.0.1:{server.server_port}", token=server.service_token)
     monkeypatch.setattr(HermesClient, "from_settings", lambda: client)
-    run = queue(inputs)
+    run = queue_lane(inputs, lane)
 
     def execute():
         close_old_connections()

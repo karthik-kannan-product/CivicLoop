@@ -20,6 +20,7 @@ from .pilot import (
     refresh_configured_eventbrite_events,
     select_eventbrite_event,
     start_manual_event,
+    update_event_facts,
 )
 from .services import (
     DemoError,
@@ -37,9 +38,19 @@ from .services import (
 
 
 def _body(request: HttpRequest) -> dict[str, Any]:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
     try:
-        parsed = json.loads(request.body or b"{}")
-    except json.JSONDecodeError:
+        if len(request.body) > 16384:
+            raise ValueError
+        parsed = json.loads(request.body or b"{}", object_pairs_hook=unique)
+    except ValueError:
         raise DemoError("invalid_json", "Request body must be valid JSON.") from None
     if not isinstance(parsed, dict):
         raise DemoError("invalid_json", "Request body must be a JSON object.")
@@ -260,10 +271,25 @@ def eventbrite_event_select(request: HttpRequest, source_id: UUID) -> JsonRespon
 def manual_event_start(request: HttpRequest) -> JsonResponse:
     def operation() -> dict[str, Any]:
         try:
-            workflow = start_manual_event(_body(request), _operator(request))
+            actor = owner_operator(_administrator(request))
+            workflow = start_manual_event(_body(request), actor)
         except ValueError as error:
             raise _pilot_error(error) from None
         request.session["launchloop_workflow_id"] = str(workflow.id)
+        return serialize_demo(workflow)
+
+    return _respond(request, operation)
+
+
+@require_POST
+def workflow_facts(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
+    def operation():
+        actor = owner_operator(_administrator(request))
+        workflow_for(workflow_id)
+        try:
+            workflow = update_event_facts(workflow_id, _body(request), actor)
+        except ValueError as error:
+            raise _pilot_error(error) from None
         return serialize_demo(workflow)
 
     return _respond(request, operation)
@@ -282,10 +308,24 @@ def demo_reset(request: HttpRequest) -> JsonResponse:
 
 @require_POST
 def workflow_run(request: HttpRequest, workflow_id: UUID) -> JsonResponse:
-    return _respond(
-        request,
-        lambda: serialize_demo(run_workflow(workflow_id, _actor(request))),
-    )
+    from .owner_events import source_kind
+
+    def operation():
+        if source_kind(workflow_for(workflow_id).revision) != "synthetic":
+            return _owner_run(request, workflow_id)
+        return serialize_demo(run_workflow(workflow_id, _actor(request)))
+
+    return _respond(request, operation)
+
+
+def _owner_run(request, workflow_id):
+    actor = owner_operator(_administrator(request))
+    if workflow_for(workflow_id).revision.author_id != actor.pk:
+        raise DemoError("event_owner_required", "Only the event owner can prepare it.", 403)
+    try:
+        return serialize_demo(run_workflow(workflow_id, actor))
+    except ValueError:
+        raise DemoError("invalid_event_facts", "Check the public event facts.", 400) from None
 
 
 @require_POST

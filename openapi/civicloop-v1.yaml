@@ -877,6 +877,34 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         '403':
           $ref: '#/components/responses/ProblemResponse'
+  /api/v1/workflows/{workflowId}/facts:
+    post:
+      tags:
+      - LaunchLoop
+      operationId: updateOwnerEventFacts
+      summary: Revise public facts for an owner MFA event without external actions
+      parameters:
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/launchloop/event-facts-request.schema.json
+      responses:
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/events/manual:
     post:
       tags:

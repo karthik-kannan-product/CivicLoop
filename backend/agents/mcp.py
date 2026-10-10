@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from launchloop.models import AuditEvent, Workflow
+from launchloop.owner_events import source_kind
 from observability.runtime import get_runtime
 
 from agents.capabilities import AUDIENCE, AuthorizationDenied, token_digest, verify_token
@@ -242,7 +243,9 @@ def _execute(tool, arguments, record, workflow):
         return {
             "policy_version": "mcp-drafts-v1",
             "provider_execution_allowed": False,
-            "approval_required": "four_eyes_exact_revision_and_action_digest",
+            "approval_required": "four_eyes_exact_revision_and_action_digest"
+            if source_kind(workflow.revision) == "synthetic"
+            else "owner_exact_revision_and_action_digest_audience_policy_review",
             "prohibited_actions": [
                 "publish",
                 "schedule",
@@ -285,7 +288,9 @@ def _execute(tool, arguments, record, workflow):
             "proposal_id": str(proposal.id),
             "schema_valid": True,
             "execution_authorized": False,
-            "required_review": "deterministic_policy_and_four_eyes",
+            "required_review": "deterministic_policy_and_four_eyes"
+            if source_kind(workflow.revision) == "synthetic"
+            else "owner_exact_draft_approval_and_deferred_audience_policy",
         }
     provider = "eventbrite" if tool == "request_eventbrite_draft" else "iterable"
     kinds = (

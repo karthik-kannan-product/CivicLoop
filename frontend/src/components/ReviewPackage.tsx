@@ -23,6 +23,7 @@ export function ReviewPackage({
   busy = false,
   onEvaluate,
 }: ReviewPackageProps) {
+  const ownerEvent = campaignPackage.schema_id === "owner_event_draft_v1";
   return (
     <section className="review-package" aria-labelledby="package-title">
       <div className="section-heading">
@@ -43,25 +44,33 @@ export function ReviewPackage({
           ))}
         </div>
         <aside className="validation" aria-label="Validation evidence">
-          <div>
+          {ownerEvent ? <div>
+            <p className="validation__label">Audience and suppressions</p>
+            <strong>Deferred to provider review</strong>
+            <span>Review exact recipient lists and suppressions before approving a provider request.</span>
+          </div> : <div>
             <p className="validation__label">Approved audience</p>
             <strong>{campaignPackage.audience.name}</strong>
             <span>{campaignPackage.audience.member_count} people · aggregate only</span>
-          </div>
-          <div>
+          </div>}
+          {ownerEvent ? <div>
+            <p className="validation__label">Sponsor terms</p>
+            <strong>No sponsor policy applied</strong>
+            <span>This package makes no discount or membership claim.</span>
+          </div> : <div>
             <p className="validation__label">Sponsor validation</p>
             <strong>{campaignPackage.sponsor.expected_discount_percent}% gold discount</strong>
             <span>
               ${campaignPackage.sponsor.general_ticket_price} general · $
               {campaignPackage.sponsor.sponsor_ticket_price} sponsor
             </span>
-          </div>
+          </div>}
           <div>
             <p className="validation__label">Action boundary</p>
             <strong>Review only</strong>
             <span>Nothing has been sent, scheduled, or published.</span>
           </div>
-          <div className="evaluation-status" aria-live="polite" aria-busy={evaluation?.state === "pending"}>
+          {!ownerEvent && <div className="evaluation-status" aria-live="polite" aria-busy={evaluation?.state === "pending"}>
             <p className="validation__label">Advisory evaluation</p>
             {evaluation ? (
               <>
@@ -89,7 +98,7 @@ export function ReviewPackage({
                 {busy ? "Evaluating..." : "Run advisory evaluation"}
               </button>
             )}
-          </div>
+          </div>}
         </aside>
       </div>
     </section>

@@ -22,6 +22,7 @@ from .models import (
     Workflow,
     WorkflowTransition,
 )
+from .owner_events import prepare_owner_package, source_kind
 
 NEW_YORK_EVENT = {
     "synthetic": True,
@@ -210,7 +211,11 @@ def run_workflow(workflow_id: UUID, actor: DemoActor) -> Workflow:
             "launchloop.deterministic_lane",
             OpenInferenceSpanKindValues.CHAIN,
         ):
-            package = prepare_package(workflow.revision.snapshot)
+            package = (
+                prepare_package(workflow.revision.snapshot)
+                if source_kind(workflow.revision) == "synthetic"
+                else prepare_owner_package(workflow.revision.snapshot)
+            )
         workflow.package = package
         workflow.package_hash = package_hash(package)
         workflow.save(update_fields=("package", "package_hash", "updated_at"))
@@ -225,13 +230,14 @@ def run_workflow(workflow_id: UUID, actor: DemoActor) -> Workflow:
                 else Workflow.Status.NEEDS_INPUT
             )
             policy_span.set_attribute("civicloop.outcome", destination)
-        with workflow_stage(
-            workflow,
-            "launchloop.evaluation",
-            OpenInferenceSpanKindValues.EVALUATOR,
-        ) as evaluation_span:
-            evaluation_span.set_attribute("civicloop.outcome", "passed")
-            evaluation_span.set_status(Status(StatusCode.OK))
+        if source_kind(workflow.revision) == "synthetic":
+            with workflow_stage(
+                workflow,
+                "launchloop.evaluation",
+                OpenInferenceSpanKindValues.EVALUATOR,
+            ) as evaluation_span:
+                evaluation_span.set_attribute("civicloop.outcome", "passed")
+                evaluation_span.set_status(Status(StatusCode.OK))
         _transition(
             workflow,
             actor,
@@ -254,6 +260,8 @@ def answer_questions(
     workflow = (
         Workflow.objects.select_for_update().select_related("revision", "event").get(id=workflow_id)
     )
+    if source_kind(workflow.revision) != "synthetic":
+        raise DemoError("synthetic_only", "Use the owner public event facts editor.", 403)
     if actor.role != DemoActor.Role.OPERATOR:
         raise DemoError("operator_required", "Only the operator can resolve event facts.", 403)
     if workflow.status != Workflow.Status.NEEDS_INPUT:
@@ -308,6 +316,8 @@ def submit_workflow(workflow_id: UUID, actor: DemoActor) -> ApprovalRequest:
     workflow = Workflow.objects.select_for_update().get(id=workflow_id)
     if actor.role != DemoActor.Role.OPERATOR:
         raise DemoError("operator_required", "Only the operator can submit this package.", 403)
+    if source_kind(workflow.revision) != "synthetic":
+        raise DemoError("synthetic_only", "Use the owner provider request review.", 403)
     if workflow.status != Workflow.Status.READY_FOR_REVIEW or not workflow.package_hash:
         raise DemoError(
             "invalid_workflow_state",
@@ -353,6 +363,9 @@ def decide_approval(
         )
     except ApprovalRequest.DoesNotExist:
         raise DemoError("approval_not_found", "The approval request does not exist.", 404) from None
+
+    if source_kind(approval.workflow.revision) != "synthetic":
+        raise DemoError("synthetic_only", "Use the owner provider request review.", 403)
 
     if actor.pk == approval.submitter_id:
         raise DemoError(
@@ -456,7 +469,7 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
     execution = ConnectorExecution.objects.filter(approval=approval).first() if approval else None
     latest_run = (
         workflow.agent_runs.select_related("model_profile")
-        .filter(package_hash=workflow.package_hash)
+        .filter(package_hash=workflow.package_hash, hermes_lane=False)
         .order_by("-created_at")
         .first()
         if workflow.package_hash
@@ -507,6 +520,7 @@ def serialize_demo(workflow: Workflow | None = None) -> dict[str, Any]:
                 "version": revision.version,
                 "facts": revision.snapshot,
                 "author": revision.author_id,
+                "source_kind": source_kind(revision),
             },
         },
         "workflow": {
