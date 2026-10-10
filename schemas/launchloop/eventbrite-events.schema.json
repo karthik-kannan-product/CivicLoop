@@ -2,28 +2,102 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["events"],
+  "required": [
+    "events",
+    "next_cursor",
+    "has_more",
+    "complete"
+  ],
   "properties": {
     "events": {
       "type": "array",
-      "maxItems": 100,
+      "maxItems": 20,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "provider_event_id", "title", "status", "changed_at", "start_at", "end_at", "timezone", "available", "selectable"],
+        "required": [
+          "id",
+          "provider_event_id",
+          "title",
+          "status",
+          "changed_at",
+          "start_at",
+          "end_at",
+          "timezone",
+          "available",
+          "selectable"
+        ],
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "provider_event_id": { "type": "string", "pattern": "^[0-9]{1,32}$" },
-          "title": { "type": "string", "minLength": 1, "maxLength": 240 },
-          "status": { "enum": ["draft", "live", "started", "ended", "completed", "canceled"] },
-          "changed_at": { "type": "string", "format": "date-time" },
-          "start_at": { "type": ["string", "null"], "format": "date-time" },
-          "end_at": { "type": ["string", "null"], "format": "date-time" },
-          "timezone": { "type": "string", "maxLength": 64 },
-          "available": { "type": "boolean" },
-          "selectable": { "type": "boolean" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "provider_event_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,32}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "started",
+              "ended",
+              "completed",
+              "canceled"
+            ]
+          },
+          "changed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "start_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "end_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "source_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
         }
       }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 2048
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "complete": {
+      "type": "boolean"
     }
   }
 }

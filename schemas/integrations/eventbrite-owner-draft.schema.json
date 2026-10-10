@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://civicloop.karthikkannan.ca/schemas/integrations/eventbrite-owner-draft.schema.json",
+  "title": "Eventbrite owner create-only draft contracts",
+  "$defs": {
+    "Request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "summary",
+        "organization_id",
+        "start_local",
+        "end_local",
+        "timezone",
+        "currency"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "organization_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,39}$"
+        },
+        "start_local": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+        },
+        "end_local": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "Execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "intent_id",
+        "run_id",
+        "revision_id",
+        "review_digest",
+        "request_digest",
+        "status",
+        "organization_id",
+        "payload",
+        "provider_id",
+        "receipt"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "intent_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "review_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "executing",
+            "unknown",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "organization_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,39}$"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "event"
+          ],
+          "properties": {
+            "event": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "summary",
+                "start",
+                "end",
+                "currency",
+                "listed",
+                "shareable"
+              ],
+              "properties": {
+                "name": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "html"
+                  ],
+                  "properties": {
+                    "html": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    }
+                  }
+                },
+                "summary": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 140
+                },
+                "start": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "utc",
+                    "timezone"
+                  ],
+                  "properties": {
+                    "utc": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                },
+                "end": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "utc",
+                    "timezone"
+                  ],
+                  "properties": {
+                    "utc": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                },
+                "currency": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "listed": {
+                  "const": false
+                },
+                "shareable": {
+                  "const": false
+                }
+              }
+            }
+          }
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,39}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "provider_id",
+        "provider_status",
+        "request_digest",
+        "readback_digest",
+        "error_category"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "CONFIRMED",
+            "UNKNOWN"
+          ]
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,39}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 32
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "readback_digest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error_category": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        }
+      }
+    },
+    "Preparation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "execution",
+            "intent_id",
+            "revision_id",
+            "title",
+            "timezone",
+            "date",
+            "start_time",
+            "end_time",
+            "proposal_copy",
+            "summary"
+          ],
+          "properties": {
+            "execution": {
+              "type": "null"
+            },
+            "intent_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "revision_id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "title": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 240
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 64
+            },
+            "date": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 10
+            },
+            "start_time": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 8
+            },
+            "end_time": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 8
+            },
+            "proposal_copy": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 12000
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 140
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "execution"
+          ],
+          "properties": {
+            "execution": {
+              "$ref": "#/$defs/Execution"
+            }
+          }
+        }
+      ]
+    },
+    "Approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_digest",
+        "revision_id"
+      ],
+      "properties": {
+        "review_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "Empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "const": "The owner draft action could not be completed."
+        }
+      }
+    }
+  }
+}

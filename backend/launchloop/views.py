@@ -188,18 +188,56 @@ def _pilot_error(error: ValueError) -> DemoError:
 def eventbrite_events(request: HttpRequest) -> JsonResponse:
     return _respond(
         request,
-        lambda: (_administrator(request), {"events": list_eventbrite_events()})[1],
+        lambda: (
+            _administrator(request),
+            {
+                "events": list_eventbrite_events(),
+                "next_cursor": None,
+                "has_more": False,
+                "complete": False,
+            },
+        )[1],
     )
 
 
 @require_POST
 def eventbrite_events_refresh(request: HttpRequest) -> JsonResponse:
     def operation() -> dict[str, Any]:
+        allowed = {
+            "cursor",
+            "page_size",
+            "status",
+            "changed_since",
+            "changed_until",
+            "created_since",
+            "created_until",
+        }
+        if set(request.GET) - allowed or any(
+            len(request.GET.getlist(key)) != 1 for key in request.GET
+        ):
+            raise DemoError("invalid_eventbrite_query", "Use supported draft browsing filters.")
+        filters: dict[str, Any] = {}
+        for key in allowed - {"cursor", "status", "page_size"}:
+            if key in request.GET:
+                filters[key] = request.GET[key]
+        if "status" in request.GET:
+            filters["statuses"] = tuple(request.GET["status"].split(","))
+        if "page_size" in request.GET:
+            try:
+                filters["page_size"] = int(request.GET["page_size"])
+            except ValueError:
+                raise DemoError(
+                    "invalid_eventbrite_query", "Choose a page size from 1 to 20."
+                ) from None
         try:
-            events = refresh_configured_eventbrite_events(administrator=_administrator(request))
+            result = refresh_configured_eventbrite_events(
+                administrator=_administrator(request),
+                cursor=request.GET.get("cursor"),
+                **filters,
+            )
         except ValueError as error:
             raise _pilot_error(error) from None
-        return {"events": events}
+        return result
 
     return _respond(request, operation)
 

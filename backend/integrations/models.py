@@ -225,6 +225,7 @@ class IntegrationConnection(models.Model):
         if self.secret_id is not None and self.secret.provider != self.provider:
             raise ValidationError({"secret": "Integration secret provider is invalid."})
 
+
 class IntegrationHealthCheck(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     connection = models.ForeignKey(
@@ -263,3 +264,355 @@ class IntegrationHealthCheck(models.Model):
 
     def __str__(self) -> str:
         return f"Integration health check {self.id} ({self.outcome})"
+
+
+class DraftExecution(models.Model):
+    """Human reviewed execution record, separate from the immutable broker intent."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        EXECUTING = "executing", "Executing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        UNKNOWN = "unknown", "Unknown"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    intent = models.OneToOneField("agents.DraftOperation", on_delete=models.PROTECT)
+    run = models.ForeignKey("agents.AgentRun", on_delete=models.PROTECT)
+    submitter = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="submitted_drafts", on_delete=models.PROTECT
+    )
+    approver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="approved_drafts",
+        null=True,
+        on_delete=models.PROTECT,
+    )
+    action = models.CharField(max_length=16)
+    organization_id = models.CharField(max_length=40)
+    event_id = models.CharField(max_length=40, blank=True)
+    expected_readback_digest = models.CharField(max_length=64, blank=True)
+    provider_configuration = models.JSONField(default=dict)
+    payload = models.JSONField()
+    request_digest = models.CharField(max_length=64)
+    review_digest = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    receipt = models.JSONField(null=True)
+    provider_id = models.CharField(max_length=40, blank=True)
+    error_category = models.CharField(max_length=32, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True)
+    approval_session = models.ForeignKey(
+        "identity.AdministratorSession", null=True, on_delete=models.PROTECT
+    )
+    claimed_at = models.DateTimeField(null=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=(
+                        "pending",
+                        "approved",
+                        "executing",
+                        "succeeded",
+                        "failed",
+                        "unknown",
+                    )
+                ),
+                name="integrations_draft_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=("create", "update")), name="integrations_draft_action"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status="pending",
+                    approver__isnull=True,
+                    approval_session__isnull=True,
+                    approved_at__isnull=True,
+                    claimed_at__isnull=True,
+                )
+                | (
+                    ~Q(status="pending")
+                    & Q(
+                        approver__isnull=False,
+                        approved_at__isnull=False,
+                        approval_session__isnull=False,
+                    )
+                ),
+                name="integrations_draft_approval_required",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status__in=("pending", "approved"),
+                        claimed_at__isnull=True,
+                        completed_at__isnull=True,
+                        receipt__isnull=True,
+                        provider_id="",
+                        error_category="",
+                    )
+                    | Q(
+                        status="executing",
+                        claimed_at__isnull=False,
+                        completed_at__isnull=True,
+                        receipt__isnull=True,
+                        error_category="",
+                    )
+                    | Q(
+                        status__in=("unknown", "failed"),
+                        claimed_at__isnull=False,
+                        completed_at__isnull=False,
+                    )
+                    | (
+                        Q(
+                            status="succeeded",
+                            claimed_at__isnull=False,
+                            completed_at__isnull=False,
+                            receipt__isnull=False,
+                        )
+                        & ~Q(provider_id="")
+                    )
+                ),
+                name="integrations_draft_execution_lifecycle",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Draft execution {self.pk}: {self.status}"
+
+    def save(self, *args, **kwargs):
+        fields = (
+            "intent_id",
+            "run_id",
+            "submitter_id",
+            "action",
+            "organization_id",
+            "event_id",
+            "expected_readback_digest",
+            "payload",
+            "provider_configuration",
+            "request_digest",
+            "review_digest",
+        )
+        old = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .values(
+                *fields,
+                "approver_id",
+                "approved_at",
+                "approval_session_id",
+                "status",
+                "claimed_at",
+                "completed_at",
+            )
+            .first()
+        )
+        if old and (
+            any(old[f] != getattr(self, f) for f in fields)
+            or (
+                old["approver_id"]
+                and (
+                    old["approver_id"] != self.approver_id
+                    or old["approved_at"] != self.approved_at
+                    or old["approval_session_id"] != self.approval_session_id
+                )
+            )
+        ):
+            raise ValidationError("Draft execution review and approval are immutable.")
+        if old:
+            transitions = {
+                "pending": {"pending", "approved"},
+                "approved": {"approved", "executing"},
+                "executing": {"executing", "unknown", "failed", "succeeded"},
+                "unknown": {"unknown", "succeeded"},
+                "failed": {"failed"},
+                "succeeded": {"succeeded"},
+            }
+            if (
+                self.status not in transitions[old["status"]]
+                or (old["claimed_at"] is not None and self.claimed_at != old["claimed_at"])
+                or (old["completed_at"] is not None and self.completed_at is None)
+            ):
+                raise ValidationError("Execution claim history cannot be reset.")
+        super().save(*args, **kwargs)
+
+
+class TemplateExecution(models.Model):
+    """Human reviewed execution record, separate from the immutable broker intent."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        EXECUTING = "executing", "Executing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+        UNKNOWN = "unknown", "Unknown"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    intent = models.OneToOneField("agents.DraftOperation", on_delete=models.PROTECT)
+    run = models.ForeignKey("agents.AgentRun", on_delete=models.PROTECT)
+    submitter = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="submitted_templates", on_delete=models.PROTECT
+    )
+    approver = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="approved_templates",
+        null=True,
+        on_delete=models.PROTECT,
+    )
+    action = models.CharField(max_length=16)
+    organization_id = models.CharField(max_length=40)
+    event_id = models.CharField(max_length=40, blank=True)
+    expected_readback_digest = models.CharField(max_length=64, blank=True)
+    provider_configuration = models.JSONField(default=dict)
+    payload = models.JSONField()
+    request_digest = models.CharField(max_length=64)
+    review_digest = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    receipt = models.JSONField(null=True)
+    provider_id = models.CharField(max_length=40, blank=True)
+    error_category = models.CharField(max_length=32, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    approved_at = models.DateTimeField(null=True)
+    approval_session = models.ForeignKey(
+        "identity.AdministratorSession", null=True, on_delete=models.PROTECT
+    )
+    claimed_at = models.DateTimeField(null=True)
+    completed_at = models.DateTimeField(null=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=(
+                        "pending",
+                        "approved",
+                        "executing",
+                        "succeeded",
+                        "failed",
+                        "unknown",
+                    )
+                ),
+                name="integrations_template_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=("create", "update")), name="integrations_template_action"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status="pending",
+                    approver__isnull=True,
+                    approval_session__isnull=True,
+                    approved_at__isnull=True,
+                    claimed_at__isnull=True,
+                )
+                | (
+                    ~Q(status="pending")
+                    & Q(
+                        approver__isnull=False,
+                        approved_at__isnull=False,
+                        approval_session__isnull=False,
+                    )
+                ),
+                name="integrations_template_approval_required",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status__in=("pending", "approved"),
+                        claimed_at__isnull=True,
+                        completed_at__isnull=True,
+                        receipt__isnull=True,
+                        provider_id="",
+                        error_category="",
+                    )
+                    | Q(
+                        status="executing",
+                        claimed_at__isnull=False,
+                        completed_at__isnull=True,
+                        receipt__isnull=True,
+                        error_category="",
+                    )
+                    | Q(
+                        status__in=("unknown", "failed"),
+                        claimed_at__isnull=False,
+                        completed_at__isnull=False,
+                    )
+                    | (
+                        Q(
+                            status="succeeded",
+                            claimed_at__isnull=False,
+                            completed_at__isnull=False,
+                            receipt__isnull=False,
+                        )
+                        & ~Q(provider_id="")
+                    )
+                ),
+                name="integrations_template_execution_lifecycle",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Template execution {self.pk}: {self.status}"
+
+    def save(self, *args, **kwargs):
+        fields = (
+            "intent_id",
+            "run_id",
+            "submitter_id",
+            "action",
+            "organization_id",
+            "event_id",
+            "expected_readback_digest",
+            "payload",
+            "provider_configuration",
+            "request_digest",
+            "review_digest",
+        )
+        old = (
+            type(self)
+            .objects.filter(pk=self.pk)
+            .values(
+                *fields,
+                "approver_id",
+                "approved_at",
+                "approval_session_id",
+                "status",
+                "claimed_at",
+                "completed_at",
+            )
+            .first()
+        )
+        if old and (
+            any(old[f] != getattr(self, f) for f in fields)
+            or (
+                old["approver_id"]
+                and (
+                    old["approver_id"] != self.approver_id
+                    or old["approved_at"] != self.approved_at
+                    or old["approval_session_id"] != self.approval_session_id
+                )
+            )
+        ):
+            raise ValidationError("Template execution review and approval are immutable.")
+        if old:
+            transitions = {
+                "pending": {"pending", "approved"},
+                "approved": {"approved", "executing"},
+                "executing": {"executing", "unknown", "failed", "succeeded"},
+                "unknown": {"unknown", "succeeded"},
+                "failed": {"failed"},
+                "succeeded": {"succeeded"},
+            }
+            if (
+                self.status not in transitions[old["status"]]
+                or (old["claimed_at"] is not None and self.claimed_at != old["claimed_at"])
+                or (old["completed_at"] is not None and self.completed_at is None)
+            ):
+                raise ValidationError("Execution claim history cannot be reset.")
+        super().save(*args, **kwargs)

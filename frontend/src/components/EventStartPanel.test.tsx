@@ -41,3 +41,20 @@ test("shows many events and prevents selection of an unavailable event", async (
   expect(screen.getByText("Deleted Forum")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
 });
+
+test("loads more draft pages and shows completion", async () => {
+  vi.mocked(api.listEventbriteEvents).mockResolvedValue([]);
+  const draft = { id: "1", provider_event_id: "1", title: "Draft Forum", status: "draft", start_at: null, timezone: "UTC", available: true, selectable: true };
+  vi.mocked(api.refreshEventbriteEvents)
+    .mockResolvedValueOnce({ events: [draft], next_cursor: "opaque-next", has_more: true, complete: false })
+    .mockResolvedValueOnce({ events: [draft, { ...draft, id: "2", title: "Second Forum" }], next_cursor: null, has_more: false, complete: true });
+  render(<EventStartPanel onStarted={vi.fn()} />);
+  const { fireEvent } = await import("@testing-library/react");
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh events" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Load more drafts" }));
+  expect(await screen.findByText("Second Forum")).toBeInTheDocument();
+  expect(screen.getAllByText("Draft Forum")).toHaveLength(1);
+  expect(api.refreshEventbriteEvents).toHaveBeenLastCalledWith("opaque-next");
+  expect(screen.getByText("All accessible drafts have been loaded.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Load more drafts" })).not.toBeInTheDocument();
+});

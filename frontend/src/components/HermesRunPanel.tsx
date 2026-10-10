@@ -190,7 +190,7 @@ export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, re
       {runId && !finished && available && <button type="button" onClick={() => { void cancel(); }} disabled={cancelling || status?.cancel_requested}>
         {cancelling || status?.cancel_requested ? "Cancellation requested" : "Cancel Hermes run"}
       </button>}
-      {runId && <PendingOperationsPanel operations={operations} />}
+      {runId && <PendingOperationsPanel operations={operations} runId={runId} revisionId={revisionId} ownerReview={available && status?.status === "succeeded"} />}
     </section>
   );
 }

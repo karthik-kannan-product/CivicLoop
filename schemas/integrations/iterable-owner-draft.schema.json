@@ -1,0 +1,550 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://civicloop.karthikkannan.ca/schemas/integrations/iterable-owner-draft.schema.json",
+  "title": "Iterable owner Hermes template and unscheduled campaign contracts",
+  "$defs": {
+    "TemplateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sender",
+        "region"
+      ],
+      "properties": {
+        "sender": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fromEmail",
+            "fromName",
+            "replyToEmail",
+            "messageTypeId"
+          ],
+          "properties": {
+            "fromEmail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 254
+            },
+            "fromName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            },
+            "replyToEmail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 254
+            },
+            "messageTypeId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "region": {
+          "enum": [
+            "us",
+            "eu"
+          ]
+        }
+      }
+    },
+    "CampaignRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "listIds",
+        "suppressionListIds"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "listIds": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "uniqueItems": true,
+          "maxItems": 100,
+          "minItems": 1
+        },
+        "suppressionListIds": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9223372036854775807
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        }
+      }
+    },
+    "Approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "review_digest",
+        "revision_id"
+      ],
+      "properties": {
+        "review_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        }
+      }
+    },
+    "Empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "Receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "provider_id",
+        "provider_status",
+        "request_digest",
+        "readback_digest",
+        "error_category"
+      ],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "CONFIRMED",
+            "UNKNOWN"
+          ]
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "readback_digest": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "const": "The owner Iterable action could not be completed."
+        }
+      }
+    },
+    "TemplateExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "intent_id",
+        "run_id",
+        "revision_id",
+        "review_digest",
+        "request_digest",
+        "status",
+        "provider_id",
+        "receipt",
+        "step",
+        "payload",
+        "provider_configuration"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "intent_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "review_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "executing",
+            "unknown",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "step": {
+          "const": "template"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fromEmail",
+            "fromName",
+            "replyToEmail",
+            "messageTypeId",
+            "clientTemplateId",
+            "name",
+            "subject",
+            "plainText",
+            "html"
+          ],
+          "properties": {
+            "fromEmail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 254
+            },
+            "fromName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            },
+            "replyToEmail": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 254
+            },
+            "messageTypeId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "clientTemplateId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^civicloop-[a-f0-9-]{36}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            },
+            "plainText": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12000
+            },
+            "html": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 30000
+            }
+          }
+        },
+        "provider_configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region"
+          ],
+          "properties": {
+            "region": {
+              "enum": [
+                "us",
+                "eu"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "CampaignExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "intent_id",
+        "run_id",
+        "revision_id",
+        "review_digest",
+        "request_digest",
+        "status",
+        "provider_id",
+        "receipt",
+        "step",
+        "payload",
+        "provider_configuration"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "intent_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "review_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "executing",
+            "unknown",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "provider_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Receipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "step": {
+          "const": "campaign"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "listIds",
+            "suppressionListIds",
+            "templateId",
+            "scheduleSend"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "listIds": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              },
+              "uniqueItems": true,
+              "maxItems": 100,
+              "minItems": 1
+            },
+            "suppressionListIds": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              },
+              "uniqueItems": true,
+              "maxItems": 100
+            },
+            "templateId": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "scheduleSend": {
+              "const": false
+            }
+          }
+        },
+        "provider_configuration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "region",
+            "expected_template_digest"
+          ],
+          "properties": {
+            "region": {
+              "enum": [
+                "us",
+                "eu"
+              ]
+            },
+            "expected_template_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "Preparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision_id",
+        "kind",
+        "subject",
+        "body",
+        "template_execution",
+        "campaign_execution"
+      ],
+      "properties": {
+        "revision_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "kind": {
+          "enum": [
+            "invitation",
+            "reminder"
+          ]
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template_execution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemplateExecution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "campaign_execution": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CampaignExecution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

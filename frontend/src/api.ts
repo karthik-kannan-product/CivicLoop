@@ -158,10 +158,18 @@ export async function listEventbriteEvents(): Promise<EventbriteEvent[]> {
   return (await requestJson<{ events: EventbriteEvent[] }>("/api/v1/eventbrite/events")).events;
 }
 
-export async function refreshEventbriteEvents(): Promise<EventbriteEvent[]> {
-  return (await requestJson<{ events: EventbriteEvent[] }>("/api/v1/eventbrite/events/refresh", {
+export type EventbritePage = {
+  events: EventbriteEvent[];
+  next_cursor: string | null;
+  has_more: boolean;
+  complete: boolean;
+};
+
+export async function refreshEventbriteEvents(cursor?: string): Promise<EventbritePage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return requestJson<EventbritePage>(`/api/v1/eventbrite/events/refresh${query}`, {
     method: "POST",
-  })).events;
+  });
 }
 
 export async function selectEventbriteEvent(id: string): Promise<DemoState> {

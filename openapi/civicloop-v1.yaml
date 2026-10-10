@@ -3,164 +3,438 @@ info:
   title: CivicLoop API
   version: 0.2.0
   summary: Human-approved nonprofit operations workflows
-  description: >-
-    Same-origin, session-authenticated API for the current synthetic LaunchLoop
-    deployment. POST operations require Django CSRF protection. Schema compatibility is documented in docs/api-contracts.md and schemas/README.md.
+  description: Same-origin, session-authenticated API for the current synthetic LaunchLoop deployment.
+    POST operations require Django CSRF protection. Schema compatibility is documented in docs/api-contracts.md
+    and schemas/README.md.
 servers:
-  - url: /
+- url: /
 security:
-  - sessionCookie: []
+- sessionCookie: []
 tags:
-  - name: Authentication
-  - name: Administrator authentication
-  - name: Administrator security
-  - name: Administrator integrations
-  - name: Agent observability
-  - name: Hermes pending operations
-  - name: Internal agent control
-  - name: LaunchLoop
-  - name: Approvals
-  - name: Health
+- name: Authentication
+- name: Administrator authentication
+- name: Administrator security
+- name: Administrator integrations
+- name: Agent observability
+- name: Hermes pending operations
+- name: Internal agent control
+- name: LaunchLoop
+- name: Approvals
+- name: Health
 paths:
+  /api/v1/agent-runs/{runId}/pending-operations/{intentId}/draft-review:
+    parameters:
+    - name: runId
+      in: path
+      required: true
+      schema: &id001
+        type: string
+        format: uuid
+    - name: intentId
+      in: path
+      required: true
+      schema: *id001
+    get:
+      tags:
+      - Hermes pending operations
+      operationId: prepareEventbriteOwnerDraft
+      summary: Read accepted event details and existing immutable draft review
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '200':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Preparation
+        '400': &id002
+          description: Fixed safe denial, invalid input, missing record, or temporary service failure;
+            no provider response is exposed.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Error
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: submitEventbriteOwnerDraft
+      summary: Prepare an immutable exact Eventbrite create request
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '201':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Execution
+        '400': *id002
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict JSON object, at most 4096 bytes; additional or duplicate fields rejected.
+          Local date/time values use the selected event timezone; ambiguous and nonexistent DST times
+          are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Request
+  /api/v1/draft-executions/{operationId}:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id001
+    get:
+      tags:
+      - Hermes pending operations
+      operationId: readEventbriteOwnerDraft
+      summary: Read recorded provider draft execution
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '200':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Execution
+        '400': *id002
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+  /api/v1/draft-executions/{operationId}/approve:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id001
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: approveEventbriteOwnerDraft
+      summary: Approve this exact revision and review digest without dispatch
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '200':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Execution
+        '400': *id002
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict JSON object, at most 4096 bytes; additional or duplicate fields rejected.
+          Local date/time values use the selected event timezone; ambiguous and nonexistent DST times
+          are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Approval
+  /api/v1/draft-executions/{operationId}/execute:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id001
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: executeEventbriteOwnerDraft
+      summary: Create the approved unpublished Eventbrite draft at most once
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '200':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Execution
+        '400': *id002
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict JSON object, at most 4096 bytes; additional or duplicate fields rejected.
+          Local date/time values use the selected event timezone; ambiguous and nonexistent DST times
+          are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Empty
+  /api/v1/draft-executions/{operationId}/reconcile:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id001
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: reconcileEventbriteOwnerDraft
+      summary: Read back an already recorded Eventbrite event ID without resending
+      description: Requires the active owner account, a full MFA administrator session, and the same user-bound
+        operator as the accepted successful Hermes intent. No query parameters or credentials are accepted.
+        Intent records remain pending; provider execution is recorded separately. Draft writes remain
+        disabled unless explicitly configured. Unknown/executing results must never be resent.
+      responses:
+        '200':
+          description: Owner draft review or recorded provider execution.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Execution
+        '400': *id002
+        '401': *id002
+        '403': *id002
+        '404': *id002
+        '503': *id002
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict JSON object, at most 4096 bytes; additional or duplicate fields rejected.
+          Local date/time values use the selected event timezone; ambiguous and nonexistent DST times
+          are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/eventbrite-owner-draft.schema.json#/$defs/Empty
   /internal/v1/hermes/runs:
     post:
-      tags: [Internal agent control]
+      tags:
+      - Internal agent control
       operationId: startInternalHermesRun
       summary: Start one bounded Hermes run on the private agent-control network
-      description: >-
-        Internal service-to-service boundary only. This operation is not routed
-        by Caddy and its bearer token, request content, and model output must not
-        enter logs or traces.
-      security: [{ internalServiceToken: [] }]
+      description: Internal service-to-service boundary only. This operation is not routed by Caddy and
+        its bearer token, request content, and model output must not enter logs or traces.
+      security:
+      - internalServiceToken: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/HermesRunRequest" }
+            schema:
+              $ref: '#/components/schemas/HermesRunRequest'
       responses:
-        "200":
+        '200':
           description: Schema-bound Hermes run status or terminal result
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/HermesRunResult" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: '#/components/schemas/HermesRunResult'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /internal/v1/draft-operations:
     post:
-      tags: [Internal agent control]
+      tags:
+      - Internal agent control
       operationId: requestInternalDraftOperation
       summary: Record an approved provider draft operation for controlled execution
-      description: >-
-        Internal request boundary for create/update-draft operations only. It
-        never publishes, activates, schedules, sends, changes ticket economics,
-        creates segments, or exports constituent data.
-      security: [{ internalServiceToken: [] }]
+      description: Internal request boundary for create/update-draft operations only. It never publishes,
+        activates, schedules, sends, changes ticket economics, creates segments, or exports constituent
+        data.
+      security:
+      - internalServiceToken: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/DraftOperation" }
+            schema:
+              $ref: '#/components/schemas/DraftOperation'
       responses:
-        "202":
+        '202':
           description: Accepted idempotent draft operation awaiting execution or reconciliation
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/DraftOperation" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: '#/components/schemas/DraftOperation'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}:
     get:
-      tags: [Agent observability]
+      tags:
+      - Agent observability
       operationId: getAgentRun
       summary: Read bounded agent run, trace, and usage status
-      description: >-
-        Hermes-lane runs require the authenticated owner operator and return the
-        closed Hermes status shape. Other lanes preserve the existing authorized
-        run-read shape. The disjoint closed schemas select the response branch;
-        no lane or authority field is added to either payload.
-      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      description: Hermes-lane runs require the authenticated owner operator and return the closed Hermes
+        status shape. Other lanes preserve the existing authorized run-read shape. The disjoint closed
+        schemas select the response branch; no lane or authority field is added to either payload.
+      parameters:
+      - $ref: '#/components/parameters/RunId'
       responses:
-        "200":
+        '200':
           description: Safe run status
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 oneOf:
-                  - { $ref: "../schemas/agents/hermes-status.schema.json" }
-                  - { $ref: "../schemas/agents/run-read.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+                - $ref: ../schemas/agents/hermes-status.schema.json
+                - $ref: ../schemas/agents/run-read.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}/cancel:
     post:
-      tags: [Hermes pending operations]
+      tags:
+      - Hermes pending operations
       operationId: cancelHermesRun
       summary: Request idempotent cancellation of an owner-operated Hermes run
-      description: >-
-        Requires the authenticated owner operator and same-origin CSRF protection.
-        Returns only bounded status; cancellation grants no provider authority.
+      description: Requires the authenticated owner operator and same-origin CSRF protection. Returns
+        only bounded status; cancellation grants no provider authority.
       parameters:
-        - { $ref: "#/components/parameters/RunId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/RunId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "202":
+        '202':
           description: Current Hermes status after the cancellation request
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/hermes-status.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/agents/hermes-status.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}/pending-operations:
     get:
-      tags: [Hermes pending operations]
+      tags:
+      - Hermes pending operations
       operationId: listHermesPendingOperations
       summary: Read at most twenty inert pending draft-operation intents
-      description: >-
-        Requires the authenticated owner operator. Returns pending intents only,
-        with digests and bounded identifiers. Nothing is created at a provider;
-        no execution, approval, receipt, or credential is exposed.
-      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      description: Requires the authenticated owner operator. Returns pending intents only, with digests
+        and bounded identifiers. Nothing is created at a provider; no execution, approval, receipt, or
+        credential is exposed.
+      parameters:
+      - $ref: '#/components/parameters/RunId'
       responses:
-        "200":
+        '200':
           description: Closed page of inert pending operations
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/pending-operation-page.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/agents/pending-operation-page.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/workflows/{workflowId}/hermes-runs:
     post:
-      tags: [Hermes pending operations]
+      tags:
+      - Hermes pending operations
       operationId: startHermesRun
       summary: Queue one owner-operated revision-bound Hermes run
-      description: >-
-        Requires the authenticated owner operator, same-origin CSRF protection,
-        enabled Hermes gates, and a ready current revision. The actor comes from
-        the session. Exact idempotent replay returns the original queued receipt,
-        including after the run advances or finishes; a changed revision or
-        binding conflicts. No provider execution is reachable.
+      description: Requires the authenticated owner operator, same-origin CSRF protection, enabled Hermes
+        gates, and a ready current revision. The actor comes from the session. Exact idempotent replay
+        returns the original queued receipt, including after the run advances or finishes; a changed revision
+        or binding conflicts. No provider execution is reachable.
       parameters:
-        - { $ref: "#/components/parameters/WorkflowId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
-        - { $ref: "#/components/parameters/HermesIdempotencyKey" }
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
+      - $ref: '#/components/parameters/HermesIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -168,726 +442,2014 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [revision_id]
+              required:
+              - revision_id
               properties:
-                revision_id: { type: integer, minimum: 1 }
+                revision_id:
+                  type: integer
+                  minimum: 1
       responses:
-        "202":
+        '202':
           description: Original queued start receipt, including exact replay
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/hermes-start.schema.json" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/agents/hermes-start.schema.json
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}/steps:
     get:
-      tags: [Agent observability]
+      tags:
+      - Agent observability
       operationId: listAgentRunSteps
       summary: List bounded sanitized steps for an agent run
-      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      parameters:
+      - $ref: '#/components/parameters/RunId'
       responses:
-        "200":
+        '200':
           description: Safe step page
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/step-page.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/agents/step-page.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}/evaluations:
     get:
-      tags: [Agent observability]
+      tags:
+      - Agent observability
       operationId: listAgentRunEvaluations
       summary: List advisory evaluation status for an agent run
-      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      parameters:
+      - $ref: '#/components/parameters/RunId'
       responses:
-        "200":
+        '200':
           description: Safe evaluation result page
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/evaluations/result-page.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/evaluations/result-page.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/agent-runs/{runId}/usage:
     get:
-      tags: [Agent observability]
+      tags:
+      - Agent observability
       operationId: getAgentRunUsage
       summary: Read bounded budget reservation and ledger status
-      parameters: [{ $ref: "#/components/parameters/RunId" }]
+      parameters:
+      - $ref: '#/components/parameters/RunId'
       responses:
-        "200":
+        '200':
           description: Safe usage and ledger status
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/agents/usage-read.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/agents/usage-read.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations:
     get:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: listIntegrationConnections
       summary: List redacted integration connection metadata
       responses:
-        "200":
+        '200':
           description: Redacted integration connection metadata
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/connection.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/connection.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations/status:
     get:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: getIntegrationReadiness
       summary: Report whether local integration credential protection is ready
       security: []
       responses:
-        "200":
+        '200':
           description: Integration credential protection is ready
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status]
-                properties: { status: { const: ready } }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "503":
+                required:
+                - status
+                properties:
+                  status:
+                    const: ready
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
           description: Integration credential protection is not ready
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status]
-                properties: { status: { const: not_ready } }
+                required:
+                - status
+                properties:
+                  status:
+                    const: not_ready
   /api/v1/admin/integrations/{provider}/credential:
     put:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: replaceIntegrationCredential
       summary: Replace a write-only integration credential
       parameters:
-        - { $ref: "#/components/parameters/Provider" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/Provider'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/CredentialReplacement" }
+            schema:
+              $ref: ../schemas/integrations/mutations.schema.json#/$defs/CredentialReplacement
       responses:
-        "200":
+        '200':
           description: Redacted connection metadata after replacement
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations/{provider}/configuration:
     patch:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: updateIntegrationConfiguration
       summary: Update bounded non-secret integration configuration
       parameters:
-        - { $ref: "#/components/parameters/Provider" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/Provider'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/ConfigurationPatch" }
+            schema:
+              $ref: ../schemas/integrations/mutations.schema.json#/$defs/ConfigurationPatch
       responses:
-        "200":
+        '200':
           description: Redacted connection metadata after configuration change
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations/{provider}/test:
     post:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: testIntegrationConnection
       summary: Run a harmless integration connection test
       parameters:
-        - { $ref: "#/components/parameters/Provider" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/Provider'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/ConnectionTest" }
+            schema:
+              $ref: ../schemas/integrations/mutations.schema.json#/$defs/ConnectionTest
       responses:
-        "200":
+        '200':
           description: Sanitized connection test result
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/health-check.schema.json#/$defs/IntegrationHealthCheck" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/health-check.schema.json#/$defs/IntegrationHealthCheck
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations/{provider}/disable:
     post:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: disableIntegrationConnection
       summary: Disable an integration connection without deleting its history
       parameters:
-        - { $ref: "#/components/parameters/Provider" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/Provider'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/integrations/mutations.schema.json#/$defs/DisableConnection" }
+            schema:
+              $ref: ../schemas/integrations/mutations.schema.json#/$defs/DisableConnection
       responses:
-        "200":
+        '200':
           description: Redacted disabled connection metadata
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/connection.schema.json#/$defs/IntegrationConnection
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/integrations/{provider}/audit:
     get:
-      tags: [Administrator integrations]
+      tags:
+      - Administrator integrations
       operationId: listIntegrationAuditEvents
       summary: List redacted integration administration audit events
       parameters:
-        - { $ref: "#/components/parameters/Provider" }
-        - name: cursor
-          in: query
-          schema: { type: string }
-        - name: limit
-          in: query
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      - $ref: '#/components/parameters/Provider'
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
       responses:
-        "200":
+        '200':
           description: Redacted integration audit event page
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/integrations/health-check.schema.json#/$defs/IntegrationAuditPage" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/integrations/health-check.schema.json#/$defs/IntegrationAuditPage
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/auth/session:
     get:
-      tags: [Authentication]
+      tags:
+      - Authentication
       operationId: getSession
       summary: Return the authenticated demo identity
       responses:
-        "200": { $ref: "#/components/responses/SessionResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/auth/login:
     post:
-      tags: [Authentication]
+      tags:
+      - Authentication
       operationId: login
       summary: Start a server-side session
       security: []
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/api/login-request.schema.json" }
+            schema:
+              $ref: ../schemas/api/login-request.schema.json
       responses:
-        "200": { $ref: "#/components/responses/SessionResponse" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/auth/logout:
     post:
-      tags: [Authentication]
+      tags:
+      - Authentication
       operationId: logout
       summary: End the server-side session
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200":
+        '200':
           description: Session ended
           content:
             application/json:
-              schema: { $ref: "../schemas/api/logout-response.schema.json" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/api/logout-response.schema.json
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/demo:
     get:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: getDemoState
       summary: Return the durable synthetic LaunchLoop state
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/demo/reset:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: resetDemo
       summary: Reset the synthetic workspace as the operator
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/events/manual:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: startManualEvent
       summary: Start a local event brief without external actions
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/launchloop/manual-event-request.schema.json" }
+            schema:
+              $ref: ../schemas/launchloop/manual-event-request.schema.json
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/eventbrite/events:
     get:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: listEventbriteEvents
       summary: List locally stored, sanitized Eventbrite event metadata
       responses:
-        "200": { $ref: "#/components/responses/EventbriteEventsResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/EventbriteEventsResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/eventbrite/events/refresh:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: refreshEventbriteEvents
       summary: Refresh bounded read-only Eventbrite event metadata
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/EventbriteEventsResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/EventbriteEventsResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/eventbrite/events/{sourceId}/select:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: selectEventbriteEvent
       summary: Create or update a local draft from a sanitized provider snapshot
       parameters:
-        - { $ref: "#/components/parameters/SourceId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/SourceId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/workflows/{workflowId}/runs:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: runWorkflow
       summary: Run the deterministic LaunchLoop package builder
       parameters:
-        - { $ref: "#/components/parameters/WorkflowId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/workflows/{workflowId}/evaluations:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: runWorkflowEvaluation
       summary: Run the fixed advisory evaluation judge
       parameters:
-        - { $ref: "#/components/parameters/WorkflowId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/workflows/{workflowId}/answers:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: answerWorkflowQuestions
       summary: Save one or more grounded event facts
       parameters:
-        - { $ref: "#/components/parameters/WorkflowId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/api/answers-request.schema.json" }
+            schema:
+              $ref: ../schemas/api/answers-request.schema.json
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/workflows/{workflowId}/submit:
     post:
-      tags: [LaunchLoop]
+      tags:
+      - LaunchLoop
       operationId: submitWorkflow
       summary: Submit the exact package for four-eyes approval
       parameters:
-        - { $ref: "#/components/parameters/WorkflowId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/WorkflowId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/approvals/{approvalId}/decision:
     post:
-      tags: [Approvals]
+      tags:
+      - Approvals
       operationId: decideApproval
       summary: Approve or reject the exact submitted package
       parameters:
-        - { $ref: "#/components/parameters/ApprovalId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/ApprovalId'
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/api/approval-decision-request.schema.json" }
+            schema:
+              $ref: ../schemas/api/approval-decision-request.schema.json
       responses:
-        "200": { $ref: "#/components/responses/DemoStateResponse" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
-        "409": { $ref: "#/components/responses/ProblemResponse" }
+        '200':
+          $ref: '#/components/responses/DemoStateResponse'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/health/live:
     get:
-      tags: [Health]
+      tags:
+      - Health
       operationId: getLiveness
       summary: Report process liveness
       security: []
       responses:
-        "200":
+        '200':
           description: Process is live
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status]
-                properties: { status: { const: ok } }
+                required:
+                - status
+                properties:
+                  status:
+                    const: ok
   /api/v1/health/ready:
     get:
-      tags: [Health]
+      tags:
+      - Health
       operationId: getReadiness
       summary: Report required dependency readiness
       security: []
       responses:
-        "200": { $ref: "#/components/responses/ReadinessResponse" }
-        "503": { $ref: "#/components/responses/ReadinessResponse" }
+        '200':
+          $ref: '#/components/responses/ReadinessResponse'
+        '503':
+          $ref: '#/components/responses/ReadinessResponse'
   /api/v1/admin/security/status:
     get:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: getAdministratorSecurityStatus
       summary: Return the redacted administrator authentication stage
       security: []
       responses:
-        "200":
+        '200':
           description: Current redacted authentication stage
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/auth-status-response.schema.json
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/auth/password:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: verifyAdministratorPassword
       summary: Create a five-minute password-only pre-authentication session
       security: []
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/password-challenge-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/password-challenge-request.schema.json
       responses:
-        "200":
+        '200':
           description: Password verified; a second factor is still required
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/password-challenge-response.schema.json" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/password-challenge-response.schema.json
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/auth/totp:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: verifyAdministratorTotp
       summary: Complete normal administrator authentication with TOTP
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/totp-challenge-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/totp-challenge-request.schema.json
       responses:
-        "200":
+        '200':
           description: Administrator session authenticated
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/auth-status-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/auth/recovery:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: recoverAdministratorSession
       summary: Consume one recovery code and create a restricted recovery session
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/recovery-challenge-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/recovery-challenge-request.schema.json
       responses:
-        "200":
+        '200':
           description: Restricted recovery session established
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/recovery-challenge-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/recovery-challenge-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/auth/logout:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: logoutAdministrator
       summary: Revoke and end the current administrator session
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200":
+        '200':
           description: Administrator session ended
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/auth-status-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/auth-status-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/totp/enrollment:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: beginAdministratorTotpEnrollment
       summary: Return one-time TOTP provisioning material
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/enrollment-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/enrollment-request.schema.json
       responses:
-        "200":
+        '200':
           description: One-time TOTP provisioning material
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/enrollment-response.schema.json" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/enrollment-response.schema.json
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/totp/confirmation:
     post:
-      tags: [Administrator authentication]
+      tags:
+      - Administrator authentication
       operationId: confirmAdministratorTotpEnrollment
       summary: Confirm TOTP and return ten recovery codes once
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/confirmation-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/confirmation-request.schema.json
       responses:
-        "200":
+        '200':
           description: Authenticator confirmed and one-time recovery codes issued
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/confirmation-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/confirmation-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/reauthentication:
     post:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: freshlyVerifyAdministrator
       summary: Establish ten minutes of fresh password-plus-TOTP verification
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/reauthentication-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/reauthentication-request.schema.json
       responses:
-        "200":
+        '200':
           description: Fresh verification established
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/reauthentication-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "429": { $ref: "#/components/responses/RateLimitedProblemResponse" }
-        "503": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/reauthentication-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblemResponse'
+        '503':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/password:
     put:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: changeAdministratorPassword
       summary: Change the owner password after fresh verification
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "../schemas/admin/password-change-request.schema.json" }
+            schema:
+              $ref: ../schemas/admin/password-change-request.schema.json
       responses:
-        "200":
+        '200':
           description: Password changed and other sessions revoked
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/password-change-response.schema.json" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/password-change-response.schema.json
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/recovery-codes/regeneration:
     post:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: regenerateAdministratorRecoveryCodes
       summary: Replace recovery codes after fresh verification
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200":
+        '200':
           description: One-time replacement recovery codes
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/recovery-code-regeneration-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/recovery-code-regeneration-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/sessions:
     get:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: listAdministratorSessions
       summary: List bounded administrator session metadata
       responses:
-        "200":
+        '200':
           description: Administrator sessions
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/session-list.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/session-list.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/sessions/revoke-others:
     post:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: revokeOtherAdministratorSessions
       summary: Revoke every other administrator session after fresh verification
-      parameters: [{ $ref: "#/components/parameters/CsrfToken" }]
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200":
+        '200':
           description: Other sessions revoked
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/revoke-others-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/revoke-others-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/sessions/{sessionId}/revocation:
     post:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: revokeAdministratorSession
       summary: Revoke one owned administrator session
       parameters:
-        - { $ref: "#/components/parameters/SessionId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/CsrfToken'
       responses:
-        "200":
+        '200':
           description: Session revoked
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/revocation-response.schema.json" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
-        "404": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/revocation-response.schema.json
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
   /api/v1/admin/security/events:
     get:
-      tags: [Administrator security]
+      tags:
+      - Administrator security
       operationId: listAdministratorSecurityEvents
       summary: List append-only administrator security events
       parameters:
-        - name: cursor
-          in: query
-          schema: { type: string }
-        - name: limit
-          in: query
-          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      - name: cursor
+        in: query
+        schema:
+          type: string
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
       responses:
-        "200":
+        '200':
           description: Security event page
-          headers: { Cache-Control: { $ref: "#/components/headers/NoStore" } }
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
           content:
             application/json:
-              schema: { $ref: "../schemas/admin/event-page.schema.json" }
-        "400": { $ref: "#/components/responses/ProblemResponse" }
-        "401": { $ref: "#/components/responses/ProblemResponse" }
-        "403": { $ref: "#/components/responses/ProblemResponse" }
+              schema:
+                $ref: ../schemas/admin/event-page.schema.json
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+  /api/v1/agent-runs/{runId}/pending-operations/{intentId}/iterable-review:
+    parameters:
+    - name: runId
+      in: path
+      required: true
+      schema: &id003
+        type: string
+        format: uuid
+    - name: intentId
+      in: path
+      required: true
+      schema: *id003
+    get:
+      tags:
+      - Hermes pending operations
+      operationId: prepareIterableOwnerReview
+      summary: Read accepted Hermes content and durable template/campaign phases
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Preparation
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: submitIterableOwnerTemplate
+      summary: Prepare exact accepted Hermes content and owner sender request
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '201':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateRequest
+  /api/v1/agent-runs/{runId}/pending-operations/{intentId}/iterable-campaign-review:
+    parameters:
+    - name: runId
+      in: path
+      required: true
+      schema: *id003
+    - name: intentId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: submitIterableOwnerCampaign
+      summary: Prepare campaign from confirmed template and owner approved lists
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '201':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignRequest
+  /api/v1/iterable-template-executions/{operationId}:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    get:
+      tags:
+      - Hermes pending operations
+      operationId: readIterableOwnerTemplate
+      summary: Read durable template execution
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+  /api/v1/iterable-template-executions/{operationId}/approve:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: approveIterableOwnerTemplate
+      summary: Approve exact template request
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Approval
+  /api/v1/iterable-template-executions/{operationId}/execute:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: executeIterableOwnerTemplate
+      summary: Execute exact template request
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Empty
+  /api/v1/iterable-template-executions/{operationId}/reconcile:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: reconcileIterableOwnerTemplate
+      summary: Reconcile exact template request using read only provider lookup
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/TemplateExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Empty
+  /api/v1/iterable-campaign-executions/{operationId}:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    get:
+      tags:
+      - Hermes pending operations
+      operationId: readIterableOwnerCampaign
+      summary: Read durable campaign execution
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+  /api/v1/iterable-campaign-executions/{operationId}/approve:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: approveIterableOwnerCampaign
+      summary: Approve exact campaign request
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Approval
+  /api/v1/iterable-campaign-executions/{operationId}/execute:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: executeIterableOwnerCampaign
+      summary: Execute exact campaign request
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Empty
+  /api/v1/iterable-campaign-executions/{operationId}/reconcile:
+    parameters:
+    - name: operationId
+      in: path
+      required: true
+      schema: *id003
+    post:
+      tags:
+      - Hermes pending operations
+      operationId: reconcileIterableOwnerCampaign
+      summary: Reconcile exact campaign request using read only provider lookup
+      description: Active owner full MFA session and the same user-bound operator, accepted Hermes run,
+        revision and intent required. No query parameters. Template and campaign approvals are separate
+        immutable reviews. Only existing owner-approved list IDs; no exports or list creation. Campaign
+        creation always uses scheduleSend=false and confirms actual Draft/Ready unscheduled status; no
+        send or activation action exists. Unknown writes never repeat POST; use recorded status and read
+        only reconciliation.
+      responses:
+        '200':
+          description: Recorded owner review or provider receipt.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/CampaignExecution
+        '400':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '401':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '403':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '404':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '405':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+        '503':
+          description: Fixed safe error; provider bodies are excluded.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Error
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        description: Strict bounded JSON, maximum 4096 bytes. Duplicate and extra keys rejected.
+        content:
+          application/json:
+            schema:
+              $ref: ../schemas/integrations/iterable-owner-draft.schema.json#/$defs/Empty
 components:
   securitySchemes:
     sessionCookie:
@@ -901,92 +2463,123 @@ components:
       description: Internal-only token loaded from a mode-0600 file; never logged or traced.
   schemas:
     DraftOperation:
-      $ref: "../schemas/integrations/draft-operation.schema.json"
+      $ref: ../schemas/integrations/draft-operation.schema.json
     HermesRunRequest:
-      $ref: "../schemas/agents/hermes-run-request.schema.json"
+      $ref: ../schemas/agents/hermes-run-request.schema.json
     HermesRunResult:
-      $ref: "../schemas/agents/hermes-run-result.schema.json"
+      $ref: ../schemas/agents/hermes-run-result.schema.json
     ModelGatewayProfile:
-      $ref: "../schemas/agents/model-gateway-profile.schema.json"
+      $ref: ../schemas/agents/model-gateway-profile.schema.json
     WorkflowCapability:
-      $ref: "../schemas/integrations/workflow-capability.schema.json"
+      $ref: ../schemas/integrations/workflow-capability.schema.json
   parameters:
     HermesIdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
-      schema: { type: string, format: uuid, maxLength: 36 }
+      schema:
+        type: string
+        format: uuid
+        maxLength: 36
       description: Stable UUID for one owner, workflow, and revision-bound start intent.
     CsrfToken:
       name: X-CSRFToken
       in: header
       required: true
-      schema: { type: string, minLength: 1 }
+      schema:
+        type: string
+        minLength: 1
       description: Same-origin Django CSRF token from the csrftoken cookie.
     WorkflowId:
       name: workflowId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     ApprovalId:
       name: approvalId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     SessionId:
       name: sessionId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     RunId:
       name: runId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     SourceId:
       name: sourceId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema:
+        type: string
+        format: uuid
     Provider:
       name: provider
       in: path
       required: true
-      schema: { enum: [eventbrite, groq, iterable, openai] }
+      schema:
+        enum:
+        - eventbrite
+        - groq
+        - iterable
+        - openai
   headers:
     NoStore:
       description: Sensitive response must never be cached.
-      schema: { type: string, const: no-store }
+      schema:
+        type: string
+        const: no-store
     RetryAfter:
       description: Stable number of seconds before another limited attempt may be made.
-      schema: { type: integer, minimum: 1 }
+      schema:
+        type: integer
+        minimum: 1
   responses:
     SessionResponse:
       description: Current authenticated session
       content:
         application/json:
-          schema: { $ref: "../schemas/api/session-response.schema.json" }
+          schema:
+            $ref: ../schemas/api/session-response.schema.json
     DemoStateResponse:
       description: Current durable synthetic LaunchLoop state
       content:
         application/json:
-          schema: { $ref: "../schemas/launchloop/demo-state.schema.json" }
+          schema:
+            $ref: ../schemas/launchloop/demo-state.schema.json
     EventbriteEventsResponse:
       description: Bounded sanitized Eventbrite event metadata
       content:
         application/json:
-          schema: { $ref: "../schemas/launchloop/eventbrite-events.schema.json" }
+          schema:
+            $ref: ../schemas/launchloop/eventbrite-events.schema.json
     ProblemResponse:
       description: RFC 9457 problem with stable CivicLoop extensions
       content:
         application/problem+json:
-          schema: { $ref: "../schemas/api/problem-details.schema.json" }
+          schema:
+            $ref: ../schemas/api/problem-details.schema.json
     RateLimitedProblemResponse:
       description: RFC 9457 rate-limit problem
-      headers: { Retry-After: { $ref: "#/components/headers/RetryAfter" } }
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
       content:
         application/problem+json:
-          schema: { $ref: "../schemas/api/problem-details.schema.json" }
+          schema:
+            $ref: ../schemas/api/problem-details.schema.json
     ReadinessResponse:
       description: Readiness state and bounded dependency results
       content:
@@ -994,13 +2587,21 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [status, dependencies]
+            required:
+            - status
+            - dependencies
             properties:
-              status: { enum: [ready, not_ready] }
+              status:
+                enum:
+                - ready
+                - not_ready
               dependencies:
                 type: object
                 additionalProperties:
                   type: object
                   additionalProperties: false
-                  required: [ready]
-                  properties: { ready: { type: boolean } }
+                  required:
+                  - ready
+                  properties:
+                    ready:
+                      type: boolean

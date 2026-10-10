@@ -19,10 +19,10 @@ from observability.runtime import get_runtime
 from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 
 from .eventbrite import (
-    BoundedEventbriteReader,
     EventbriteEventMetadata,
     EventbriteReader,
     EventbriteReadError,
+    PaginatedEventbriteReader,
 )
 from .models import (
     AuditEvent,
@@ -73,9 +73,13 @@ def _payload(source: ProviderEvent) -> dict[str, Any]:
 
 @transaction.atomic
 def refresh_eventbrite_events(
-    *, reader: EventbriteReader, credential: SecretLease | None = None
+    *,
+    reader: EventbriteReader,
+    credential: SecretLease | None = None,
+    supplied_events: tuple[EventbriteEventMetadata, ...] | None = None,
+    reconcile_missing: bool = True,
 ) -> list[dict[str, Any]]:
-    events = reader.list_events(credential)
+    events = supplied_events if supplied_events is not None else reader.list_events(credential)
     seen: set[str] = set()
     for event in events:
         seen.add(event.provider_event_id)
@@ -98,9 +102,10 @@ def refresh_eventbrite_events(
         source.available = True
         source.save(update_fields=("current_snapshot", "available", "last_seen_at"))
 
-    ProviderEvent.objects.filter(provider="eventbrite").exclude(provider_event_id__in=seen).update(
-        available=False
-    )
+    if reconcile_missing:
+        ProviderEvent.objects.filter(provider="eventbrite").exclude(
+            provider_event_id__in=seen
+        ).update(available=False)
     sources = (
         ProviderEvent.objects.filter(provider="eventbrite")
         .select_related("current_snapshot")
@@ -111,16 +116,25 @@ def refresh_eventbrite_events(
 
 def list_eventbrite_events() -> list[dict[str, Any]]:
     sources = (
-        ProviderEvent.objects.filter(provider="eventbrite")
+        ProviderEvent.objects.filter(provider="eventbrite", current_snapshot__status="draft")
         .select_related("current_snapshot")
-        .order_by("current_snapshot__start_at", "provider_event_id")
+        .order_by("-current_snapshot__provider_changed_at", "provider_event_id")[:20]
     )
     return [_payload(source) for source in sources]
 
 
 def refresh_configured_eventbrite_events(
-    *, administrator: AdministratorSession, reader: EventbriteReader | None = None
-) -> list[dict[str, Any]]:
+    *,
+    administrator: AdministratorSession,
+    reader: EventbriteReader | None = None,
+    cursor: str | None = None,
+    page_size: int = 20,
+    statuses: tuple[str, ...] = ("draft",),
+    changed_since: str | None = None,
+    changed_until: str | None = None,
+    created_since: str | None = None,
+    created_until: str | None = None,
+) -> dict[str, Any]:
     try:
         connection = IntegrationConnection.objects.select_related("secret").get(
             provider="eventbrite"
@@ -147,9 +161,50 @@ def refresh_configured_eventbrite_events(
             ttl=timedelta(seconds=30),
         ) as lease:
             with get_runtime().start_span("eventbrite.metadata_read", attributes=attributes):
-                events = refresh_eventbrite_events(
-                    reader=reader or BoundedEventbriteReader(), credential=lease
-                )
+                product_reader = reader or PaginatedEventbriteReader()
+                if isinstance(product_reader, PaginatedEventbriteReader):
+                    page = product_reader.list_page(
+                        lease,
+                        account=f"{connection.id}:{secret.id}:{secret.version}",
+                        cursor=cursor,
+                        page_size=page_size,
+                        statuses=statuses,
+                        changed_since=changed_since,
+                        changed_until=changed_until,
+                        created_since=created_since,
+                        created_until=created_until,
+                    )
+                    refresh_eventbrite_events(
+                        reader=product_reader, supplied_events=page.events, reconcile_missing=False
+                    )
+                    ids = [event.provider_event_id for event in page.events]
+                    sources = ProviderEvent.objects.filter(
+                        provider="eventbrite", provider_event_id__in=ids
+                    ).select_related("current_snapshot")
+                    by_id = {source.provider_event_id: source for source in sources}
+                    events = [
+                        {
+                            **_payload(by_id[event.provider_event_id]),
+                            "source_fingerprint": by_id[
+                                event.provider_event_id
+                            ].current_snapshot.fingerprint,
+                        }
+                        for event in page.events
+                    ]
+                    result = {
+                        "events": events,
+                        "next_cursor": page.next_cursor,
+                        "has_more": not page.complete,
+                        "complete": page.complete,
+                    }
+                else:
+                    events = refresh_eventbrite_events(reader=product_reader, credential=lease)
+                    result = {
+                        "events": events,
+                        "next_cursor": None,
+                        "has_more": False,
+                        "complete": True,
+                    }
     except (EventbriteReadError, SecretUnavailable) as error:
         category = error.category if isinstance(error, EventbriteReadError) else "unavailable"
         AuditEvent.objects.create(
@@ -165,7 +220,7 @@ def refresh_configured_eventbrite_events(
         target_id="eventbrite",
         details={"event_count": len(events)},
     )
-    return events
+    return result
 
 
 def owner_operator(administrator: AdministratorSession) -> DemoActor:
@@ -184,10 +239,7 @@ def owner_operator(administrator: AdministratorSession) -> DemoActor:
 @transaction.atomic
 def select_eventbrite_event(source_id: uuid.UUID, actor: DemoActor) -> Workflow:
     try:
-        source = (
-            ProviderEvent.objects.select_for_update()
-            .get(id=source_id)
-        )
+        source = ProviderEvent.objects.select_for_update().get(id=source_id)
     except ProviderEvent.DoesNotExist:
         raise ValueError("event_not_found") from None
     snapshot = source.current_snapshot
@@ -267,7 +319,7 @@ def start_manual_event(body: dict[str, Any], actor: DemoActor) -> Workflow:
     try:
         calendar_date.fromisoformat(date)
         ZoneInfo(timezone)
-    except (ValueError, ZoneInfoNotFoundError):
+    except ValueError, ZoneInfoNotFoundError:
         raise ValueError("invalid_event_brief") from None
     event = Event.objects.create(slug=f"manual-{uuid.uuid4().hex[:20]}", title=title)
     facts = {"title": title, "date": date, "timezone": timezone}
