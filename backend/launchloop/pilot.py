@@ -3,10 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import date as calendar_date
 from datetime import timedelta
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
 from django.db.models import Max
@@ -310,34 +308,65 @@ def select_eventbrite_event(source_id: uuid.UUID, actor: DemoActor) -> Workflow:
 
 
 @transaction.atomic
-def start_manual_event(body: dict[str, Any], actor: DemoActor) -> Workflow:
-    title = str(body.get("title", "")).strip()
-    date = str(body.get("date", "")).strip()
-    timezone = str(body.get("timezone", "")).strip()
-    if not 1 <= len(title) <= 240 or len(date) != 10 or not 1 <= len(timezone) <= 64:
-        raise ValueError("invalid_event_brief")
-    try:
-        calendar_date.fromisoformat(date)
-        ZoneInfo(timezone)
-    except ValueError, ZoneInfoNotFoundError:
-        raise ValueError("invalid_event_brief") from None
-    event = Event.objects.create(slug=f"manual-{uuid.uuid4().hex[:20]}", title=title)
-    facts = {"title": title, "date": date, "timezone": timezone}
-    for key in (
-        "city",
-        "region",
-        "country",
-        "start_time",
-        "end_time",
-        "venue_name",
-        "venue_address",
-        "access_instructions",
-        "description",
-        "signup_url",
-        "sponsor_tier",
+def update_event_facts(workflow_id, body, actor):
+    from agents.models import AgentRun
+
+    from .owner_events import source_kind, validate_facts
+
+    workflow = Workflow.objects.select_for_update().select_related("revision").get(pk=workflow_id)
+    if source_kind(workflow.revision) not in ("manual", "eventbrite"):
+        raise ValueError("owner_event_required")
+    if workflow.revision.author_id != actor.pk or actor.role != DemoActor.Role.OPERATOR:
+        raise ValueError("event_owner_required")
+    if AgentRun.objects.filter(workflow=workflow, status__in=("queued", "running")).exists():
+        raise ValueError("review_in_progress")
+    if workflow.status not in (
+        Workflow.Status.DRAFT,
+        Workflow.Status.NEEDS_INPUT,
+        Workflow.Status.READY_FOR_REVIEW,
     ):
-        facts[key] = str(body.get(key, ""))[:500]
-    facts.update({"general_ticket_price": 0, "sponsor_discount_percent": 0})
+        raise ValueError("review_in_progress")
+    changes = validate_facts(body)
+    if not changes:
+        raise ValueError("invalid_event_facts")
+    facts = dict(workflow.revision.snapshot)
+    facts.update(changes)
+    revision = EventRevision.objects.create(
+        event=workflow.event,
+        version=workflow.revision.version + 1,
+        snapshot=facts,
+        author=actor,
+        source_snapshot=workflow.revision.source_snapshot,
+    )
+    previous = workflow.status
+    workflow.revision = revision
+    workflow.status = Workflow.Status.DRAFT
+    workflow.package = None
+    workflow.package_hash = ""
+    workflow.save(update_fields=("revision", "status", "package", "package_hash", "updated_at"))
+    workflow.event.title = facts["title"]
+    workflow.event.save(update_fields=("title",))
+    WorkflowTransition.objects.create(
+        workflow=workflow,
+        actor=actor,
+        from_status=previous,
+        to_status=Workflow.Status.DRAFT,
+        action="owner_event_facts_saved",
+        details={"revision": revision.version},
+    )
+    return workflow
+
+
+@transaction.atomic
+def start_manual_event(body: dict[str, Any], actor: DemoActor) -> Workflow:
+    from .owner_events import FACT_FIELDS, validate_facts
+
+    facts = dict.fromkeys(FACT_FIELDS, "")
+    facts.update(validate_facts(body))
+    if not all(facts[key] for key in ("title", "date", "timezone")):
+        raise ValueError("invalid_event_brief")
+    facts["owner_event"] = True
+    event = Event.objects.create(slug=f"manual-{uuid.uuid4().hex[:20]}", title=facts["title"])
     revision = EventRevision.objects.create(event=event, version=1, snapshot=facts, author=actor)
     workflow = Workflow.objects.create(event=event, revision=revision)
     WorkflowTransition.objects.create(

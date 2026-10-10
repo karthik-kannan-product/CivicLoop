@@ -41,7 +41,8 @@
             "id": { "type": "integer", "minimum": 1 },
             "version": { "type": "integer", "minimum": 1 },
             "facts": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean", "null"] } },
-            "author": { "type": "string" }
+            "author": { "type": "string" },
+            "source_kind": { "enum": ["synthetic", "manual", "eventbrite", "unsupported"] }
           }
         }
       }
@@ -114,6 +115,155 @@
         "evidence": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "ownerEventPackage": {
+      "type": "object",
+      "required": [
+        "status",
+        "missing_fields",
+        "questions",
+        "assets",
+        "audience",
+        "sponsor",
+        "lanes",
+        "evidence",
+        "schema_id"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "missing_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "field",
+              "prompt"
+            ],
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "invitation",
+            "reminder",
+            "social"
+          ],
+          "properties": {
+            "invitation": {
+              "$ref": "#/$defs/emailAsset"
+            },
+            "reminder": {
+              "$ref": "#/$defs/emailAsset"
+            },
+            "social": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "body"
+              ],
+              "properties": {
+                "body": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "audience": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "name",
+            "member_count",
+            "language"
+          ],
+          "properties": {
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "member_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "language": {
+              "type": "string"
+            }
+          }
+        },
+        "sponsor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "tier",
+            "expected_discount_percent",
+            "actual_discount_percent",
+            "general_ticket_price",
+            "sponsor_ticket_price"
+          ],
+          "properties": {
+            "passed": {
+              "const": false
+            },
+            "tier": {
+              "const": ""
+            },
+            "expected_discount_percent": {
+              "type": "null"
+            },
+            "actual_discount_percent": {
+              "type": "null"
+            },
+            "general_ticket_price": {
+              "type": "null"
+            },
+            "sponsor_ticket_price": {
+              "type": "null"
+            }
+          }
+        },
+        "lanes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/lane"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "schema_id": {
+          "const": "owner_event_draft_v1"
+        }
+      }
+    },
     "emailAsset": {
       "type": "object",
       "additionalProperties": false,
@@ -127,7 +277,7 @@
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "status": { "enum": ["draft", "needs_input", "ready_for_review", "in_review", "approved", "completed"] },
-        "package": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/campaignPackage" }] },
+        "package": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/campaignPackage" }, { "$ref": "#/$defs/ownerEventPackage" }] },
         "package_hash": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] }
       }
     },

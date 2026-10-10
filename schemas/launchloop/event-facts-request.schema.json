@@ -2,11 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "title",
-    "date",
-    "timezone"
-  ],
   "properties": {
     "title": {
       "type": "string",
@@ -14,8 +9,7 @@
     },
     "date": {
       "type": "string",
-      "maxLength": 10,
-      "format": "date"
+      "maxLength": 10
     },
     "start_time": {
       "type": "string",
@@ -57,5 +51,6 @@
       "type": "string",
       "maxLength": 500
     }
-  }
+  },
+  "minProperties": 1
 }

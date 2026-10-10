@@ -375,6 +375,7 @@ def start_hermes(request: HttpRequest, workflow_id: uuid.UUID) -> JsonResponse:
             workflow_id=workflow_id,
             revision_id=body["revision_id"],
             actor_slug=actor.slug,
+            owner_session_id=request.administrator_session.pk,
         )
     except HermesStartConflict:
         return _problem(

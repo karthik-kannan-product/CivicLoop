@@ -60,6 +60,7 @@ def test_openapi_documents_every_current_application_endpoint() -> None:
         "/api/v1/demo",
         "/api/v1/demo/reset",
         "/api/v1/events/manual",
+        "/api/v1/workflows/{workflowId}/facts",
         "/api/v1/eventbrite/events",
         "/api/v1/eventbrite/events/refresh",
         "/api/v1/eventbrite/events/{sourceId}/select",

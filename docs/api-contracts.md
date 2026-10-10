@@ -3,6 +3,24 @@
 The canonical HTTP contract is `openapi/civicloop-v1.yaml`. Reusable payload
 schemas live below `schemas/` and use JSON Schema 2020-12.
 
+Owner MFA event briefs accept twelve public fact fields through `POST
+/api/v1/events/manual`: title, date, start/end time, timezone, city, region,
+country, venue name/address, access instructions and signup URL. The new
+`POST /api/v1/workflows/{workflowId}/facts` accepts a partial update from the
+same closed field set and creates a new revision; active agent work blocks edits.
+Both return DemoState. Revisions expose `source_kind`; the field is optional in
+the schema for compatibility with saved synthetic fixtures.
+
+Owner packages use `schema_id=owner_event_draft_v1`. Invalid or missing public
+facts remain editable as `needs_input`. Ready packages apply no synthetic
+geography segmentation or sponsor discount policy. Owner Hermes admission
+binds an active full MFA session, current owner/revision and recomputed package;
+worker checks repeat those bindings. These runs record `pilot_minimized` with
+null fixture metadata. Synthetic fixture packages and four-eyes submission keep
+their existing contract; real events cannot invoke fixture evaluation or the
+synthetic submission route. Provider execution still requires a separately
+reviewed exact request and its own enabled draft-write flag.
+
 ## View the documentation
 
 Start CivicLoop and open `/api/docs`. The page bundles Swagger UI locally and

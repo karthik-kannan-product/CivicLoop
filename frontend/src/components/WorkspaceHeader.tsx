@@ -15,6 +15,7 @@ type Props = {
   onReset: () => void;
   sessionUser?: SessionUser;
   onLogout?: () => void;
+  ownerEvent?: boolean;
 };
 
 export function WorkspaceHeader({
@@ -26,6 +27,7 @@ export function WorkspaceHeader({
   onReset,
   sessionUser,
   onLogout,
+  ownerEvent = false,
 }: Props) {
   const serverWorkspace = deploymentMode === "server" && sessionUser;
   return (
@@ -37,7 +39,7 @@ export function WorkspaceHeader({
         <div>
           <p className="brand__name">CivicLoop</p>
           <p className="brand__context">
-            {deploymentMode === "browser_local"
+            {ownerEvent ? "LaunchLoop · owner event workspace" : deploymentMode === "browser_local"
               ? "LaunchLoop · browser-local simulation"
               : "LaunchLoop · authenticated demo workspace"}
           </p>
