@@ -282,7 +282,7 @@ class PostgresSecretStore(SecretStore):
                 or not isinstance(workflow_id, UUID)
                 or not isinstance(execution_id, UUID)
                 or execution_kind not in {"draft", "template"}
-                or os.environ.get("ITERABLE_DRAFT_WRITE_ENABLED") != "true"
+                or os.environ.get("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED") != "true"
             ):
                 raise SecretUnavailable()
             healthy = IntegrationConnection.objects.filter(

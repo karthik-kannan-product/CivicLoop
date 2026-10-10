@@ -108,6 +108,36 @@ def test_put_metadata_and_purpose_bound_lease(secret_store: PostgresSecretStore)
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("canonical", [None, "false"])
+@pytest.mark.parametrize("execution_kind", ["template", "draft"])
+def test_bare_iterable_flag_cannot_enable_secret_lease(
+    secret_store: PostgresSecretStore, monkeypatch, canonical, execution_kind
+) -> None:
+    from integrations.models import IntegrationConnection
+
+    reference = secret_store.put(provider="iterable", scope="server_api_key", value=PLAINTEXT)
+    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.delenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", raising=False)
+    if canonical is not None:
+        monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", canonical)
+    monkeypatch.setattr(
+        IntegrationConnection.objects,
+        "filter",
+        lambda **kwargs: pytest.fail("Connection admission reached while writes disabled"),
+    )
+    with pytest.raises(SecretUnavailable):
+        secret_store.lease(
+            reference,
+            caller_id=CALLER_ID,
+            workflow_id=WORKFLOW_ID,
+            purpose="iterable_draft_write",
+            ttl=timedelta(seconds=30),
+            execution_id=UUID("243e33dc-c1b8-4efc-8267-be68f330d107"),
+            execution_kind=execution_kind,
+        )
+
+
+@pytest.mark.django_db
 def test_openai_judge_lease_requires_its_bound_workflow(
     secret_store: PostgresSecretStore,
 ) -> None:

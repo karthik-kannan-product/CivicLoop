@@ -24,7 +24,7 @@ def test_postgres_concurrent_dispatch_has_one_committed_claim(accepted, monkeypa
     operation = draft_tests.approve(accepted)
     user = accepted[1].user
     session_id = draft_tests.owner_session(accepted).pk
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(service, "_reference", lambda: object())
     start = Barrier(2)
     provider_entered = Event()

@@ -176,7 +176,7 @@ class Store:
 @pytest.mark.parametrize("ambiguous", [False, True])
 def test_claim_commits_before_http_and_never_retries(accepted, monkeypatch, ambiguous):
     operation = approve(accepted)
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(service, "_session", lambda *args: SimpleNamespace(id=uuid.uuid4()))
     monkeypatch.setattr(service, "_reference", lambda: object())
     calls = []
@@ -214,12 +214,12 @@ def test_claim_commits_before_http_and_never_retries(accepted, monkeypatch, ambi
 
 def test_disabled_and_no_arbitrary_reconciliation_id(accepted, monkeypatch):
     operation = approve(accepted)
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "TRUE")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "TRUE")
     with pytest.raises(PermissionDenied):
         service.execute_draft(
             user=accepted[1].user, administrator_session_id=uuid.uuid4(), operation_id=operation.pk
         )
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(service, "_session", lambda *args: object())
     DraftExecution.objects.filter(pk=operation.pk).update(
         status="unknown", claimed_at=timezone.now(), completed_at=timezone.now()
@@ -228,6 +228,29 @@ def test_disabled_and_no_arbitrary_reconciliation_id(accepted, monkeypatch):
         service.reconcile_draft(
             user=accepted[1].user, administrator_session_id=uuid.uuid4(), operation_id=operation.pk
         )
+
+
+@pytest.mark.parametrize("canonical", [None, "false"])
+@pytest.mark.parametrize("reconcile", [False, True])
+def test_bare_eventbrite_flag_cannot_enable_dispatch(accepted, monkeypatch, canonical, reconcile):
+    operation = approve(accepted)
+    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.delenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", raising=False)
+    if canonical is not None:
+        monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", canonical)
+    monkeypatch.setattr(service, "_session", lambda *args: pytest.fail("Owner admission reached"))
+    monkeypatch.setattr(service, "_reference", lambda: pytest.fail("Secret admission reached"))
+    dispatch = service.reconcile_draft if reconcile else service.execute_draft
+    with pytest.raises(PermissionDenied, match="Eventbrite draft writes are disabled"):
+        dispatch(
+            user=accepted[1].user,
+            administrator_session_id=uuid.uuid4(),
+            operation_id=operation.pk,
+            adapter=object(),
+            store=object(),
+        )
+    operation.refresh_from_db()
+    assert operation.status == "approved" and operation.claimed_at is None
 
 
 @pytest.mark.parametrize("change", ["proposal", "capability", "run", "package", "inactive"])
@@ -286,7 +309,7 @@ def test_full_owner_session_required(accepted, change):
 
 def test_crash_after_claim_cannot_resend(accepted, monkeypatch):
     operation = approve(accepted)
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(service, "_session", lambda *args: object())
     monkeypatch.setattr(service, "_reference", lambda: object())
     DraftExecution.objects.filter(pk=operation.pk).update(
@@ -427,7 +450,7 @@ def test_reconcile_with_fresh_owner_session_after_approval_session_expires(accep
         absolute_expires_at=now + timedelta(minutes=5),
         device_label="fresh synthetic",
     )
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(service, "_reference", lambda: object())
 
     class Adapter:
@@ -543,7 +566,7 @@ def template_execute(accepted, monkeypatch, *, ambiguous=False):
     from integrations.models import TemplateExecution
 
     operation = template_approve(accepted)
-    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "true")
     calls = []
 
     class Adapter:
@@ -657,12 +680,36 @@ def test_iterable_campaign_before_template_denied(iterable_accepted):
         )
 
 
+@pytest.mark.parametrize("canonical", [None, "false"])
+@pytest.mark.parametrize("reconcile", [False, True])
+def test_bare_iterable_flag_cannot_enable_dispatch(
+    iterable_accepted, monkeypatch, canonical, reconcile
+):
+    operation = template_approve(iterable_accepted)
+    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.delenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", raising=False)
+    if canonical is not None:
+        monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", canonical)
+    monkeypatch.setattr(service, "_session", lambda *args: pytest.fail("Owner admission reached"))
+    dispatch = service.reconcile_template if reconcile else service.execute_template
+    with pytest.raises(PermissionDenied, match="Iterable draft writes are disabled"):
+        dispatch(
+            user=iterable_accepted[1].user,
+            administrator_session_id=uuid.uuid4(),
+            operation_id=operation.pk,
+            adapter=object(),
+            store=object(),
+        )
+    operation.refresh_from_db()
+    assert operation.status == "approved" and operation.claimed_at is None
+
+
 @pytest.mark.parametrize("change", ["content", "region", "actor", "run", "flag"])
 def test_iterable_changed_authority_denied(iterable_accepted, monkeypatch, change):
     from integrations.models import TemplateExecution
 
     operation = template_approve(iterable_accepted)
-    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "true")
     if change == "content":
         TemplateExecution.objects.filter(pk=operation.pk).update(
             payload={**operation.payload, "subject": "Other"}
@@ -676,7 +723,7 @@ def test_iterable_changed_authority_denied(iterable_accepted, monkeypatch, chang
     elif change == "run":
         AgentRun.objects.filter(pk=operation.run_id).update(status="failed")
     else:
-        monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "TRUE")
+        monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "TRUE")
     with pytest.raises(PermissionDenied):
         service.execute_template(
             user=iterable_accepted[1].user,
@@ -698,7 +745,7 @@ def test_iterable_lease_requires_owned_exact_claim(iterable_accepted, monkeypatc
     TemplateExecution.objects.filter(pk=operation.pk).update(
         status="executing", claimed_at=timezone.now()
     )
-    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "true")
     session = owner_session(iterable_accepted)
     secret = EncryptedSecret.objects.get(provider="iterable")
     kwargs = dict(
@@ -724,7 +771,7 @@ def test_iterable_lease_requires_owned_exact_claim(iterable_accepted, monkeypatc
     elif change == "tampered":
         TemplateExecution.objects.filter(pk=operation.pk).update(request_digest="0" * 64)
     elif change == "flag":
-        monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "false")
+        monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "false")
     else:
         session.recovery_restricted = True
         session.save()
@@ -847,7 +894,7 @@ def test_iterable_write_lease_ignores_stale_unknown_history(iterable_accepted, m
     from integrations.secret_store import PostgresSecretStore
     from integrations.types import SecretReference
 
-    monkeypatch.setenv("ITERABLE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED", "true")
     operation = template_approve(iterable_accepted)
     model = TemplateExecution
     secret = EncryptedSecret.objects.get(provider=provider)
@@ -954,7 +1001,7 @@ def test_eventbrite_reconcile_rejects_outer_transaction_before_lease(accepted, m
     from django.db import transaction
 
     operation = approve(accepted)
-    monkeypatch.setenv("EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
+    monkeypatch.setenv("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED", "true")
     monkeypatch.setattr(
         service, "_session", lambda *args: pytest.fail("No session or lease admission")
     )

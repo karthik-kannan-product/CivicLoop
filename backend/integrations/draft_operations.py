@@ -259,7 +259,7 @@ def approve_draft(*, user, administrator_session_id, operation_id, review_digest
 
 
 def _enabled():
-    if os.environ.get("EVENTBRITE_DRAFT_WRITE_ENABLED") != "true":
+    if os.environ.get("CIVICLOOP_EVENTBRITE_DRAFT_WRITE_ENABLED") != "true":
         raise PermissionDenied("Eventbrite draft writes are disabled.")
 
 
@@ -447,7 +447,7 @@ def reconcile_draft(*, user, administrator_session_id, operation_id, adapter=Non
 
 
 def _iterable_enabled():
-    if os.environ.get("ITERABLE_DRAFT_WRITE_ENABLED") != "true":
+    if os.environ.get("CIVICLOOP_ITERABLE_DRAFT_WRITE_ENABLED") != "true":
         raise PermissionDenied("Iterable draft writes are disabled.")
 
 
