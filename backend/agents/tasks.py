@@ -12,6 +12,7 @@ from django.db.models import Max
 from django.utils import timezone
 from launchloop.engine import prepare_package
 from launchloop.models import AuditEvent, DemoActor, Workflow
+from launchloop.owner_events import owner_session, prepare_owner_package, source_kind
 from launchloop.services import package_hash
 from observability.runtime import get_runtime
 from opentelemetry.context import Context
@@ -70,6 +71,7 @@ def start_hermes_run(
     workflow_id: UUID,
     revision_id: int,
     actor_slug: str,
+    owner_session_id=None,
 ) -> AgentRun:
     """Replay an owner-bound receipt or commit one receipt and one queued run."""
     if (
@@ -102,6 +104,7 @@ def start_hermes_run(
                 workflow_id=workflow_id,
                 revision_id=revision_id,
                 actor_slug=actor_slug,
+                owner_session_id=owner_session_id,
             )
             HermesStartReceipt.objects.create(
                 id=idempotency_key,
@@ -170,6 +173,43 @@ def _ready(workflow, revision_id, expected_hash=None):
         return False
 
 
+def _owner_ready(workflow, revision_id, actor, session, expected_hash=None):
+    try:
+        return (
+            session is not None
+            and source_kind(workflow.revision) in ("manual", "eventbrite")
+            and workflow.revision.author_id == actor.pk
+            and workflow.revision_id == revision_id
+            and workflow.revision.event_id == workflow.event_id
+            and workflow.status in (Workflow.Status.READY_FOR_REVIEW, Workflow.Status.IN_REVIEW)
+            and workflow.package.get("status") == "ready_for_review"
+            and prepare_owner_package(workflow.revision.snapshot) == workflow.package
+            and package_hash(workflow.package) == workflow.package_hash
+            and (expected_hash is None or expected_hash == workflow.package_hash)
+        )
+    except AttributeError, KeyError, TypeError, ValueError:
+        return False
+
+
+def _run_ready(run, workflow):
+    binding = run.hermes_binding
+    fixture = (run.fixture_manifest_id, run.fixture_manifest_revision, run.fixture_manifest_digest)
+    if run.privacy_mode == "pilot_minimized":
+        return all(value is None for value in fixture) and _owner_ready(
+            workflow,
+            run.event_revision_id,
+            binding.actor,
+            owner_session(binding.actor, binding.owner_session_id),
+            run.package_hash,
+        )
+    return (
+        run.privacy_mode == "synthetic_full"
+        and binding.owner_session_id is None
+        and fixture == (FIXTURE_ID, FIXTURE_REVISION, FIXTURE_DIGEST)
+        and _ready(workflow, run.event_revision_id, run.package_hash)
+    )
+
+
 def _event(run, event_type, outcome):
     sequence = (run.events.aggregate(value=Max("sequence"))["value"] or 0) + 1
     AgentRunEvent.objects.create(
@@ -198,7 +238,9 @@ def _timeout():
     return timeout
 
 
-def queue_hermes_run(*, workflow_id: UUID, revision_id: int, actor_slug: str) -> AgentRun:
+def queue_hermes_run(
+    *, workflow_id: UUID, revision_id: int, actor_slug: str, owner_session_id=None
+) -> AgentRun:
     try:
         with transaction.atomic():
             lane = _lane()
@@ -215,7 +257,14 @@ def queue_hermes_run(*, workflow_id: UUID, revision_id: int, actor_slug: str) ->
                 Workflow.objects.select_for_update().select_related("revision").get(pk=workflow_id)
             )
             actor = DemoActor.objects.select_related("user").get(pk=actor_slug)
-            if not _operator(actor) or not _ready(workflow, revision_id):
+            live = source_kind(workflow.revision) != "synthetic"
+            session = owner_session(actor, owner_session_id) if live else None
+            ready = (
+                _owner_ready(workflow, revision_id, actor, session)
+                if live
+                else _ready(workflow, revision_id)
+            )
+            if not _operator(actor) or not ready:
                 raise HermesAdmissionDenied()
             profile = ModelProfile.objects.get(
                 profile_id=settings.CIVICLOOP_HERMES_PROFILE_ID,
@@ -242,15 +291,17 @@ def queue_hermes_run(*, workflow_id: UUID, revision_id: int, actor_slug: str) ->
                 package_hash=workflow.package_hash,
                 model_profile=profile,
                 routing_policy=policy,
-                fixture_manifest_id=FIXTURE_ID,
-                fixture_manifest_revision=FIXTURE_REVISION,
-                fixture_manifest_digest=FIXTURE_DIGEST,
-                privacy_mode="synthetic_full",
+                fixture_manifest_id=None if live else FIXTURE_ID,
+                fixture_manifest_revision=None if live else FIXTURE_REVISION,
+                fixture_manifest_digest=None if live else FIXTURE_DIGEST,
+                privacy_mode="pilot_minimized" if live else "synthetic_full",
                 status="queued",
                 # All-zero is invalid OTel context, not a fabricated trace.
                 trace_id="0" * 32,
             )
-            HermesRunBinding.objects.create(run=run, actor=actor, correlation_id=correlation_id)
+            HermesRunBinding.objects.create(
+                run=run, actor=actor, correlation_id=correlation_id, owner_session=session
+            )
             AgentRunControl.objects.create(run=run, lease_expires_at=lease)
             lane.active_run = run
             lane.save(update_fields=["active_run", "updated_at"])
@@ -287,7 +338,7 @@ def _check(run, control, workflow, capability=None):
     if not _operator(run.hermes_binding.actor):
         raise WorkerFailure("invalid_output")
     if (
-        not _ready(workflow, run.event_revision_id, run.package_hash)
+        not _run_ready(run, workflow)
         or _digest(workflow.revision.snapshot) != run.hermes_binding.revision_digest
     ):
         raise WorkerFailure("invalid_output")

@@ -9,6 +9,7 @@ urlpatterns = [
     path("demo", views.demo_state, name="demo-state"),
     path("demo/reset", views.demo_reset, name="demo-reset"),
     path("events/manual", views.manual_event_start, name="manual-event-start"),
+    path("workflows/<uuid:workflow_id>/facts", views.workflow_facts, name="workflow-facts"),
     path("eventbrite/events", views.eventbrite_events, name="eventbrite-events"),
     path(
         "eventbrite/events/refresh",

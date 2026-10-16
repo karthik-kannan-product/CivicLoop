@@ -33,7 +33,30 @@ def test_eventbrite_list_requires_an_authenticated_administrator() -> None:
 
 
 @pytest.mark.django_db
-def test_operator_can_start_a_manual_event_without_provider_access() -> None:
+@FEATURES
+def test_owner_can_start_a_manual_event_without_provider_access() -> None:
+    client, _profile, _metadata, _password = create_authenticated_owner()
+    response = client.post(
+        "/api/v1/events/manual",
+        data=json.dumps(
+            {
+                "title": "Volunteer Night",
+                "date": "2026-10-20",
+                "timezone": "America/Toronto",
+            }
+        ),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    assert response.json()["event"]["title"] == "Volunteer Night"
+    assert response.json()["workflow"]["status"] == "draft"
+
+
+@pytest.mark.django_db
+@FEATURES
+def test_sandbox_operator_cannot_start_an_owner_manual_event() -> None:
+    from launchloop.models import Event
+
     client = Client()
     login = client.post(
         "/api/v1/auth/login",
@@ -41,6 +64,7 @@ def test_operator_can_start_a_manual_event_without_provider_access() -> None:
         content_type="application/json",
     )
     assert login.status_code == 200
+    original_count = Event.objects.count()
 
     response = client.post(
         "/api/v1/events/manual",
@@ -54,9 +78,8 @@ def test_operator_can_start_a_manual_event_without_provider_access() -> None:
         content_type="application/json",
     )
 
-    assert response.status_code == 200
-    assert response.json()["event"]["title"] == "Volunteer Night"
-    assert response.json()["workflow"]["status"] == "draft"
+    assert response.status_code == 401
+    assert Event.objects.count() == original_count
 
 
 @pytest.mark.django_db

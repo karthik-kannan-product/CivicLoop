@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -148,6 +148,46 @@ test("deterministic sandbox has no Hermes generation or requests", async () => {
   await screen.findByRole("heading", { name: facts.title });
   expect(screen.queryByRole("button", { name: "Generate with Hermes" })).toBeNull();
   expect(vi.mocked(fetch).mock.calls.every(([path]) => !String(path).includes("hermes"))).toBe(true);
+});
+
+test("owner correction prepares a real package without synthetic approval or policy claims", async () => {
+  window.history.replaceState({}, "", "/sandbox");
+  vi.stubEnv("VITEST", "");
+  vi.stubEnv("VITE_STATIC_DEMO", "false");
+  const ownerFacts = { ...facts, title: "London Community Forum", city: "London", region: "England", country: "GB",
+    timezone: "Europe/London", venue_name: "Community Hall", venue_address: "12 Example Road", access_instructions: "Step-free entrance" };
+  const owner = { ...baseState, event: { ...baseState.event, title: ownerFacts.title,
+    revision: { ...baseState.event.revision, source_kind: "eventbrite", facts: ownerFacts } } };
+  const prepared = { ...owner, workflow: { ...owner.workflow, status: "ready_for_review", package_hash: "a".repeat(64),
+    package: { ...blockedPackage, schema_id: "owner_event_draft_v1", status: "ready_for_review", missing_fields: [], questions: [], lanes: {} } } };
+  const fetcher = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/v1/auth/session") return jsonResponse({ user: { username: "owner", display_name: "Owner", role: "operator", administrator: true, hermes_enabled: true } });
+    if (path === "/api/v1/eventbrite/events") return jsonResponse({ events: [] });
+    if (path.endsWith("/facts")) return jsonResponse({ ...owner, event: { ...owner.event, revision: { ...owner.event.revision, id: 2, version: 2, facts: { ...ownerFacts, city: "Oxford" } } } });
+    if (path.endsWith("/runs")) return jsonResponse(prepared);
+    return jsonResponse(owner);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  const save = await screen.findByRole("button", { name: "Save event facts as revision 2" });
+  const editor = save.closest("form")!;
+  expect(screen.getByRole("button", { name: "Generate with Hermes" })).toBeDisabled();
+  fireEvent.change(within(editor).getByLabelText("City"), { target: { value: "Oxford" } });
+  fireEvent.submit(editor);
+  await screen.findByRole("button", { name: "Save event facts as revision 3" });
+  const correction = fetcher.mock.calls.find(([path]) => String(path).endsWith("/facts"));
+  const posted = JSON.parse(correction![1].body);
+  expect(posted.city).toBe("Oxford");
+  expect(Object.keys(posted)).toHaveLength(12);
+  expect(posted).not.toHaveProperty("synthetic");
+  expect(posted).not.toHaveProperty("privacy_mode");
+  fireEvent.click(screen.getByRole("button", { name: "Prepare event drafts" }));
+  await screen.findByText("Deferred to provider review");
+  expect(screen.getByRole("button", { name: "Generate with Hermes" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Submit for approval" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Run advisory evaluation" })).not.toBeInTheDocument();
+  expect(screen.queryByText("Active New York members")).not.toBeInTheDocument();
+  expect(screen.queryByText(/gold discount/)).not.toBeInTheDocument();
 });
 
 test("logs out of the authenticated demo workspace", async () => {

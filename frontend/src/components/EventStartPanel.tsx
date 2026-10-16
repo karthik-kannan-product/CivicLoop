@@ -8,6 +8,7 @@ import {
   type EventbriteEvent,
 } from "../api";
 import type { DemoState } from "../types";
+import { EventFactsFields, publicEventFacts } from "./EventFactsFields";
 
 export function EventStartPanel({ onStarted }: { onStarted: (state: DemoState) => void }) {
   const [events, setEvents] = useState<EventbriteEvent[] | null>(null);
@@ -48,21 +49,15 @@ export function EventStartPanel({ onStarted }: { onStarted: (state: DemoState) =
       <div>
         <p className="eyebrow">Start or switch work</p>
         <h2 id="event-start-title">Choose the event CivicLoop should coordinate</h2>
-        <p>Create a local brief, or safely refresh Eventbrite metadata. Nothing is changed in Eventbrite.</p>
+        <p>Enter confirmed public event facts, or import an Eventbrite draft and complete its brief. Nothing is changed in Eventbrite.</p>
       </div>
       {message && <div className="inline-error" role="alert">{message}</div>}
       <form className="event-start__manual" onSubmit={(formEvent) => {
         formEvent.preventDefault();
-        const data = new FormData(formEvent.currentTarget);
-        void act(async () => onStarted(await startManualEvent({
-          title: String(data.get("title") ?? ""),
-          date: String(data.get("date") ?? ""),
-          timezone: String(data.get("timezone") ?? ""),
-        })));
+        const facts = publicEventFacts(formEvent.currentTarget);
+        void act(async () => onStarted(await startManualEvent(facts)));
       }}>
-        <input aria-label="Event title" name="title" placeholder="Event title" maxLength={240} required />
-        <input aria-label="Event date" name="date" type="date" required />
-        <input aria-label="Event timezone" name="timezone" defaultValue="America/Toronto" required />
+        <EventFactsFields disabled={busy} />
         <button className="button button--secondary" disabled={busy} type="submit">Start manual brief</button>
       </form>
       {events !== null && (

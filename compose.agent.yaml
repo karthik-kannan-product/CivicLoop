@@ -65,7 +65,8 @@ services:
       - -m
       - agents.mcp_probe
       interval: 10s
-      timeout: 3s
+      timeout: 10s
+      start_period: 30s
       retries: 12
     logging:
       options:

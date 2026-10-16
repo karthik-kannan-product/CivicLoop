@@ -69,6 +69,9 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
   const workflowId = state.workflow.id;
   const activeActor = state.actors.find((item) => item.slug === actor);
   const isOperator = sessionUser ? sessionUser.role === "operator" : activeActor?.role === "operator";
+  const ownerEvent = ["manual", "eventbrite"].includes(state.event.revision.source_kind ?? "")
+    || state.workflow.package?.schema_id === "owner_event_draft_v1";
+  const ownerCanEdit = Boolean(sessionUser?.administrator && isOperator);
 
   return (
     <div className="app-shell">
@@ -81,6 +84,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
         onLogout={onLogout}
         onReset={() => void mutate("/api/v1/demo/reset")}
         sessionUser={sessionUser}
+        ownerEvent={ownerEvent}
       />
       <main className="workspace">
         {error && <div className="inline-error" role="alert">{error}</div>}
@@ -98,8 +102,10 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
           busy={busy}
           onRun={() => void mutate(`/api/v1/workflows/${workflowId}/runs`)}
           onResolve={(answers) => void mutate(`/api/v1/workflows/${workflowId}/answers`, answers)}
+          ownerEvent={ownerEvent}
+          onSaveFacts={ownerCanEdit ? (facts) => void mutate(`/api/v1/workflows/${workflowId}/facts`, facts) : undefined}
         />
-        <LaneBoard campaignPackage={state.workflow.package} />
+        <LaneBoard campaignPackage={state.workflow.package} ownerEvent={ownerEvent} />
         {isOperator && sessionUser?.administrator && (
           <HermesRunPanel
             key={`${workflowId}:${state.event.revision.id}`}
@@ -107,19 +113,21 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
             revisionId={state.event.revision.id}
             authorized
             enabled={sessionUser.hermes_enabled === true}
-            ready={["ready_for_review", "in_review"].includes(state.workflow.status)}
+            ready={["ready_for_review", "in_review"].includes(state.workflow.status)
+              && (!ownerEvent || (state.workflow.package?.schema_id === "owner_event_draft_v1"
+                && Boolean(state.workflow.package_hash)))}
           />
         )}
         {state.workflow.package && (
           <ReviewPackage
             campaignPackage={state.workflow.package}
             evaluation={state.evaluation}
-            canEvaluate={Boolean(sessionUser?.administrator)}
+            canEvaluate={Boolean(sessionUser?.administrator && !ownerEvent)}
             busy={busy}
             onEvaluate={() => void mutate(`/api/v1/workflows/${workflowId}/evaluations`)}
           />
         )}
-        <DecisionPanel
+        {!ownerEvent && <DecisionPanel
           state={state}
           actor={actor}
           busy={busy}
@@ -133,7 +141,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
             package_hash: state.approval?.package_hash ?? "",
             reason,
           })}
-        />
+        />}
         <CompletionPanel state={state} />
         <Timeline items={state.timeline} />
       </main>

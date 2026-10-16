@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { DemoState } from "../types";
+import { EventFactsFields, publicEventFacts } from "./EventFactsFields";
 
 type Props = {
   state: DemoState;
@@ -8,9 +9,11 @@ type Props = {
   busy: boolean;
   onRun: () => void;
   onResolve: (answers: Record<string, string>) => void;
+  ownerEvent?: boolean;
+  onSaveFacts?: (facts: Record<string, string>) => void;
 };
 
-export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props) {
+export function EventBrief({ state, isOperator, busy, onRun, onResolve, ownerEvent = false, onSaveFacts }: Props) {
   const [answers, setAnswers] = useState({
     venue_name: "",
     venue_address: "",
@@ -38,11 +41,11 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
     <section className="event-brief" aria-labelledby="event-title">
       <div className="event-brief__heading">
         <div>
-          <p className="eyebrow">Event campaign · New York</p>
+          <p className="eyebrow">{ownerEvent ? "Owner event brief" : "Event campaign"} · {String(facts.city || "Location not confirmed")}</p>
           <h1 id="event-title">{event.title}</h1>
           <p className="event-meta">
-            <span>Revision {event.revision.version}</span> · {String(facts.date)} ·{" "}
-            {String(facts.start_time)}–{String(facts.end_time)} {String(facts.timezone)}
+            <span>Revision {event.revision.version}</span> · {String(facts.date || "Date not confirmed")} ·{" "}
+            {String(facts.start_time || "Start not set")}–{String(facts.end_time || "End not set")} {String(facts.timezone || "Timezone not confirmed")}
           </p>
         </div>
         <span className={`status status--${workflow.status}`}>
@@ -57,27 +60,44 @@ export function EventBrief({ state, isOperator, busy, onRun, onResolve }: Props)
         </div>
         <div>
           <dt>Audience</dt>
-          <dd>Active New York members</dd>
+          <dd>{ownerEvent ? "Select audience and suppressions during provider request review" : "Active New York members"}</dd>
         </div>
         <div>
-          <dt>Ticket and sponsor rule</dt>
-          <dd>${String(facts.general_ticket_price)} · Gold members receive 25% off</dd>
+          <dt>{ownerEvent ? "Signup" : "Ticket and sponsor rule"}</dt>
+          <dd>{ownerEvent ? String(facts.signup_url || "Not confirmed") : `$${String(facts.general_ticket_price)} · Gold members receive 25% off`}</dd>
         </div>
       </dl>
 
       {workflow.status === "draft" && isOperator && (
         <div className="action-strip">
           <div>
-            <strong>Ready for a grounded review</strong>
-            <span>Three deterministic specialists will prepare one package.</span>
+            <strong>{ownerEvent ? "Prepare event copy for review" : "Ready for a grounded review"}</strong>
+            <span>{ownerEvent ? "Confirmed facts prepare drafts. Audience and provider requests need separate review." : "Three deterministic specialists will prepare one package."}</span>
           </div>
           <button className="button button--primary" disabled={busy} onClick={onRun}>
-            {busy ? "Running…" : "Run LaunchLoop"}
+            {busy ? "Running…" : ownerEvent ? "Prepare event drafts" : "Run LaunchLoop"}
           </button>
         </div>
       )}
 
-      {workflow.status === "needs_input" && isOperator && (
+      {ownerEvent && isOperator && onSaveFacts && (
+        <form className="owner-facts-editor" key={event.revision.id} onSubmit={(formEvent) => {
+          formEvent.preventDefault();
+          onSaveFacts(publicEventFacts(formEvent.currentTarget));
+        }}>
+          <h2>Confirm or correct the event facts</h2>
+          <p>Save a new revision before preparing drafts. Event facts do not select recipients or approve provider actions.</p>
+          {workflow.package?.missing_fields.length ? (
+            <p role="status">Still needed: {workflow.package.questions.map((question) => question.prompt).join(" ")}</p>
+          ) : null}
+          <EventFactsFields facts={facts} disabled={busy} />
+          <button className="button button--primary" disabled={busy} type="submit">
+            Save event facts as revision {event.revision.version + 1}
+          </button>
+        </form>
+      )}
+
+      {!ownerEvent && workflow.status === "needs_input" && isOperator && (
         <form className="remediation" onSubmit={submitAnswers}>
           <div className="remediation__intro">
             <p className="eyebrow">Human input required</p>

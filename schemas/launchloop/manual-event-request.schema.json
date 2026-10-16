@@ -2,10 +2,60 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "date", "timezone"],
+  "required": [
+    "title",
+    "date",
+    "timezone"
+  ],
   "properties": {
-    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
-    "date": { "type": "string", "format": "date" },
-    "timezone": { "type": "string", "minLength": 1, "maxLength": 64 }
+    "title": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "date": {
+      "type": "string",
+      "maxLength": 10,
+      "format": "date"
+    },
+    "start_time": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "end_time": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "timezone": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "city": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "region": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "country": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "venue_name": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "venue_address": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "access_instructions": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "signup_url": {
+      "type": "string",
+      "maxLength": 500
+    }
   }
 }

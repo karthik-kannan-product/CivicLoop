@@ -240,9 +240,9 @@ class AgentRun(models.Model):
     hermes_lane = models.BooleanField(default=False)
     routing_policy = models.ForeignKey(RoutingPolicy, on_delete=models.PROTECT)
     model_profile = models.ForeignKey(ModelProfile, on_delete=models.PROTECT)
-    fixture_manifest_id = models.SlugField(max_length=64)
-    fixture_manifest_revision = models.PositiveIntegerField()
-    fixture_manifest_digest = models.CharField(max_length=64)
+    fixture_manifest_id = models.SlugField(max_length=64, null=True, blank=True)  # noqa: DJ001
+    fixture_manifest_revision = models.PositiveIntegerField(null=True, blank=True)
+    fixture_manifest_digest = models.CharField(max_length=64, null=True, blank=True)  # noqa: DJ001
     privacy_mode = models.CharField(max_length=24, choices=PrivacyMode.choices)
     status = models.CharField(max_length=16, choices=Status.choices)
     attempt = models.PositiveSmallIntegerField(default=1)
@@ -273,6 +273,24 @@ class AgentRun(models.Model):
 
     class Meta:
         constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(hermes_lane=False)
+                    | Q(
+                        privacy_mode="synthetic_full",
+                        fixture_manifest_id__isnull=False,
+                        fixture_manifest_revision__isnull=False,
+                        fixture_manifest_digest__isnull=False,
+                    )
+                    | Q(
+                        privacy_mode="pilot_minimized",
+                        fixture_manifest_id__isnull=True,
+                        fixture_manifest_revision__isnull=True,
+                        fixture_manifest_digest__isnull=True,
+                    )
+                ),
+                name="agents_hermes_fixture_provenance",
+            ),
             models.UniqueConstraint(
                 fields=("hermes_lane",),
                 condition=Q(hermes_lane=True, status__in=("queued", "running")),
@@ -302,6 +320,17 @@ class AgentRun(models.Model):
         super().save(*args, **kwargs)
 
     def clean(self) -> None:
+        if self.hermes_lane:
+            fixture = (
+                self.fixture_manifest_id,
+                self.fixture_manifest_revision,
+                self.fixture_manifest_digest,
+            )
+            if self.privacy_mode == self.PrivacyMode.PILOT_MINIMIZED:
+                if any(value is not None for value in fixture):
+                    raise ValidationError("Owner event runs have no synthetic fixture.")
+            elif self.privacy_mode != self.PrivacyMode.SYNTHETIC_FULL or not all(fixture):
+                raise ValidationError("Synthetic Hermes runs require fixture provenance.")
         if self.event_revision_id and self.workflow_id:
             if self.event_revision.event_id != self.workflow.event_id:
                 raise ValidationError("Agent run revision must belong to its workflow event.")
@@ -364,6 +393,9 @@ class AgentRunEvent(models.Model):
 class HermesRunBinding(models.Model):
     run = models.OneToOneField(AgentRun, related_name="hermes_binding", on_delete=models.PROTECT)
     actor = models.ForeignKey("launchloop.DemoActor", on_delete=models.PROTECT)
+    owner_session = models.ForeignKey(
+        "identity.AdministratorSession", on_delete=models.PROTECT, null=True, blank=True
+    )
     correlation_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
     revision_digest = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)

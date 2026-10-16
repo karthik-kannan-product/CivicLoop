@@ -36,7 +36,7 @@ export type Lane = {
   summary: string;
 };
 
-export type CampaignPackage = {
+type PackageContents = {
   status: string;
   missing_fields: string[];
   questions: Array<{ field: string; prompt: string }>;
@@ -51,6 +51,20 @@ export type CampaignPackage = {
     member_count: number;
     language: string;
   };
+  lanes: Record<string, Lane>;
+  evidence: string[];
+};
+
+export type CampaignPackage = PackageContents & ({
+  schema_id: "owner_event_draft_v1";
+  sponsor: {
+    passed: false;
+    tier: string;
+    expected_discount_percent: null;
+    actual_discount_percent: null;
+  };
+} | {
+  schema_id?: undefined;
   sponsor: {
     passed: boolean;
     tier: string;
@@ -59,9 +73,7 @@ export type CampaignPackage = {
     general_ticket_price: number;
     sponsor_ticket_price: number;
   };
-  lanes: Record<string, Lane>;
-  evidence: string[];
-};
+});
 
 export type DemoState = {
   deployment_mode?: "server" | "browser_local";
@@ -72,7 +84,8 @@ export type DemoState = {
     revision: {
       id: number;
       version: number;
-      facts: Record<string, string | number>;
+      facts: Record<string, string | number | boolean>;
+      source_kind?: "manual" | "eventbrite" | "synthetic" | "unsupported";
       author: string;
     };
   };
