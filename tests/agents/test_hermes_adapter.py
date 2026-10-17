@@ -13,6 +13,28 @@ from tests.agents.test_hermes_runtime_contract import _policy, _request
 from tests.agents.test_hermes_transport import binding
 
 
+def test_upstream_instructions_require_one_bundle_and_both_pending_intent_tools():
+    request = adapter.build_upstream_request(_request(), allowed_tools=adapter.ALLOWED_TOOLS)
+    instructions = request["instructions"]
+    workflow = instructions[instructions.index("Required workflow:") :]
+    steps = [
+        "get_event_revision",
+        "get_policy_context",
+        "propose_campaign_drafts",
+        "validate_proposal",
+        "request_eventbrite_draft",
+        "request_iterable_drafts",
+        "Return exactly one proposal reference",
+    ]
+    assert [workflow.index(step) for step in steps] == sorted(
+        workflow.index(step) for step in steps
+    )
+    assert "same proposal" in workflow
+    assert "three pending internal draft intents" in workflow
+    assert "never execute provider operations" in workflow
+    assert _request()["capability_token"] not in json.dumps(request)
+
+
 def completed_usage(usage):
     return {
         "status": "completed",

@@ -490,7 +490,12 @@ def _validate_result(run, control, result):
         validate(proposal.content, PROPOSAL)
         proposal_ids.append(proposal.id)
     # Validate every operation of this run, including proposals omitted from the final answer.
-    operations = DraftOperation.objects.filter(proposal__capability_id=control.capability_id)
+    operations = list(DraftOperation.objects.filter(proposal__capability_id=control.capability_id))
+    required_operations = {
+        ("eventbrite", "create_eventbrite_draft"),
+        ("iterable", "create_iterable_email_draft"),
+        ("iterable", "create_iterable_reminder_draft"),
+    }
     for operation in operations:
         if (
             operation.proposal_id not in proposal_ids
@@ -500,12 +505,7 @@ def _validate_result(run, control, result):
             or operation.status != "pending"
             or operation.approval_id
             or operation.receipt is not None
-            or (operation.provider, operation.operation_kind)
-            not in {
-                ("eventbrite", "create_eventbrite_draft"),
-                ("iterable", "create_iterable_email_draft"),
-                ("iterable", "create_iterable_reminder_draft"),
-            }
+            or (operation.provider, operation.operation_kind) not in required_operations
         ):
             raise WorkerFailure("invalid_output")
         expected_action = _digest(
@@ -529,6 +529,13 @@ def _validate_result(run, control, result):
         )
         if operation.action_digest != expected_action or operation.idempotency_key != expected_key:
             raise WorkerFailure("invalid_output")
+    if source_kind(run.event_revision) in ("manual", "eventbrite") and (
+        len(proposal_ids) != 1
+        or len(operations) != len(required_operations)
+        or {(operation.provider, operation.operation_kind) for operation in operations}
+        != required_operations
+    ):
+        raise WorkerFailure("invalid_output")
     usage = result["usage"]
     if usage["cost_microusd"] != _cost(
         run.model_profile, usage["input_tokens"], usage["output_tokens"]

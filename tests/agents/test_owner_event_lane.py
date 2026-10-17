@@ -3,7 +3,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
-from agents import tasks
+from agents import mcp, tasks
 from agents.models import AgentRun
 from django.test import Client
 from django.utils import timezone
@@ -178,7 +178,29 @@ def test_sandbox_answers_cannot_revise_owner_event(owner_lane, source):
 
 def test_owner_worker_success_and_no_provider_execution(owner_lane, monkeypatch):
     run = queue(owner_lane, ready(owner_lane))
-    install(monkeypatch, FakeClient())
+
+    class CompleteClient(FakeClient):
+        def execute(self, run, *, capability, should_cancel):
+            result = super().execute(run, capability=capability, should_cancel=should_cancel)
+            for tool in ("request_eventbrite_draft", "request_iterable_drafts"):
+                mcp.dispatch_mcp_tool(
+                    tool_name=tool,
+                    service_identity="synthetic-broker-identity",
+                    capability=capability,
+                    arguments={
+                        "workflow_id": str(run.workflow_id),
+                        "revision_id": run.event_revision_id,
+                        "actor_id": run.hermes_binding.actor_id,
+                        "correlation_id": str(run.hermes_binding.correlation_id),
+                        "request_id": str(uuid.uuid4()),
+                        "idempotency_key": uuid.uuid4().hex,
+                        "proposal_id": result["proposal_references"][0]["proposal_id"],
+                    },
+                )
+            return result
+
+    monkeypatch.setattr(mcp, "authenticate_service", lambda identity: None)
+    install(monkeypatch, CompleteClient())
     tasks.execute_hermes_run(str(run.pk))
     run.refresh_from_db()
     assert run.status == "succeeded"

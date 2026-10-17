@@ -45,8 +45,20 @@ def queue_lane(inputs, lane):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("cost", [200, None, 1])
-@pytest.mark.parametrize("lane", ["synthetic", "owner"])
-def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, cost, lane):
+@pytest.mark.parametrize(
+    ("lane", "operation_mode"),
+    [
+        ("synthetic", "complete"),
+        ("owner", "complete"),
+        ("owner", "none"),
+        ("owner", "eventbrite_only"),
+        ("owner", "iterable_only"),
+        ("owner", "split_proposals"),
+    ],
+)
+def test_worker_http_join_creates_bound_inert_operations(
+    inputs, monkeypatch, cost, lane, operation_mode
+):
     transport = Client()
 
     class BrokerChild(FakeController):
@@ -75,18 +87,28 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
                 assert set(event["event"]) <= set(FACTS)
                 assert "owner_event" not in event["event"]
 
-                proposal = call(
-                    "propose_campaign_drafts",
-                    proposal={
-                        "event_copy": "Synthetic draft",
-                        "invitation": {"subject": "Synthetic invitation", "body": "Draft"},
-                        "reminder": {"subject": "Synthetic reminder", "body": "Draft"},
-                        "social": {"body": "Synthetic social draft"},
-                    },
-                )
-                call("validate_proposal", proposal_id=proposal["proposal_id"])
-                call("request_eventbrite_draft", proposal_id=proposal["proposal_id"])
-                call("request_iterable_drafts", proposal_id=proposal["proposal_id"])
+                def propose(label):
+                    proposal = call(
+                        "propose_campaign_drafts",
+                        proposal={
+                            "event_copy": f"Synthetic draft {label}",
+                            "invitation": {"subject": "Synthetic invitation", "body": "Draft"},
+                            "reminder": {"subject": "Synthetic reminder", "body": "Draft"},
+                            "social": {"body": "Synthetic social draft"},
+                        },
+                    )
+                    call("validate_proposal", proposal_id=proposal["proposal_id"])
+                    return proposal
+
+                proposal = propose("primary")
+                proposals = [proposal]
+                if operation_mode in {"complete", "eventbrite_only", "split_proposals"}:
+                    call("request_eventbrite_draft", proposal_id=proposal["proposal_id"])
+                if operation_mode == "split_proposals":
+                    proposal = propose("secondary")
+                    proposals.append(proposal)
+                if operation_mode in {"complete", "iterable_only", "split_proposals"}:
+                    call("request_iterable_drafts", proposal_id=proposal["proposal_id"])
                 return adapter.map_upstream_result(
                     body,
                     {
@@ -99,6 +121,7 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
                                         "proposal_digest": proposal["proposal_digest"],
                                         "schema_id": tasks.PROPOSAL_SCHEMA_ID,
                                     }
+                                    for proposal in proposals
                                 ]
                             }
                         ),
@@ -136,15 +159,25 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
         run = queue_lane(inputs, lane)
         tasks.execute_hermes_run(str(run.id))
         run.refresh_from_db()
-        if cost == 1:
+        invalid_output = cost == 1 or (lane == "owner" and operation_mode != "complete")
+        if invalid_output:
             assert run.status == "failed" and run.failure_category == "invalid_output"
         else:
             assert run.status == "succeeded", run.failure_category
         operations = DraftOperation.objects.filter(
             proposal__capability__correlation_id=run.hermes_binding.correlation_id,
         )
-        assert operations.count() == 3
-        assert set(operations.values_list("status", flat=True)) == {"pending"}
+        assert (
+            operations.count()
+            == {
+                "none": 0,
+                "eventbrite_only": 1,
+                "iterable_only": 2,
+                "complete": 3,
+                "split_proposals": 3,
+            }[operation_mode]
+        )
+        assert set(operations.values_list("status", flat=True)) <= {"pending"}
         assert not operations.exclude(approval=None, receipt=None).exists()
         assert WorkflowCapability.objects.get(
             correlation_id=run.hermes_binding.correlation_id
@@ -152,14 +185,14 @@ def test_worker_http_join_creates_bound_inert_operations(inputs, monkeypatch, co
         reservation = BudgetReservation.objects.get(run_id=run.id)
         assert reservation.status == "settled"
         assert reservation.settled_cost_microusd == (
-            reservation.reserved_cost_microusd if cost == 1 else 200
+            reservation.reserved_cost_microusd if invalid_output else 200
         )
         assert child.stopped and controller.active is None
         assert transport.events[-1][0] == "revoke"
         assert list(run.events.order_by("sequence").values_list("outcome", flat=True)) == [
             "accepted",
             "started",
-            "invalid_output" if cost == 1 else "accepted",
+            "invalid_output" if invalid_output else "accepted",
         ]
     finally:
         child.release.set()
