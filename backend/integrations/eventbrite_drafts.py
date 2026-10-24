@@ -258,7 +258,6 @@ class EventbriteDraftAdapter:
             raise EventbriteDraftError("identity_mismatch")
         if (
             event.get("status") != "draft"
-            or "published" not in event
             or event.get("published") is not None
             or event.get("is_series") is True
             or event.get("is_series_parent") is True

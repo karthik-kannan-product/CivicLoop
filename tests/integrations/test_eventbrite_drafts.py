@@ -401,12 +401,62 @@ def test_create_requires_complete_minimum(field):
         validate_payload(payload, create=True)
 
 
-def test_missing_publication_field_cannot_prove_unpublished(monkeypatch):
+@pytest.mark.parametrize("omit_from_post", [False, True])
+def test_omitted_publication_field_with_explicit_draft_is_confirmed(monkeypatch, omit_from_post):
+    after = draft(is_series=False, is_series_parent=False)
+    del after["published"]
+    calls = wire(monkeypatch, [after if omit_from_post else draft(), after])
+    receipt = EventbriteDraftAdapter().create(lease(), organization_id="123", payload=CREATE)
+    assert receipt.outcome == "CONFIRMED" and receipt.provider_id == "456"
+    assert receipt.readback_digest == readback_digest(after)
+    assert [call[0] for call in calls] == ["POST", "GET"]
+
+
+def test_omitted_publication_field_reconciles_existing_draft_with_get_only(monkeypatch):
+    after = draft(is_series=False, is_series_parent=False)
+    del after["published"]
+    calls = wire(monkeypatch, [after])
+    receipt = EventbriteDraftAdapter().reconcile(
+        lease(),
+        organization_id="123",
+        event_id="456",
+        payload=CREATE,
+        request_digest=compute_request_digest("create", "123", None, CREATE),
+    )
+    assert receipt.outcome == "CONFIRMED" and receipt.provider_id == "456"
+    assert [call[0] for call in calls] == ["GET"]
+
+
+@pytest.mark.parametrize(
+    "mutation,category",
+    [
+        ({"status": "live"}, "unsafe_provider_state"),
+        ({"status": None}, "unsafe_provider_state"),
+        ({"published": "2026-10-09T12:00:00Z"}, "unsafe_provider_state"),
+        ({"published": False}, "unsafe_provider_state"),
+        ({"id": "789"}, "identity_mismatch"),
+        ({"organization_id": "999"}, "identity_mismatch"),
+        ({"is_series": True}, "unsafe_provider_state"),
+        ({"is_series_parent": True}, "unsafe_provider_state"),
+        ({"series_id": "888"}, "unsafe_provider_state"),
+        ({"summary": "Wrong approved payload"}, "readback_mismatch"),
+        ({"listed": True}, "readback_mismatch"),
+    ],
+)
+def test_omitted_publication_does_not_bypass_other_readback_guards(monkeypatch, mutation, category):
     after = draft()
     del after["published"]
-    wire(monkeypatch, [draft(), after])
-    receipt = EventbriteDraftAdapter().create(lease(), organization_id="123", payload=CREATE)
-    assert receipt.outcome == "UNKNOWN" and receipt.error_category == "unsafe_provider_state"
+    after.update(mutation)
+    calls = wire(monkeypatch, [after])
+    receipt = EventbriteDraftAdapter().reconcile(
+        lease(),
+        organization_id="123",
+        event_id="456",
+        payload=CREATE,
+        request_digest=compute_request_digest("create", "123", None, CREATE),
+    )
+    assert receipt.outcome == "UNKNOWN" and receipt.error_category == category
+    assert [call[0] for call in calls] == ["GET"]
 
 
 def test_update_timeout_retains_known_id_and_closes_lease(monkeypatch):
