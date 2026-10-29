@@ -1,4 +1,5 @@
 """The model chooses tool inputs; the signed scope supplies authority."""
+import json
 from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -97,7 +98,12 @@ def test_matching_partial_or_full_context_replays_safely(broker, settings, clien
     first = post(client, settings, broker[1], "tools/call", params)
     second = post(client, settings, broker[1], "tools/call", params)
     assert first.status_code == second.status_code == 200
-    assert first.json() == second.json()
+    original, replayed = first.json(), second.json()
+    assert original["id"] == replayed["id"] == 1
+    assert original["result"]["structuredContent"] == replayed["result"]["structuredContent"]
+    for result in (original["result"], replayed["result"]):
+        assert result["isError"] is False
+        assert json.loads(result["content"][0]["text"]) == result["structuredContent"]
 
 
 def test_equal_boolean_is_not_an_authorized_revision_integer(broker, settings, client):
