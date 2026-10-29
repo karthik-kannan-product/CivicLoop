@@ -16,10 +16,15 @@ further use, including retries. The signing key is Django's application secret;
 it is never provided to Hermes.
 
 The HTTP caller supplies the distinct service identity in `Authorization: Bearer`
-and the workflow capability in `X-CivicLoop-Capability`. Tool arguments contain
-workflow/revision/actor identifiers, a correlation UUID, a request UUID and an
-idempotency key. All must match the stored authority. The first accepted request
-pins the correlation UUID; changed correlation or changed replay content fails.
+and the workflow capability in `X-CivicLoop-Capability`. Hermes workers bind the
+correlation before execution. For these scopes the HTTP endpoint derives the
+workflow/revision/actor/correlation arguments from the existing capability;
+model-visible schemas omit those fields. Explicitly supplied values must match
+exactly, including their types. Models still supply request UUIDs, idempotency
+keys and tool-specific content. The broker revalidates the full authority under
+lock before execution. Legacy internal callers with an unbound correlation
+still supply every identifier; their first accepted request pins correlation.
+Changed correlation or changed replay content fails.
 Identical retries return the saved result and append a content-free replay audit.
 Pending provider operations also deduplicate across newly issued capabilities
 using actor, workflow, revision, provider, kind, and the exact action digest.
@@ -27,7 +32,9 @@ Proposal and operation-status references must also match the originating
 capability's revision-content digest. A newly issued capability cannot authorize
 old proposal content after an in-place mutation under the same revision PK.
 
-`tools/list` publishes eight exact input schemas. Reads expose bounded event
+`tools/list` with a capability publishes only its allowed tool schemas and
+rejects expired or revoked scopes. Capability-free service bootstrap discovery
+retains the eight full input schemas and grants no execution authority. Reads expose bounded event
 facts and policy metadata. Clarifications and campaign proposals are untrusted
 pending submissions. `validate_proposal` checks structure and explicitly returns
 `execution_authorized: false`; deterministic policy checks and human review are

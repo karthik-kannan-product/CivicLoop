@@ -457,7 +457,7 @@ run_usage = _read_view(_usage_payload)
 def mcp_endpoint(request: HttpRequest) -> JsonResponse:
     """Stateless MCP JSON-RPC; only installed by the dedicated internal URLconf."""
     from agents.capabilities import AuthorizationDenied
-    from agents.mcp import authenticate_service, dispatch_mcp_tool
+    from agents.mcp import authenticate_service, bound_tool_context, dispatch_mcp_tool
     from agents.tool_schemas import (
         MAX_PAYLOAD_BYTES,
         TOOL_SCHEMAS,
@@ -532,20 +532,48 @@ def mcp_endpoint(request: HttpRequest) -> JsonResponse:
         elif method == "tools/list":
             if params:
                 raise InvalidToolArguments()
+            capability = request.headers.get("X-CivicLoop-Capability", "")
+            context, allowed = (
+                bound_tool_context(capability) if capability else (None, TOOL_SCHEMAS.keys())
+            )
+            hidden = set(context or {})
             result = {
                 "tools": [
-                    {"name": name, "description": name.replace("_", " "), "inputSchema": schema}
+                    {
+                        "name": name,
+                        "description": name.replace("_", " "),
+                        "inputSchema": {
+                            **schema,
+                            "properties": {
+                                k: v for k, v in schema["properties"].items() if k not in hidden
+                            },
+                            "required": [k for k in schema["required"] if k not in hidden],
+                        },
+                    }
                     for name, schema in TOOL_SCHEMAS.items()
+                    if name in allowed
                 ]
             }
         elif method == "tools/call":
             if set(params) != {"name", "arguments"}:
                 raise InvalidToolArguments()
+            capability = request.headers.get("X-CivicLoop-Capability", "")
+            context, _ = bound_tool_context(capability)
+            arguments = params["arguments"]
+            if context is not None:
+                if type(arguments) is not dict:
+                    raise InvalidToolArguments()
+                if any(
+                    k in arguments and (type(arguments[k]) is not type(v) or arguments[k] != v)
+                    for k, v in context.items()
+                ):
+                    raise AuthorizationDenied()
+                arguments = context | arguments
             result_body = dispatch_mcp_tool(
                 tool_name=params["name"],
-                arguments=params["arguments"],
+                arguments=arguments,
                 service_identity=identity,
-                capability=request.headers.get("X-CivicLoop-Capability", ""),
+                capability=capability,
             )
             result = {
                 "content": [{"type": "text", "text": json.dumps(result_body)}],

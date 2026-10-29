@@ -13,7 +13,7 @@ from launchloop.models import AuditEvent, Workflow
 from launchloop.owner_events import source_kind
 from observability.runtime import get_runtime
 
-from agents.capabilities import AUDIENCE, AuthorizationDenied, token_digest, verify_token
+from agents.capabilities import AUDIENCE, TOOLS, AuthorizationDenied, token_digest, verify_token
 from agents.models import DraftOperation, MCPInvocation, MCPSubmission, WorkflowCapability
 from agents.telemetry import mcp_trace_binding
 from agents.tool_schemas import (
@@ -38,6 +38,48 @@ def authenticate_service(service_identity: str) -> None:
 
 def digest(value):
     return hashlib.sha256(bounded_json(value).encode()).hexdigest()
+
+
+def bound_tool_context(token):
+    """Resolve model-independent arguments; dispatch still revalidates under lock."""
+    if not isinstance(token, str) or len(token) > 160:
+        raise AuthorizationDenied()
+    verify_token(token)
+    record = (
+        WorkflowCapability.objects.select_related("actor__user", "workflow__revision")
+        .filter(token_digest=token_digest(token))
+        .first()
+    )
+    now = timezone.now()
+    if (
+        record is None
+        or record.audience != AUDIENCE
+        or record.revoked_at is not None
+        or not record.issued_at <= now < record.expires_at
+        or not 0 < (record.expires_at - record.issued_at).total_seconds() <= 300
+        or not record.tools
+        or not set(record.tools) <= TOOLS
+        or record.actor.role != "operator"
+        or record.actor.user is None
+        or not record.actor.user.is_active
+    ):
+        raise AuthorizationDenied()
+    workflow = record.workflow
+    if (
+        workflow.revision_id != record.revision_id
+        or digest(workflow.revision.snapshot) != record.revision_digest
+        or workflow.event_id != workflow.revision.event_id
+    ):
+        raise AuthorizationDenied()
+    # Legacy internal callers bind correlation on their first fully scoped call.
+    # Hermes workers bind it before execution, so models never choose authority.
+    context = None if record.correlation_id is None else {
+        "workflow_id": str(record.workflow_id),
+        "revision_id": record.revision_id,
+        "actor_id": record.actor_id,
+        "correlation_id": str(record.correlation_id),
+    }
+    return context, frozenset(record.tools)
 
 
 def _audit(record, action, tool, arguments):
