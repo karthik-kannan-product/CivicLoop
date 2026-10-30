@@ -43,7 +43,7 @@ def test_bound_model_schema_does_not_ask_model_to_copy_authority(broker, setting
         schema = tool["inputSchema"]
         assert not BOUND_FIELDS & set(schema["properties"])
         assert not BOUND_FIELDS & set(schema["required"])
-        assert {"request_id", "idempotency_key"} <= set(schema["required"])
+        assert not {"request_id", "idempotency_key"} & set(schema["properties"])
         assert schema["additionalProperties"] is False
 
 
@@ -114,11 +114,16 @@ def test_equal_boolean_is_not_an_authorized_revision_integer(broker, settings, c
 
 
 @pytest.mark.parametrize("change", ["revocation", "expiry", "correlation"])
-def test_broker_rechecks_authority_after_context_resolution(broker, settings, client, change):
+@pytest.mark.parametrize("managed", [False, True])
+def test_broker_rechecks_authority_after_context_resolution(
+    broker, settings, client, change, managed,
+):
     from agents.mcp import bound_tool_context
 
     record = bound_scope(broker)
     args = {k: v for k, v in broker[2].items() if k not in BOUND_FIELDS}
+    if managed:
+        args = {k: v for k, v in args.items() if k not in {"request_id", "idempotency_key"}}
 
     def resolve_then_change(token):
         context = bound_tool_context(token)
