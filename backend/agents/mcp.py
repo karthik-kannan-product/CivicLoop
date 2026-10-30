@@ -23,6 +23,22 @@ from agents.tool_schemas import (
 )
 
 
+class _BrokerDenial(AuthorizationDenied):
+    """Internal closed diagnostics; the caller still receives the generic error."""
+
+    STAGES = frozenset({
+        "service_identity", "capability_scope", "revision_scope",
+        "invocation_replay_conflict", "proposal_unavailable",
+        "proposal_integrity", "operation_unavailable",
+    })
+
+    def __init__(self, stage):
+        super().__init__()
+        self.stage = (
+            stage if type(stage) is str and stage in self.STAGES else "authorization_failed"
+        )
+
+
 def authenticate_service(service_identity: str) -> None:
     try:
         path = Path(settings.CIVICLOOP_MCP_TOKEN_FILE)
@@ -33,7 +49,7 @@ def authenticate_service(service_identity: str) -> None:
     except AttributeError, OSError, TypeError, ValueError:
         valid = False
     if not valid:
-        raise AuthorizationDenied()
+        raise _BrokerDenial("service_identity")
 
 
 def digest(value):
@@ -107,13 +123,19 @@ def dispatch_mcp_tool(
         verify_token(capability)
         encoded = validate_tool_arguments(tool_name, arguments)
         return _dispatch(tool_name, arguments, capability, encoded)
-    except AuthorizationDenied:
+    except AuthorizationDenied as error:
         # Persist outside the failed transaction; never retain untrusted identifiers or credentials.
         AuditEvent.objects.create(
             action="mcp.tool_denied",
             target_type="mcp",
             target_id="broker",
-            details={"reason": "authorization_failed"},
+            details={
+                "reason": "authorization_failed",
+                "stage": (
+                    error.stage if isinstance(error, _BrokerDenial) else "authorization_failed"
+                ),
+                "tool": tool_name if type(tool_name) is str and tool_name in TOOLS else "unknown",
+            },
         )
         raise
     except InvalidToolArguments:
@@ -149,7 +171,7 @@ def _dispatch(tool, arguments, token, encoded):
         or record.actor.user is None
         or not record.actor.user.is_active
     ):
-        raise AuthorizationDenied()
+        raise _BrokerDenial("capability_scope")
     workflow = (
         Workflow.objects.select_for_update().select_related("revision").get(pk=record.workflow_id)
     )
@@ -162,7 +184,7 @@ def _dispatch(tool, arguments, token, encoded):
             and str(record.correlation_id) != arguments["correlation_id"]
         )
     ):
-        raise AuthorizationDenied()
+        raise _BrokerDenial("revision_scope")
     if record.correlation_id is None:
         record.correlation_id = UUID(arguments["correlation_id"])
         record.save(update_fields=["correlation_id"])
@@ -200,7 +222,7 @@ def _invoke(tool, arguments, record, workflow, encoded):
             or existing.argument_digest != argument_digest
             or existing.idempotency_digest != idem
         ):
-            raise AuthorizationDenied()
+            raise _BrokerDenial("invocation_replay_conflict")
         _audit(record, "mcp.tool_replayed", tool, arguments)
         return existing.result
     result = _execute(tool, arguments, record, workflow)
@@ -228,10 +250,10 @@ def _proposal(arguments, record):
         capability__actor_id=record.actor_id,
     ).first()
     if proposal is None:
-        raise AuthorizationDenied()
+        raise _BrokerDenial("proposal_unavailable")
     bounded_json(proposal.content)
     if proposal.digest != digest(proposal.content):
-        raise AuthorizationDenied()
+        raise _BrokerDenial("proposal_integrity")
     return proposal
 
 
@@ -318,7 +340,7 @@ def _execute(tool, arguments, record, workflow):
             proposal__capability__revision_digest=record.revision_digest,
         ).first()
         if operation is None:
-            raise AuthorizationDenied()
+            raise _BrokerDenial("operation_unavailable")
         return _operation_payload(operation)
     proposal = _proposal(arguments, record)
     if tool == "validate_proposal":

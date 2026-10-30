@@ -51,6 +51,12 @@ tokens or headers. Tool spans use a fixed name, allowlisted stage/outcome, and
 disable automatic exception recording. Proposal bodies live in the application
 database only, not audit logs or production traces.
 
+Denied broker calls record only a closed diagnostic stage and an allowlisted
+tool name alongside the existing generic failure reason. This distinguishes
+capability or revision mismatch, replay conflicts, and unavailable or corrupt
+proposals without retaining arguments, caller identifiers, or credentials.
+Client responses remain generic and all authorization conditions are unchanged.
+
 The Hermes startup loader reads the separate identity file mounted as
 `/run/secrets/civicloop-mcp-token`; its host path uses the existing
 `CIVICLOOP_HERMES_MCP_TOKEN_FILE` setting. The value must be distinct from the
