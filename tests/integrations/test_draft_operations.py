@@ -554,6 +554,39 @@ def template_approve(accepted):
     )
 
 
+def test_legacy_template_remains_readable_but_cannot_be_approved(iterable_accepted):
+    from django.db import transaction
+    from integrations import iterable_templates
+    from integrations.models import TemplateExecution
+
+    legacy = iterable_templates.author_payload(
+        iterable_accepted[4],
+        {
+            "fromEmail": "sender@example.test", "fromName": "Sender",
+            "replyToEmail": "reply@example.test", "messageTypeId": 7,
+        },
+        version=1,
+    )
+    # Construct a historical row directly, never rewrite an existing immutable review.
+    with transaction.atomic():
+        operation = service._new_iterable_operation(
+            model=TemplateExecution, user=iterable_accepted[1].user,
+            intent_id=iterable_accepted[4].pk, run_id=iterable_accepted[3].pk,
+            payload=legacy, configuration={"region": "us"},
+        )
+    service.validate_execution(operation, require_live_approval=False)
+    with pytest.raises(PermissionDenied, match="marketing footer"):
+        service.approve_template(
+            user=iterable_accepted[1].user,
+            administrator_session_id=owner_session(iterable_accepted).pk,
+            operation_id=operation.pk,
+            review_digest=operation.review_digest,
+            revision_id=iterable_accepted[0].revision_id,
+        )
+    operation.refresh_from_db()
+    assert operation.status == "pending" and operation.claimed_at is None
+
+
 class IterableStore:
     @contextmanager
     def lease(self, reference, **kwargs):

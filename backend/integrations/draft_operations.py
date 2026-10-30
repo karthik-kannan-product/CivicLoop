@@ -134,6 +134,12 @@ def validate_execution(operation, *, require_live_approval=True):
     try:
         if operation.intent.provider == "iterable":
             request, review = _iterable_review(operation)
+            if (
+                require_live_approval
+                and isinstance(operation, TemplateExecution)
+                and iterable_templates.payload_version(operation.payload) != 2
+            ):
+                raise PermissionDenied("Prepare a new reviewed template with its marketing footer.")
         else:
             if operation.provider_configuration:
                 raise PermissionDenied("Unexpected provider configuration.")
@@ -473,6 +479,7 @@ def _iterable_review(operation):
                 key: payload[key]
                 for key in ("fromEmail", "fromName", "replyToEmail", "messageTypeId")
             },
+            version=iterable_templates.payload_version(payload),
         )
         if payload != expected:
             raise PermissionDenied("Template content must match the accepted Hermes proposal.")
