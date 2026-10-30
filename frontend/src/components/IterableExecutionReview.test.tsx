@@ -6,10 +6,28 @@ import { IterableExecutionReview } from "./IterableExecutionReview";
 
 vi.mock("../iterableDraftApi", () => ({ approveIterable: vi.fn(), executeIterable: vi.fn(), prepareIterable: vi.fn(), reconcileIterable: vi.fn(), submitCampaign: vi.fn(), submitTemplate: vi.fn() }));
 const template: TemplateExecution = { operation_id: "template", intent_id: "intent", run_id: "run", revision_id: 7, review_digest: "a".repeat(64), request_digest: "b".repeat(64), status: "pending", provider_id: null, receipt: null, step: "template", provider_configuration: { region: "eu" },
-  payload: { fromEmail: "sender@example.test", fromName: "Owner sender", replyToEmail: "reply@example.test", messageTypeId: 7, clientTemplateId: "civicloop-intent", name: "Hermes invitation", subject: "Join us", plainText: "<script>unsafe</script> invitation", html: "escaped" } };
+  payload: { fromEmail: "sender@example.test", fromName: "Owner sender", replyToEmail: "reply@example.test", messageTypeId: 7, clientTemplateId: "civicloop-intent", name: "Hermes invitation", subject: "Join us", plainText: "<script>unsafe</script> invitation", html: "escaped", cacheDataFeed: false } };
 const campaign: CampaignExecution = { ...template, operation_id: "campaign", step: "campaign", provider_configuration: { region: "eu", expected_template_digest: "c".repeat(64) }, payload: { name: "Invitation", templateId: 44, listIds: [9], suppressionListIds: [10], scheduleSend: false } };
 const review: IterablePreparation = { revision_id: 7, kind: "invitation", subject: "Join us", body: template.payload.plainText, template_execution: template, campaign_execution: null };
 async function flush() { await act(async () => { await Promise.resolve(); }); }
+
+test("exact HTML is escaped in review and legacy templates cannot be dispatched", async () => {
+  vi.mocked(prepareIterable).mockResolvedValue(review);
+  const view = render(<IterableExecutionReview runId="run" intentId="intent" revisionId={7} />);
+  await flush();
+  expect(screen.getByText(template.payload.html)).toBeInTheDocument();
+  expect(screen.getByText("Disabled")).toBeInTheDocument();
+  view.unmount();
+  const legacy = { ...template, payload: { ...template.payload } };
+  delete legacy.payload.cacheDataFeed;
+  vi.mocked(prepareIterable).mockResolvedValue({ ...review, template_execution: legacy });
+  render(<IterableExecutionReview runId="run" intentId="intent" revisionId={7} />);
+  await flush();
+  expect(screen.getByText(/legacy template request is read only/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Approve this exact template request" })).not.toBeInTheDocument();
+  expect(approveIterable).not.toHaveBeenCalled();
+  expect(executeIterable).not.toHaveBeenCalled();
+});
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(prepareIterable).mockResolvedValue(review); });
 afterEach(cleanup);
 

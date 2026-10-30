@@ -4,7 +4,7 @@ type Status = "pending" | "approved" | "executing" | "unknown" | "succeeded" | "
 type Base = { operation_id: string; intent_id: string; run_id: string; revision_id: number; review_digest: string; request_digest: string; status: Status;
   provider_id: string | null; receipt: { outcome: "CONFIRMED" | "UNKNOWN"; provider_status: string | null; readback_digest: string | null } | null };
 export type Sender = { fromEmail: string; fromName: string; replyToEmail: string; messageTypeId: number };
-export type TemplateExecution = Base & { step: "template"; provider_configuration: { region: "us" | "eu" }; payload: Sender & { clientTemplateId: string; name: string; subject: string; plainText: string; html: string } };
+export type TemplateExecution = Base & { step: "template"; provider_configuration: { region: "us" | "eu" }; payload: Sender & { clientTemplateId: string; name: string; subject: string; plainText: string; html: string; cacheDataFeed?: false } };
 export type CampaignExecution = Base & { step: "campaign"; provider_configuration: { region: "us" | "eu"; expected_template_digest: string }; payload: { name: string; templateId: number; listIds: number[]; suppressionListIds: number[]; scheduleSend: false } };
 export type IterableExecution = TemplateExecution | CampaignExecution;
 export type IterablePreparation = { revision_id: number; kind: "invitation" | "reminder"; subject: string; body: string; template_execution: TemplateExecution | null; campaign_execution: CampaignExecution | null };

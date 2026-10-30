@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 from integrations.iterable_drafts import IterableDraftError, template_content_digest
 from integrations.iterable_templates import (
+    MARKETING_FOOTER,
     IterableTemplateAdapter,
     author_payload,
     compute_request_digest,
@@ -59,7 +60,7 @@ class Provider(IterableTemplateAdapter):
 
 def test_content_is_authored_and_escaped_then_confirmed():
     value = payload()
-    assert value["html"] == "<p>A &lt;script&gt; &amp; B<br>\nWelcome</p>"
+    assert value["html"] == "<p>A &lt;script&gt; &amp; B<br>\nWelcome</p>" + MARKETING_FOOTER
     provider = Provider()
     receipt = provider.create(lease(), payload=value, region="eu")
     assert receipt.outcome == "CONFIRMED"
@@ -179,3 +180,43 @@ def test_transport_exact_payload_and_redaction(monkeypatch):
 def test_message_type_id_matches_official_int32_schema(invalid):
     with pytest.raises(IterableDraftError):
         validate_template_payload({**payload(), "messageTypeId": invalid})
+
+
+def test_new_marketing_request_has_fixed_footer_and_disables_feed_cache():
+    value = payload()
+    assert value["cacheDataFeed"] is False
+    assert value["html"].endswith(
+        '\n<p><a href="{{unsubscribeUrl}}">Unsubscribe</a><br>{{physicalAddress}}</p>'
+    )
+    assert "{{" not in value["plainText"]
+
+
+@pytest.mark.parametrize("change", ["remove_footer", "other_expression", "feed_cache"])
+def test_fixed_footer_cannot_be_changed_by_model_content(change):
+    value = payload()
+    if change == "remove_footer":
+        value["html"] = value["html"].split('\n<p><a href=')[0]
+    elif change == "other_expression":
+        value["html"] += "{{user.email}}"
+    else:
+        value["cacheDataFeed"] = True
+    with pytest.raises(IterableDraftError):
+        validate_template_payload(value)
+
+
+def test_legacy_request_can_reconcile_but_cannot_create_again():
+    value = payload()
+    value.pop("cacheDataFeed", None)
+    value["html"] = "<p>A &lt;script&gt; &amp; B<br>\nWelcome</p>"
+    provider = Provider()
+    provider.content = copy.deepcopy(value)
+    provider.entries = [{"templateId": 44}]
+    receipt = provider.reconcile(
+        lease(), payload=value, request_digest=compute_request_digest("us", value)
+    )
+    assert receipt.outcome == "CONFIRMED"
+    assert all(method == "GET" for method, _ in provider.calls)
+    fresh = Provider()
+    with pytest.raises(IterableDraftError):
+        fresh.create(lease(), payload=value)
+    assert fresh.calls == []

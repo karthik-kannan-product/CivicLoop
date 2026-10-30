@@ -28,7 +28,7 @@ from integrations.iterable_drafts import (
     template_content_digest,
 )
 
-FIELDS = {
+LEGACY_FIELDS = {
     "clientTemplateId",
     "name",
     "fromEmail",
@@ -39,15 +39,27 @@ FIELDS = {
     "plainText",
     "messageTypeId",
 }
+FIELDS = LEGACY_FIELDS | {"cacheDataFeed"}
+MARKETING_FOOTER = (
+    '\n<p><a href="{{unsubscribeUrl}}">Unsubscribe</a><br>{{physicalAddress}}</p>'
+)
+
+
+def payload_version(payload):
+    if type(payload) is dict:
+        if set(payload) == LEGACY_FIELDS:
+            return 1
+        if set(payload) == FIELDS and payload["cacheDataFeed"] is False:
+            return 2
+    raise IterableDraftError("invalid_request")
 
 
 def validate_template_payload(payload):
-    if type(payload) is not dict or set(payload) != FIELDS:
-        raise IterableDraftError("invalid_request")
+    version = payload_version(payload)
     if _identifier(payload["messageTypeId"]) > 2**31 - 1:
         raise IterableDraftError("invalid_request")
     for key, value in payload.items():
-        if key == "messageTypeId":
+        if key in {"messageTypeId", "cacheDataFeed"}:
             continue
         if (
             not isinstance(value, str)
@@ -75,7 +87,10 @@ def validate_template_payload(payload):
         for mark in ("{{", "}}", "[[", "]]")
     ):
         raise IterableDraftError("invalid_request")
-    if payload["html"] != plain_html(payload["plainText"]):
+    expected_html = plain_html(payload["plainText"])
+    if version == 2:
+        expected_html += MARKETING_FOOTER
+    if payload["html"] != expected_html:
         raise IterableDraftError("invalid_request")
     if len(json.dumps(payload).encode()) > 65536:
         raise IterableDraftError("invalid_request")
@@ -86,7 +101,9 @@ def plain_html(body):
     return "<p>" + html.escape(body, quote=True).replace("\n", "<br>\n") + "</p>"
 
 
-def author_payload(intent, sender):
+def author_payload(intent, sender, *, version=2):
+    if type(version) is not int or version not in {1, 2}:
+        raise IterableDraftError("invalid_request")
     if type(sender) is not dict or set(sender) != {
         "fromEmail",
         "fromName",
@@ -108,7 +125,8 @@ def author_payload(intent, sender):
             **sender,
             "subject": content["subject"],
             "plainText": content["body"],
-            "html": plain_html(content["body"]),
+            "html": plain_html(content["body"]) + (MARKETING_FOOTER if version == 2 else ""),
+            **({"cacheDataFeed": False} if version == 2 else {}),
         }
     )
 
@@ -144,6 +162,8 @@ class IterableTemplateAdapter:
             raise IterableDraftError("invalid_request")
         if method == "POST":
             payload = validate_template_payload(payload)
+            if payload_version(payload) != 2:
+                raise IterableDraftError("invalid_request")
         elif payload is not None:
             raise IterableDraftError("invalid_request")
         headers = {"Api-Key": token, "Content-Type": "application/json"}
@@ -249,6 +269,8 @@ class IterableTemplateAdapter:
 
     def create(self, credential, *, payload, region="us"):
         payload = validate_template_payload(payload)
+        if payload_version(payload) != 2:
+            raise IterableDraftError("invalid_request")
         digest = compute_request_digest(region, payload)
 
         def execute(token):
