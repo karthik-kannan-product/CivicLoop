@@ -457,7 +457,12 @@ run_usage = _read_view(_usage_payload)
 def mcp_endpoint(request: HttpRequest) -> JsonResponse:
     """Stateless MCP JSON-RPC; only installed by the dedicated internal URLconf."""
     from agents.capabilities import AuthorizationDenied
-    from agents.mcp import authenticate_service, bound_tool_context, dispatch_mcp_tool
+    from agents.mcp import (
+        authenticate_service,
+        bind_call_metadata,
+        bound_tool_context,
+        dispatch_mcp_tool,
+    )
     from agents.tool_schemas import (
         MAX_PAYLOAD_BYTES,
         TOOL_SCHEMAS,
@@ -537,6 +542,8 @@ def mcp_endpoint(request: HttpRequest) -> JsonResponse:
                 bound_tool_context(capability) if capability else (None, TOOL_SCHEMAS.keys())
             )
             hidden = set(context or {})
+            if context is not None:
+                hidden.update({"request_id", "idempotency_key"})
             result = {
                 "tools": [
                     {
@@ -569,6 +576,7 @@ def mcp_endpoint(request: HttpRequest) -> JsonResponse:
                 ):
                     raise AuthorizationDenied()
                 arguments = context | arguments
+                arguments = bind_call_metadata(capability, params["name"], arguments)
             result_body = dispatch_mcp_tool(
                 tool_name=params["name"],
                 arguments=arguments,

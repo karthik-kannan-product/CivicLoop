@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 from pathlib import Path
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.db import transaction
@@ -54,6 +54,19 @@ def authenticate_service(service_identity: str) -> None:
 
 def digest(value):
     return hashlib.sha256(bounded_json(value).encode()).hexdigest()
+
+
+def bind_call_metadata(capability, tool, arguments):
+    """Give bound model calls stable, capability-scoped retry identifiers."""
+    if "request_id" in arguments or "idempotency_key" in arguments:
+        # Existing fully scoped clients keep the original conflict checks;
+        # partial metadata remains invalid under the complete tool schema.
+        return arguments
+    key = digest([token_digest(capability), tool, arguments])
+    return arguments | {
+        "request_id": str(uuid5(NAMESPACE_URL, "urn:civicloop:mcp-call:" + key)),
+        "idempotency_key": key,
+    }
 
 
 def bound_tool_context(token):
