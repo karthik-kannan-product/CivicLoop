@@ -1,4 +1,5 @@
 """The model supplies content; the server supplies scoped retry identifiers."""
+import json
 from uuid import uuid4
 
 import pytest
@@ -13,13 +14,24 @@ bound_scope = bound_tests.bound_scope
 pytestmark = pytest.mark.django_db
 
 
+def result(response):
+    payload = response.json()
+    assert payload["jsonrpc"] == "2.0" and payload["id"] == 1
+    value = payload["result"]
+    assert value["isError"] is False
+    assert len(value["content"]) == 1 and value["content"][0]["type"] == "text"
+    assert json.loads(value["content"][0]["text"]) == value["structuredContent"]
+    return value["structuredContent"]
+
+
 def test_read_tools_without_retry_fields_are_distinct_and_replay_safely(broker, settings, client):
     bound_scope(broker)
     responses = [post(client, settings, broker[1], "tools/call", {
         "name": tool, "arguments": {},
     }) for tool in ("get_event_revision", "get_policy_context", "get_event_revision")]
     assert [r.status_code for r in responses] == [200, 200, 200]
-    assert responses[0].json() == responses[2].json()
+    values = [result(response) for response in responses]
+    assert values[0] == values[2]
     assert MCPInvocation.objects.count() == 2
 
 
@@ -34,8 +46,9 @@ def test_content_changes_create_distinct_calls_but_key_order_does_not(broker, se
         "name": "request_clarification", "arguments": {"questions": [value]},
     }) for value in values]
     assert [r.status_code for r in results] == [200, 200, 200]
-    assert results[0].json() == results[1].json()
-    assert results[0].json() != results[2].json()
+    values = [result(response) for response in results]
+    assert values[0] == values[1]
+    assert values[0] != values[2]
     assert MCPSubmission.objects.count() == MCPInvocation.objects.count() == 2
 
 
