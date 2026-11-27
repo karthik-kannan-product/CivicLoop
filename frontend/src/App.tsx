@@ -111,6 +111,7 @@ function Workspace({ sessionUser, onLogout }: { sessionUser?: SessionUser; onLog
             key={`${workflowId}:${state.event.revision.id}`}
             workflowId={workflowId}
             revisionId={state.event.revision.id}
+            resumeRunId={state.hermes_run_id}
             authorized
             enabled={sessionUser.hermes_enabled === true}
             ready={["ready_for_review", "in_review"].includes(state.workflow.status)

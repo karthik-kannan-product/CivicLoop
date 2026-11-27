@@ -2,7 +2,7 @@
 
 **Status:** Approved target architecture; implementation in progress  
 **Decision date:** 2026-07-30  
-**Last reconciled with the repository:** 2026-09-13
+**Last reconciled with the repository:** 2026-11-27
 **License:** MIT  
 **First workflow:** LaunchLoop  
 **Deployment model:** One nonprofit organization per deployment
@@ -38,7 +38,7 @@ Where those differ, the current-state sections are authoritative about the code 
 - Operator and approver responsibilities are separate, with no self-approval by default.
 - Hermes is the intended default agent provider behind a stable adapter, not a dependency of the workflow domain.
 - CivicLoop remains operational when Hermes or Phoenix is unavailable.
-- LaunchLoop begins with sandbox connectors rather than live Eventbrite, Iterable, or social credentials.
+- LaunchLoop offers synthetic sandbox connectors and a separate owner-operated draft pilot with Eventbrite and Iterable.
 - Docker Compose is the current deployment baseline; Kubernetes and Helm remain v1 distribution targets.
 - CivicLoop core and reusable loops remain MIT licensed.
 - Open-source, self-hostable components are preferred; proprietary SaaS is not required.
@@ -46,37 +46,31 @@ Where those differ, the current-state sections are authoritative about the code 
 
 ## 4. Current Implementation Snapshot
 
-As of 2026-09-13, the repository contains a deployed deterministic LaunchLoop
-vertical slice, its production runtime, a single-owner administrator security
-surface, and write-only integration administration.
+The production pilot verified real draft preparation on October 30, 2026.
+The public browser demo and authenticated synthetic workspace use sample data.
+The owner workspace uses MFA and explicit approval of exact provider drafts.
 
 | Area | Implemented now | V1 target not yet implemented |
 | --- | --- | --- |
 | User experience | React mission-control workspace, manual event initiation, explicit zero/one/many Eventbrite selection states, event brief, three visible lanes, review package, safe advisory trace/evaluation/usage status, approval panel, receipt, timeline, owner security console, and integration console | General event management, Focus mode, decision queue, operational metrics, and full accessibility verification |
 | Authentication | Django sessions and CSRF; two seeded synthetic operator/approver accounts; separately feature-gated single-owner administrator with password, TOTP, recovery codes, session controls, fresh verification, throttling, and append-only security events | Invitations and named production operator/approver identities, password reset, broader permission lifecycle, and removal of synthetic identities from real pilot use |
-| Workflow | Durable event revisions, workflow transitions, deterministic package generation, missing-input remediation, submission, approval/rejection, and completion | Durable task orchestration, agent runs and steps, retries, cancellation, leases, outbox, and live activity streaming |
-| Safety | Server-enforced roles, self-approval prohibition, exact package hash check, deterministic audience and sponsor validation, no external action | Named permission model, policy versioning, capability tokens, emergency override controls, redaction framework, and kill switch |
-| Integrations | Encrypted PostgreSQL-backed `SecretStore`; owner-only connection lifecycle; bounded, paginated, read-only Eventbrite organization/event metadata refresh; revision-aware local snapshots and provenance; persisted `sandbox_iterable` receipt with zero external actions | Webhook refresh, external reconciliation, and separately approval-gated publish/send operations |
-| Agents and evaluation | Deterministic Python package engine; 15-event scenario corpus; 16 executable cases; 100 labeled examples; immutable model/routing profiles; transactional run/month budgets; fixed schema-bound OpenAI judge for explicitly synthetic packages; durable run, step, and advisory evaluation records; safe owner/reviewer read APIs | Hermes adapter, bounded specialist tasks, general schema validation/repair, and concurrency semaphore |
+| Workflow | Durable revisions, deterministic package generation, approval and completion, bounded Hermes runs with cancellation, and readback of the current revision's run in the owner workspace | Broader task orchestration, outbox, and live activity streaming |
+| Safety | Server-enforced roles, separate synthetic operator and approver, exact draft approval, scoped capabilities, immutable bindings, and provider receipts | Broader permission lifecycle and organization-level delegation |
+| Integrations | Encrypted `SecretStore`, bounded Eventbrite draft readback, and owner-approved creation of unpublished Eventbrite drafts, Iterable templates, and unscheduled Iterable campaigns | Webhook refresh, provider reconciliation, and publishing, scheduling, or sending |
+| Agents and evaluation | Deterministic package engine, 16 executable cases, 100 labeled examples, bounded Hermes proposal generation, immutable model profiles, run and monthly budgets, and an advisory OpenAI judge for synthetic packages | Additional specialist workflows and expanded evaluation coverage |
 | Data | PostgreSQL workflow, administrator-security, encrypted-secret, integration-health, model/routing policy, budget ledger, agent run/step, evaluation, and audit records; browser-local state for GitHub Pages | Organization, outbox, operational metrics, and retention enforcement |
-| Runtime | Production Vultr deployment with feature-gated OpenTelemetry/OpenInference tracing, bounded redaction/export, and an active version-pinned authenticated Phoenix Compose profile with separate storage and 14-day retention | Real background workflow tasks, Hermes/LiteLLM, and broader operational metrics |
+| Runtime | Production Vultr deployment with PostgreSQL, Valkey, Celery, scoped Hermes and LiteLLM services for the owner pilot, and an optional authenticated Phoenix profile | Broader operational metrics |
 | Delivery | Python 3.14 application/build runtime; GitHub Actions verification; protected approval-gated GitHub-to-Vultr deployment; dynamic temporary SSH firewall access; GitHub Pages; pinned release state; tested backup/restore and rollback guard | Signed multi-architecture releases, SBOM and image scanning, Helm chart, Kubernetes tests, and semantic release automation |
 
-The Celery worker and scheduler are foundation process modes today. The only
-Celery task is a smoke-test `ping`; the interactive LaunchLoop path executes
-synchronously in Django. Integration capability labels declare the approved
-future boundary, but current provider adapters only test credentials with
-harmless reads. Likewise, `AGENT_MAX_CONCURRENCY` is parsed and capped at three,
-but no agent runtime or cross-process semaphore is connected. OpenTelemetry and
-OpenInference now trace the deterministic LaunchLoop path. Phoenix is packaged
-as an optional, authenticated service and remains outside business readiness;
-Hermes and LiteLLM are not yet runtime services. The synchronous evaluation
-judge is fixed, budgeted, single-attempt, advisory-only, and refuses live or
-manually entered event packages.
+The deterministic LaunchLoop path runs synchronously in Django. Celery handles
+bounded Hermes runs through a scoped adapter and model gateway. Hermes proposes
+drafts through restricted tools. The application enforces provider authorization
+and executes approved drafts. The fixed evaluation judge uses synthetic packages.
 
 ## 5. System Context
 
-CivicLoop currently has two deliberately different demo modes.
+CivicLoop offers a browser-local demo, an authenticated synthetic workspace,
+and a protected owner pilot within the self-hosted application.
 
 ```mermaid
 flowchart TB
@@ -135,7 +129,7 @@ PostgreSQL remains the only required durable backup. A future transactional outb
 | Packaging | Docker multi-stage image, Compose | Reproducible web/worker/scheduler runtime |
 | Python tooling | uv, pytest, Ruff, mypy | Locked dependencies, tests, linting, and type checks |
 | Frontend testing | Vitest and Testing Library | Component and browser-like interaction checks |
-| Agent runtime target | Hermes behind an adapter | Provider-flexible bounded reasoning; not integrated yet |
+| Agent runtime | Hermes behind a scoped adapter and LiteLLM gateway | Bounded owner-pilot proposal generation |
 | Telemetry | OpenTelemetry/OpenInference and optional Phoenix | Redacted vendor-neutral tracing, W3C propagation, and optional agent-run inspection |
 | Kubernetes target | Helm | Future production packaging; not present yet |
 

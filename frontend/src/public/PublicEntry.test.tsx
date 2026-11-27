@@ -55,7 +55,7 @@ test("renders a useful not-found page for unknown public paths", () => {
   );
 });
 
-test("homepage offers contact, sandbox, and transparent development paths", () => {
+test("homepage offers contact, a browser demo, and transparent development paths", () => {
   renderPublicEntry("/");
 
   for (const link of screen.getAllByRole("link", { name: "Book a conversation" })) {
@@ -64,9 +64,9 @@ test("homepage offers contact, sandbox, and transparent development paths", () =
       "https://calendar.proton.me/bookings#KkKDMGq1h4GQZfzYq7jvGNFicfShuijjIRF3Wtg8ods=",
     );
   }
-  expect(screen.getByRole("link", { name: "Explore the sandbox" })).toHaveAttribute(
+  expect(screen.getByRole("link", { name: "Try the browser demo" })).toHaveAttribute(
     "href",
-    "/sandbox",
+    "https://karthik-kannan-product.github.io/CivicLoop/",
   );
   expect(
     screen.getByRole("link", { name: "Follow the development on GitHub" }),
@@ -79,13 +79,13 @@ test("homepage offers contact, sandbox, and transparent development paths", () =
     "https://github.com/karthik-kannan-product/CivicLoop/blob/main/docs/2026-07-30-civicloop-v1-architecture-design.md",
   );
   expect(screen.getByText("Live")).toBeInTheDocument();
-  expect(screen.getByText("In development")).toBeInTheDocument();
+  expect(screen.getByText("Owner pilot")).toBeInTheDocument();
   expect(screen.getByText("Planned")).toBeInTheDocument();
   expect(
-    screen.getByText(/Evaluation stays synthetic-only/),
+    screen.getByText(/Sandbox evaluation uses synthetic data/),
   ).toBeInTheDocument();
   expect(
-    screen.getByText(/Publishing, sending, scheduling, ticket-economics changes/),
+    screen.getByText(/Publishing, sending, scheduling, and recipient imports/),
   ).toBeInTheDocument();
 });
 

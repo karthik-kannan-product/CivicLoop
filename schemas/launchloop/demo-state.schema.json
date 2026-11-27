@@ -10,6 +10,7 @@
     "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
     "event": { "$ref": "#/$defs/event" },
     "workflow": { "$ref": "#/$defs/workflow" },
+    "hermes_run_id": { "type": "string", "format": "uuid", "description": "Latest Hermes run bound to the current package and full owner identity, when available." },
     "approval": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/approval" }] },
     "execution": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/execution" }] },
     "evaluation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/evaluation" }] },

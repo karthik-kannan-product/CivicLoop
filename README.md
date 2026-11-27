@@ -1,6 +1,6 @@
 # CivicLoop
 
-Open-source agentic workflow loops for nonprofit operations.
+Open-source, human-approved AI workflows for nonprofit operations.
 
 CivicLoop is a public library of small, forkable agentic loops that nonprofit teams, technology volunteers, and implementation partners can adapt inside their own organizations. The project starts with **LaunchLoop**, a human-approved event campaign launch loop for small nonprofits.
 
@@ -13,10 +13,15 @@ The long-term CivicLoop vision is broader: reusable loops for membership lifecyc
 - **Login gateway:** https://civicloop.karthikkannan.ca/login
 - **Browser-local fallback:** https://karthik-kannan-product.github.io/CivicLoop/
 
-The self-hosted sandbox is the canonical demonstration. It uses synthetic
-operator and approver identities with durable PostgreSQL workflow, revision,
-approval, audit, evaluation, and sandbox-receipt records. GitHub Pages remains
-a safe browser-local fallback and does not expose server accounts.
+The self-hosted sandbox uses synthetic operator and approver identities with
+durable workflow, revision, approval, audit, evaluation, and sandbox-receipt
+records. The GitHub Pages demo runs locally in the browser with sample data.
+
+The owner-operated production pilot verified Hermes proposal generation,
+Eventbrite draft readback, and owner-approved Iterable email templates and
+unscheduled campaigns. Provider changes require explicit approval of the exact
+draft content. The pilot stops before publishing, scheduling, sending, or
+importing recipients.
 
 ## First Loop: LaunchLoop
 
@@ -32,7 +37,8 @@ LaunchLoop turns synthetic Eventbrite-style draft event data into a human-review
 - refuses send, publish, pricing, discount, or segment changes without human approval
 - records trace-style evidence for review
 
-The loop is intentionally scoped to event campaign launch. It is not a full nonprofit operating system, production integration, or autonomous marketing tool.
+The initial workflow covers event campaign preparation and review. Membership,
+sponsor, engagement, and reporting loops are on the roadmap.
 
 ## Repository Structure
 
