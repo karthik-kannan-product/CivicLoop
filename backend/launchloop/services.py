@@ -173,7 +173,14 @@ def reset_demo() -> Workflow:
 
 
 def current_workflow() -> Workflow:
-    workflow = Workflow.objects.select_related("event", "revision", "revision__author").first()
+    workflow = (
+        Workflow.objects.select_related("event", "revision", "revision__author")
+        .filter(
+            revision__author__slug__in=("maya", "jordan"),
+            revision__source_snapshot__isnull=True,
+        )
+        .first()
+    )
     if workflow is None:
         workflow = reset_demo()
     return workflow

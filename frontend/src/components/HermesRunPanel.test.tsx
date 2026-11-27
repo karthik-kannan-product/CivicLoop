@@ -61,6 +61,18 @@ test("loads final pending intents before terminal status aborts the poll", async
   expect(getHermesRun).toHaveBeenCalledTimes(1);
 });
 
+test("restores saved review on mount without starting a new run", async () => {
+  vi.mocked(getHermesRun).mockResolvedValue({
+    ...status, status: "succeeded", proposal_count: 1, pending_operation_count: 1,
+  });
+  vi.mocked(getPendingOperations).mockResolvedValue([operation]);
+  render(<HermesRunPanel {...props} resumeRunId={runId} />);
+  await flush();
+  expect(screen.getByText("Hermes status: succeeded")).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Pending Eventbrite draft" })).toBeInTheDocument();
+  expect(startHermesRun).not.toHaveBeenCalled();
+});
+
 test("retries an uncertain start with the same idempotency key", async () => {
   vi.mocked(startHermesRun).mockRejectedValueOnce(new Error("secret transport detail"));
   render(<HermesRunPanel {...props} />);

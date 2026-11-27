@@ -77,6 +77,7 @@ export type CampaignPackage = PackageContents & ({
 
 export type DemoState = {
   deployment_mode?: "server" | "browser_local";
+  hermes_run_id?: string;
   actors: Actor[];
   event: {
     id: string;

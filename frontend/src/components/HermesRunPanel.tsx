@@ -6,6 +6,7 @@ import { PendingOperationsPanel } from "./PendingOperationsPanel";
 type Props = {
   workflowId: string;
   revisionId: number;
+  resumeRunId?: string;
   authorized: boolean;
   enabled: boolean;
   ready: boolean;
@@ -24,7 +25,7 @@ function terminal(status?: string) {
   return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
-export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, ready }: Props) {
+export function HermesRunPanel({ workflowId, revisionId, resumeRunId, authorized, enabled, ready }: Props) {
   const titleId = useId();
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<HermesRunStatus | null>(null);
@@ -43,7 +44,7 @@ export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, re
     generation.current += 1;
     intentKey.current = null;
     latestStatus.current = null;
-    setRunId(null);
+    setRunId(authorized ? (resumeRunId ?? null) : null);
     setStatus(null);
     setOperations([]);
     setStarting(false);
@@ -54,10 +55,10 @@ export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, re
       for (const controller of actions.current) controller.abort();
       actions.current.clear();
     };
-  }, [workflowId, revisionId, authorized, enabled, ready]);
+  }, [workflowId, revisionId, resumeRunId, authorized, enabled, ready]);
 
   useEffect(() => {
-    if (!runId || !available || finished) return;
+    if (!runId || !authorized || finished) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
@@ -107,7 +108,7 @@ export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, re
       clearTimeout(deadline);
       if (timer) clearTimeout(timer);
     };
-  }, [runId, available, finished]);
+  }, [runId, authorized, finished]);
 
   async function start() {
     if (!available || starting || (runId && !finished)) return;
@@ -182,12 +183,12 @@ export function HermesRunPanel({ workflowId, revisionId, authorized, enabled, re
       {unavailableReason && <p>{unavailableReason}</p>}
       <div role="status" aria-live="polite">
         {runId && <p>Run reference <code>{runId}</code></p>}
-        {runId && <p>Hermes status: {status?.status ?? "queued"}</p>}
+        {runId && <p>Hermes status: {status?.status ?? "loading"}</p>}
         {status && <p>{status.proposal_count} proposals · {status.pending_operation_count} pending operations</p>}
         {failureMessage && <p>{failureMessage}</p>}
         {message && <p>{message}</p>}
       </div>
-      {runId && !finished && available && <button type="button" onClick={() => { void cancel(); }} disabled={cancelling || status?.cancel_requested}>
+        {runId && !finished && available && <button type="button" onClick={() => { void cancel(); }} disabled={!status || cancelling || status.cancel_requested}>
         {cancelling || status?.cancel_requested ? "Cancellation requested" : "Cancel Hermes run"}
       </button>}
       {runId && <PendingOperationsPanel operations={operations} runId={runId} revisionId={revisionId} ownerReview={available && status?.status === "succeeded"} />}

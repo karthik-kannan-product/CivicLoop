@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 const BOOKING_URL =
   "https://calendar.proton.me/bookings#KkKDMGq1h4GQZfzYq7jvGNFicfShuijjIRF3Wtg8ods=";
 const GITHUB_URL = "https://github.com/karthik-kannan-product/CivicLoop";
+const BROWSER_DEMO_URL = "https://karthik-kannan-product.github.io/CivicLoop/";
 const ARCHITECTURE_URL = `${GITHUB_URL}/blob/main/docs/2026-07-30-civicloop-v1-architecture-design.md`;
 
 const roadmap = [
@@ -12,9 +13,9 @@ const roadmap = [
     body: "Start from an idea or bounded Eventbrite import, resolve missing facts, prepare campaign assets, and require an independent decision on the exact package.",
   },
   {
-    status: "In development",
+    status: "Owner pilot",
     title: "Self-hosted Hermes-assisted drafts",
-    body: "Add bounded, private agent assistance without giving the model provider credentials or authority to publish or send.",
+    body: "Hermes prepares a proposal for owner review. The live pilot verified an unpublished Eventbrite draft and unscheduled Iterable email campaigns after explicit approval.",
   },
   {
     status: "Planned",
@@ -80,9 +81,8 @@ export function PublicHome() {
           <p className="eyebrow">Open-source operations infrastructure for nonprofits</p>
           <h1 id="public-title">Human-approved AI workflows for work that matters.</h1>
           <p className="public-hero__lede">
-            CivicLoop turns fragmented event operations into clear, reviewable
-            workflows—grounded in policy, visible in audit trails, and kept under
-            human control.
+            Prepare nonprofit event campaigns with LaunchLoop. Review the exact
+            package, approve drafts, and see what happened in the audit trail.
           </p>
           <div className="public-actions">
             <ExternalLink
@@ -93,9 +93,9 @@ export function PublicHome() {
             </ExternalLink>
             <a
               className="button public-cta public-cta--secondary"
-              href="/sandbox"
+              href={BROWSER_DEMO_URL}
             >
-              Explore the sandbox
+              Try the browser demo
             </a>
           </div>
           <ExternalLink href={GITHUB_URL}>Follow the development on GitHub</ExternalLink>
@@ -107,7 +107,7 @@ export function PublicHome() {
           <ol className="public-grid public-steps">
             <li>
               <strong>Start with grounded context.</strong>
-              <span>Begin from an idea or a bounded Eventbrite import.</span>
+              <span>Try a sample event in the sandbox or import an Eventbrite draft in the owner pilot.</span>
             </li>
             <li>
               <strong>Resolve and prepare.</strong>
@@ -116,14 +116,13 @@ export function PublicHome() {
             <li>
               <strong>Approve with evidence.</strong>
               <span>
-                Let a distinct human review the exact package and durable audit trail.
+                Review the exact package and its audit trail before approving a draft.
               </span>
             </li>
           </ol>
           <p className="public-safety-note">
-            Evaluation stays synthetic-only. Publishing, sending, scheduling,
-            ticket-economics changes, segment creation, and constituent export
-            remain prohibited.
+            Sandbox evaluation uses synthetic data. The owner pilot stops at draft
+            creation. Publishing, sending, scheduling, and recipient imports are outside the pilot.
           </p>
         </section>
 

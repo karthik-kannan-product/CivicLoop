@@ -11,7 +11,7 @@ from evaluations.judge import run_fixed_judge
 from launchloop.models import Workflow
 from launchloop.owner_events import validate_facts
 from launchloop.pilot import owner_operator, start_manual_event, update_event_facts
-from launchloop.services import run_workflow
+from launchloop.services import reset_demo, run_workflow
 
 from tests.agents.test_budgets import create_policy, create_profile
 from tests.agents.test_hermes_tasks import FakeClient, install
@@ -107,6 +107,30 @@ def test_owner_manual_http_full_facts_to_minimized_queue(owner_lane):
     )
     assert run.hermes_binding.owner_session_id == owner_lane[1].pk
     assert "synthetic" not in run.event_revision.snapshot
+
+
+def test_demo_restores_owner_run_without_session_selection(owner_lane):
+    from tests.api_contracts.test_openapi_parity import validate
+
+    client, _, _ = owner_lane
+    workflow = ready(owner_lane)
+    run = queue(owner_lane, workflow)
+
+    assert "launchloop_workflow_id" not in client.session
+    response = client.get("/api/v1/demo")
+    assert response.status_code == 200
+    assert response["Cache-Control"] == "no-store"
+    state = response.json()
+    validate(state, "launchloop/demo-state.schema.json")
+    assert state["workflow"]["id"] == str(workflow.pk)
+    assert state["hermes_run_id"] == str(run.pk)
+
+    synthetic = reset_demo()
+    sandbox = Client()
+    sandbox.force_login(synthetic.revision.author.user)
+    state = sandbox.get("/api/v1/demo").json()
+    assert state["workflow"]["id"] == str(synthetic.pk)
+    assert "hermes_run_id" not in state
 
 
 def test_owner_facts_http_and_missing_workflow(owner_lane):

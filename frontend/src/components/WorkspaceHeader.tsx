@@ -63,6 +63,11 @@ export function WorkspaceHeader({
           </>
         ) : (
           <>
+            {deploymentMode === "browser_local" && (
+              <a className="button button--quiet" href="https://civicloop.karthikkannan.ca/">
+                CivicLoop product and live pilot
+              </a>
+            )}
             <label className="persona">
               <span>Demo persona</span>
               <select

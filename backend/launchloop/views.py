@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET, require_POST
 from evaluations.judge import run_fixed_judge
 from identity.services.authentication import logout_administrator
 
-from .models import DemoActor
+from .models import DemoActor, Workflow
 from .pilot import (
     list_eventbrite_events,
     owner_operator,
@@ -165,12 +165,35 @@ def auth_logout(request: HttpRequest) -> JsonResponse:
 @require_GET
 def demo_state(request: HttpRequest) -> JsonResponse:
     def operation() -> dict[str, Any]:
-        _actor(request)
-        workflow_id = request.session.get("launchloop_workflow_id")
-        workflow = workflow_for(UUID(workflow_id)) if workflow_id else current_workflow()
-        return serialize_demo(workflow)
+        actor = _actor(request)
+        administrator = getattr(request, "administrator_session", None)
+        if administrator is None or administrator.recovery_restricted:
+            return serialize_demo()
 
-    return _respond(request, operation)
+        owned = Workflow.objects.filter(revision__author=actor)
+        selected_id = request.session.get("launchloop_workflow_id")
+        selected = owned.filter(pk=selected_id).first() if selected_id else None
+        workflow = selected or owned.order_by("-updated_at", "-pk").first() or current_workflow()
+        state = serialize_demo(workflow)
+        run_id = (
+            workflow.agent_runs.filter(
+                hermes_lane=True,
+                event_revision_id=state["event"]["revision"]["id"],
+                package_hash=state["workflow"]["package_hash"] or "",
+                hermes_binding__actor=actor,
+                hermes_binding__owner_session__profile_id=administrator.profile_id,
+            )
+            .order_by("-created_at", "-pk")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if run_id is not None:
+            state["hermes_run_id"] = str(run_id)
+        return state
+
+    response = _respond(request, operation)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _administrator(request: HttpRequest):
